@@ -5,9 +5,12 @@
   "scripts": {
     "dev": "nest start --watch",
     "build": "nest build",
+    "test": "nest build && node --test dist/src/public/public.service.spec.js",
     "start": "node dist/main.js",
     "prisma:generate": "prisma generate",
-    "prisma:validate": "prisma validate"
+    "prisma:validate": "prisma validate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "prisma db seed"
   },
   "dependencies": {
     "@nestjs/common": "11.2.3",
@@ -29,6 +32,7 @@
     "@types/node": "22.19.19",
     "@types/pg": "8.15.6",
     "prisma": "7.10.0",
+    "tsx": "4.20.6",
     "typescript": "5.9.3"
   }
 }
