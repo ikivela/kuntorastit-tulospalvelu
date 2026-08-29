@@ -1,0 +1,307 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum EventStatus {
+  DRAFT
+  OPEN
+  FINISHED
+  PUBLISHED
+}
+
+enum PunchingSystem {
+  EMIT
+  SPORT_IDENT
+}
+
+enum RegistrationStatus {
+  ACTIVE
+  CANCELLED
+}
+
+enum PerformanceSource {
+  ONSITE
+  SELF_SERVICE
+  MANUAL
+}
+
+enum PerformanceStatus {
+  PENDING
+  ACCEPTED
+  DISQUALIFIED
+  NO_TIME
+  DID_NOT_FINISH
+}
+
+enum CardReadStatus {
+  NEW
+  PROCESSED
+  NEEDS_REVIEW
+}
+
+enum PunchStatus {
+  VALID
+  EXTRA
+  MISSING
+}
+
+enum ControlType {
+  START
+  NORMAL
+  FINISH
+}
+
+model EventSeries {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  seasons     Season[]
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  @@map("event_series")
+}
+
+model Season {
+  id            String            @id @default(uuid()) @db.Uuid
+  eventSeriesId String            @db.Uuid @map("event_series_id")
+  eventSeries   EventSeries       @relation(fields: [eventSeriesId], references: [id], onDelete: Cascade)
+  name          String
+  year          Int
+  startsAt      DateTime          @db.Date @map("starts_at")
+  endsAt        DateTime          @db.Date @map("ends_at")
+  events        Event[]
+  rewards       RewardThreshold[]
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+  @@unique([eventSeriesId, year])
+  @@map("season")
+}
+
+model Event {
+  id               String         @id @default(uuid()) @db.Uuid
+  seasonId         String         @db.Uuid @map("season_id")
+  season           Season         @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  name             String
+  locationName     String?        @map("location_name")
+  address          String?
+  latitude         Decimal?       @db.Decimal(9, 6)
+  longitude        Decimal?       @db.Decimal(9, 6)
+  startsAt         DateTime       @map("starts_at")
+  endsAt           DateTime       @map("ends_at")
+  status           EventStatus    @default(DRAFT)
+  registrationOpen Boolean        @default(false) @map("registration_open")
+  version          Int            @default(1)
+  courses          Course[]
+  controls         Control[]
+  registrations    Registration[]
+  attendances      Attendance[]
+  cardReads        CardRead[]
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  @@index([seasonId, startsAt])
+  @@map("event")
+}
+
+model Course {
+  id            String          @id @default(uuid()) @db.Uuid
+  eventId       String          @db.Uuid @map("event_id")
+  event         Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name          String
+  lengthMeters  Int             @map("length_meters")
+  climbMeters   Int?            @map("climb_meters")
+  sortOrder     Int             @default(0) @map("sort_order")
+  controls      CourseControl[]
+  registrations Registration[]
+  performances  Performance[]
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+  @@unique([eventId, name])
+  @@map("course")
+}
+
+model Control {
+  id       String          @id @default(uuid()) @db.Uuid
+  eventId  String          @db.Uuid @map("event_id")
+  event    Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  code     String
+  type     ControlType     @default(NORMAL)
+  courses  CourseControl[]
+  @@unique([eventId, code])
+  @@map("control")
+}
+
+model CourseControl {
+  id             String  @id @default(uuid()) @db.Uuid
+  courseId       String  @db.Uuid @map("course_id")
+  course         Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  controlId      String  @db.Uuid @map("control_id")
+  control        Control @relation(fields: [controlId], references: [id], onDelete: Restrict)
+  sequenceNumber Int     @map("sequence_number")
+  @@unique([courseId, sequenceNumber])
+  @@map("course_control")
+}
+
+model Club {
+  id        String      @id @default(uuid()) @db.Uuid
+  name      String      @unique
+  shortName String?     @map("short_name")
+  aliases   ClubAlias[]
+  persons   Person[]
+  createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt @map("updated_at")
+  @@map("club")
+}
+
+model ClubAlias {
+  id     String @id @default(uuid()) @db.Uuid
+  clubId String @db.Uuid @map("club_id")
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  alias  String @unique
+  @@map("club_alias")
+}
+
+model Person {
+  id          String            @id @default(uuid()) @db.Uuid
+  firstName   String            @map("first_name")
+  lastName    String            @map("last_name")
+  clubId      String?           @db.Uuid @map("club_id")
+  club        Club?             @relation(fields: [clubId], references: [id], onDelete: SetNull)
+  version     Int               @default(1)
+  cards       PersonPunchCard[]
+  registrations Registration[]
+  attendances Attendance[]
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+  @@index([lastName, firstName])
+  @@map("person")
+}
+
+model PunchCard {
+  id          String            @id @default(uuid()) @db.Uuid
+  system      PunchingSystem
+  cardNumber  String            @map("card_number")
+  assignments PersonPunchCard[]
+  registrations Registration[]
+  performances Performance[]
+  reads       CardRead[]
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+  @@unique([system, cardNumber])
+  @@map("punch_card")
+}
+
+model PersonPunchCard {
+  id          String    @id @default(uuid()) @db.Uuid
+  personId    String    @db.Uuid @map("person_id")
+  person      Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+  punchCardId String    @db.Uuid @map("punch_card_id")
+  punchCard   PunchCard @relation(fields: [punchCardId], references: [id], onDelete: Cascade)
+  validFrom   DateTime  @default(now()) @map("valid_from")
+  validUntil  DateTime? @map("valid_until")
+  @@index([punchCardId, validUntil])
+  @@map("person_punch_card")
+}
+
+model Registration {
+  id          String             @id @default(uuid()) @db.Uuid
+  eventId     String             @db.Uuid @map("event_id")
+  event       Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  personId    String             @db.Uuid @map("person_id")
+  person      Person             @relation(fields: [personId], references: [id], onDelete: Cascade)
+  courseId    String?            @db.Uuid @map("course_id")
+  course      Course?            @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  punchCardId String?            @db.Uuid @map("punch_card_id")
+  punchCard   PunchCard?         @relation(fields: [punchCardId], references: [id], onDelete: SetNull)
+  status      RegistrationStatus @default(ACTIVE)
+  registeredAt DateTime          @default(now()) @map("registered_at")
+  @@unique([eventId, personId])
+  @@map("registration")
+}
+
+model Attendance {
+  id         String        @id @default(uuid()) @db.Uuid
+  eventId    String        @db.Uuid @map("event_id")
+  event      Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  personId   String        @db.Uuid @map("person_id")
+  person     Person        @relation(fields: [personId], references: [id], onDelete: Cascade)
+  isOfficial Boolean       @default(false) @map("is_official")
+  recordedAt DateTime      @default(now()) @map("recorded_at")
+  version    Int           @default(1)
+  performances Performance[]
+  createdAt  DateTime      @default(now()) @map("created_at")
+  updatedAt  DateTime      @updatedAt @map("updated_at")
+  @@unique([eventId, personId])
+  @@map("attendance")
+}
+
+model Performance {
+  id                     String            @id @default(uuid()) @db.Uuid
+  attendanceId           String            @db.Uuid @map("attendance_id")
+  attendance             Attendance        @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+  courseId               String            @db.Uuid @map("course_id")
+  course                 Course            @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  punchCardId            String?           @db.Uuid @map("punch_card_id")
+  punchCard              PunchCard?        @relation(fields: [punchCardId], references: [id], onDelete: SetNull)
+  source                 PerformanceSource @default(ONSITE)
+  status                 PerformanceStatus @default(PENDING)
+  startedAt              DateTime?         @map("started_at")
+  finishedAt             DateTime?         @map("finished_at")
+  durationMs             BigInt?           @map("duration_ms")
+  readAt                 DateTime?         @map("read_at")
+  disqualificationReason String?           @map("disqualification_reason")
+  version                Int               @default(1)
+  punches                Punch[]
+  cardReads              CardRead[]
+  createdAt              DateTime          @default(now()) @map("created_at")
+  updatedAt              DateTime          @updatedAt @map("updated_at")
+  @@index([attendanceId])
+  @@map("performance")
+}
+
+model CardRead {
+  id               String         @id @default(uuid()) @db.Uuid
+  eventId          String         @db.Uuid @map("event_id")
+  event            Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  punchCardId      String         @db.Uuid @map("punch_card_id")
+  punchCard        PunchCard      @relation(fields: [punchCardId], references: [id], onDelete: Restrict)
+  readerType       String         @map("reader_type")
+  readerSerial     String?        @map("reader_serial")
+  readAt           DateTime       @map("read_at")
+  rawData          Json           @map("raw_data")
+  processingStatus CardReadStatus @default(NEW) @map("processing_status")
+  performanceId    String?        @db.Uuid @map("performance_id")
+  performance      Performance?   @relation(fields: [performanceId], references: [id], onDelete: SetNull)
+  createdAt        DateTime       @default(now()) @map("created_at")
+  @@index([eventId, readAt])
+  @@map("card_read")
+}
+
+model Punch {
+  id             String      @id @default(uuid()) @db.Uuid
+  performanceId  String      @db.Uuid @map("performance_id")
+  performance    Performance @relation(fields: [performanceId], references: [id], onDelete: Cascade)
+  controlCode    String      @map("control_code")
+  punchedAt      DateTime?   @map("punched_at")
+  elapsedMs      BigInt?     @map("elapsed_ms")
+  sequenceNumber Int         @map("sequence_number")
+  status         PunchStatus @default(VALID)
+  @@unique([performanceId, sequenceNumber])
+  @@map("punch")
+}
+
+model RewardThreshold {
+  id                  String @id @default(uuid()) @db.Uuid
+  seasonId            String @db.Uuid @map("season_id")
+  season              Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  name                String
+  requiredAttendances Int    @map("required_attendances")
+  rewardDescription   String? @map("reward_description")
+  sortOrder           Int    @default(0) @map("sort_order")
+  @@unique([seasonId, requiredAttendances])
+  @@map("reward_threshold")
+}
