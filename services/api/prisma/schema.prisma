@@ -54,6 +54,22 @@ enum ControlType {
   START
   NORMAL
   FINISH
+  CROSSING_POINT
+  END_OF_MARKED_ROUTE
+}
+
+enum AdminRole {
+  ADMIN
+}
+
+model AdminUser {
+  id           String    @id @default(uuid()) @db.Uuid
+  username     String    @unique
+  passwordHash String    @map("password_hash")
+  role         AdminRole @default(ADMIN)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  @@map("admin_user")
 }
 
 model EventSeries {
@@ -112,8 +128,12 @@ model Course {
   eventId       String          @db.Uuid @map("event_id")
   event         Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
   name          String
+  iofId         String?         @map("iof_id")
+  courseFamily  String?         @map("course_family")
   lengthMeters  Int             @map("length_meters")
   climbMeters   Int?            @map("climb_meters")
+  mapId         Int?            @map("map_id")
+  assignedCompetitors Int?      @map("assigned_competitors")
   sortOrder     Int             @default(0) @map("sort_order")
   controls      CourseControl[]
   registrations Registration[]
@@ -125,12 +145,20 @@ model Course {
 }
 
 model Control {
-  id       String          @id @default(uuid()) @db.Uuid
-  eventId  String          @db.Uuid @map("event_id")
-  event    Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  code     String
-  type     ControlType     @default(NORMAL)
-  courses  CourseControl[]
+  id               String          @id @default(uuid()) @db.Uuid
+  eventId          String          @db.Uuid @map("event_id")
+  event             Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  code              String
+  type              ControlType     @default(NORMAL)
+  name              String?
+  punchingUnitIds   String[]        @default([]) @map("punching_unit_ids")
+  latitude          Float?
+  longitude         Float?
+  altitudeMeters    Float?          @map("altitude_meters")
+  mapX              Float?          @map("map_x")
+  mapY              Float?          @map("map_y")
+  mapUnit            String?         @map("map_unit")
+  courses           CourseControl[]
   @@unique([eventId, code])
   @@map("control")
 }
@@ -142,6 +170,17 @@ model CourseControl {
   controlId      String  @db.Uuid @map("control_id")
   control        Control @relation(fields: [controlId], references: [id], onDelete: Restrict)
   sequenceNumber Int     @map("sequence_number")
+  type           ControlType @default(NORMAL)
+  controlCodes   String[] @default([]) @map("control_codes")
+  mapText        String? @map("map_text")
+  mapTextX       Float? @map("map_text_x")
+  mapTextY       Float? @map("map_text_y")
+  mapTextUnit    String? @map("map_text_unit")
+  legLengthMeters Float? @map("leg_length_meters")
+  score          Float?
+  randomOrder    Boolean @default(false) @map("random_order")
+  specialInstruction String? @map("special_instruction")
+  tapedRouteLengthMeters Float? @map("taped_route_length_meters")
   @@unique([courseId, sequenceNumber])
   @@map("course_control")
 }

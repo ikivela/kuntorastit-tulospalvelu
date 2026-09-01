@@ -22,8 +22,8 @@ export default function Home() {
           <span className="grid size-10 place-items-center rounded-xl bg-primary text-white"><Navigation className="size-5 rotate-45" /></span>
           <span><b className="block tracking-tight">Maanantairastit</b><small className="block text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">Kokkolan Suunnistajat</small></span>
         </a>
-        <nav className="hidden gap-7 text-sm font-bold md:flex"><a className="text-primary" href="#kalenteri">Kalenteri</a><a className="text-muted-foreground" href="#tulokset">Tulokset</a><a className="text-muted-foreground" href="#kausi">Kausiseuranta</a></nav>
-        <Button variant="outline" className="rounded-full px-5">Ylläpito</Button>
+        <nav className="hidden gap-7 text-sm font-bold md:flex"><a className="text-primary" href="/kalenteri">Kalenteri</a><a className="text-muted-foreground" href="#tulokset">Tulokset</a><a className="text-muted-foreground" href="#kausi">Kausiseuranta</a></nav>
+        <Button asChild variant="outline" className="rounded-full px-5"><a href="/admin">Ylläpito</a></Button>
       </div>
     </header>
 
@@ -50,7 +50,7 @@ export default function Home() {
           </article>
         </section>
 
-        <section><div className="mb-5 flex items-center justify-between"><div><p className="eyebrow">Kalenteri</p><h2 className="mt-1 text-2xl font-extrabold">Seuraavaksi</h2></div><Button variant="ghost" className="rounded-full text-primary">Koko kausi <ArrowRight className="ml-1 size-4"/></Button></div><div className="grid gap-4 sm:grid-cols-2">{upcoming.map(([date,place,address])=><article key={place} className="rounded-2xl border bg-card p-5 transition hover:-translate-y-0.5 hover:shadow-md"><div className="flex items-start justify-between"><span className="rounded-xl bg-secondary px-3 py-2 text-sm font-extrabold text-primary">{date}</span><ArrowRight className="mt-2 size-4 text-muted-foreground"/></div><h3 className="mt-5 text-lg font-extrabold">{place}</h3><p className="mt-1 text-sm text-muted-foreground">{address}</p><p className="mt-4 flex items-center gap-2 text-sm font-semibold"><Clock3 className="size-4 text-primary"/>Klo 17–19</p></article>)}</div></section>
+        <section><div className="mb-5 flex items-center justify-between"><div><p className="eyebrow">Kalenteri</p><h2 className="mt-1 text-2xl font-extrabold">Seuraavaksi</h2></div><Button asChild variant="ghost" className="rounded-full text-primary"><a href="/kalenteri">Koko kausi <ArrowRight className="ml-1 size-4"/></a></Button></div><div className="grid gap-4 sm:grid-cols-2">{upcoming.map(([date,place,address])=><article key={place} className="rounded-2xl border bg-card p-5 transition hover:-translate-y-0.5 hover:shadow-md"><div className="flex items-start justify-between"><span className="rounded-xl bg-secondary px-3 py-2 text-sm font-extrabold text-primary">{date}</span><ArrowRight className="mt-2 size-4 text-muted-foreground"/></div><h3 className="mt-5 text-lg font-extrabold">{place}</h3><p className="mt-1 text-sm text-muted-foreground">{address}</p><p className="mt-4 flex items-center gap-2 text-sm font-semibold"><Clock3 className="size-4 text-primary"/>Klo 17–19</p></article>)}</div></section>
       </div>
 
       <aside className="space-y-6" id="kausi">
