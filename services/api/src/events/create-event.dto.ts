@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsBoolean, IsDateString, IsOptional, IsString, IsUUID } from "class-validator";
+import { IsBoolean, IsDateString, IsEnum, IsOptional, IsString, IsUUID } from "class-validator";
+import { EventStatus } from "../generated/prisma/enums.js";
 
 export class CreateEventDto {
   @ApiProperty({ format: "uuid" }) @IsUUID() seasonId!: string;
@@ -9,4 +10,5 @@ export class CreateEventDto {
   @ApiProperty({ format: "date-time" }) @IsDateString() startsAt!: string;
   @ApiProperty({ format: "date-time" }) @IsDateString() endsAt!: string;
   @ApiPropertyOptional({ default: false }) @IsOptional() @IsBoolean() registrationOpen?: boolean;
+  @ApiPropertyOptional({ enum: EventStatus, default: EventStatus.DRAFT }) @IsOptional() @IsEnum(EventStatus) status?: EventStatus;
 }

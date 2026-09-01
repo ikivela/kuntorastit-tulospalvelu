@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { randomBytes, scryptSync } from "node:crypto";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client.js";
 
@@ -7,12 +8,30 @@ const connectionString = process.env.DATABASE_URL ??
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
 
 const ids = {
+  admin: "00000000-0000-4000-8000-000000000000",
   series: "00000000-0000-4000-8000-000000000001",
   season: "00000000-0000-4000-8000-000000000002",
   event: "00000000-0000-4000-8000-000000000003",
 };
 
+function hashPassword(password: string) {
+  const salt = randomBytes(16).toString("hex");
+  const hash = scryptSync(password, salt, 64).toString("hex");
+  return `scrypt:${salt}:${hash}`;
+}
+
 async function main() {
+  await prisma.adminUser.upsert({
+    where: { username: "admin" },
+    update: {},
+    create: {
+      id: ids.admin,
+      username: "admin",
+      passwordHash: hashPassword("mara2026"),
+      role: "ADMIN",
+    },
+  });
+
   await prisma.eventSeries.upsert({
     where: { id: ids.series },
     update: { name: "Kokkolan Maanantairastit" },

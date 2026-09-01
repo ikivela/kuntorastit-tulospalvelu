@@ -3,6 +3,7 @@ import { EventsModule } from "./events/events.module.js";
 import { HealthController } from "./health.controller.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
 import { PublicModule } from "./public/public.module.js";
+import { AuthModule } from "./auth/auth.module.js";
 
-@Module({ imports: [PrismaModule, EventsModule, PublicModule], controllers: [HealthController] })
+@Module({ imports: [PrismaModule, AuthModule, EventsModule, PublicModule], controllers: [HealthController] })
 export class AppModule {}

@@ -1,0 +1,31 @@
+ALTER TYPE "ControlType" ADD VALUE IF NOT EXISTS 'CROSSING_POINT';
+ALTER TYPE "ControlType" ADD VALUE IF NOT EXISTS 'END_OF_MARKED_ROUTE';
+
+ALTER TABLE "course"
+  ADD COLUMN "iof_id" TEXT,
+  ADD COLUMN "course_family" TEXT,
+  ADD COLUMN "map_id" INTEGER,
+  ADD COLUMN "assigned_competitors" INTEGER;
+
+ALTER TABLE "control"
+  ADD COLUMN "name" TEXT,
+  ADD COLUMN "punching_unit_ids" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  ADD COLUMN "latitude" DOUBLE PRECISION,
+  ADD COLUMN "longitude" DOUBLE PRECISION,
+  ADD COLUMN "altitude_meters" DOUBLE PRECISION,
+  ADD COLUMN "map_x" DOUBLE PRECISION,
+  ADD COLUMN "map_y" DOUBLE PRECISION,
+  ADD COLUMN "map_unit" TEXT;
+
+ALTER TABLE "course_control"
+  ADD COLUMN "type" "ControlType" NOT NULL DEFAULT 'NORMAL',
+  ADD COLUMN "control_codes" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  ADD COLUMN "map_text" TEXT,
+  ADD COLUMN "map_text_x" DOUBLE PRECISION,
+  ADD COLUMN "map_text_y" DOUBLE PRECISION,
+  ADD COLUMN "map_text_unit" TEXT,
+  ADD COLUMN "leg_length_meters" DOUBLE PRECISION,
+  ADD COLUMN "score" DOUBLE PRECISION,
+  ADD COLUMN "random_order" BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN "special_instruction" TEXT,
+  ADD COLUMN "taped_route_length_meters" DOUBLE PRECISION;
