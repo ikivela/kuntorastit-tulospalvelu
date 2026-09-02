@@ -3,10 +3,12 @@ body { margin: 0; }
 main { max-width: 850px; margin: 0 auto; padding: 32px; }
 h1 { margin-bottom: 4px; }
 .lead { margin-top: 0; color: #5b6578; }
+.build-version { margin-top: 6px; color: #7a8494; font-size: 0.8rem; }
 section { background: white; border: 1px solid #dfe3e8; border-radius: 12px; padding: 20px; margin-top: 20px; }
 .toolbar { display: flex; gap: 10px; flex-wrap: wrap; }
-select, button { font: inherit; padding: 9px 12px; border: 1px solid #bdc5d0; border-radius: 7px; background: white; }
+select, input, button { font: inherit; padding: 9px 12px; border: 1px solid #bdc5d0; border-radius: 7px; background: white; }
 select { flex: 1; min-width: 260px; }
+.port-input { flex: 1; min-width: 260px; }
 button { cursor: pointer; }
 button.primary { background: #172033; color: white; border-color: #172033; }
 button:disabled { opacity: .5; cursor: default; }

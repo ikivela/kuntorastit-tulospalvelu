@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "tauri": "tauri"
   },
   "dependencies": {

@@ -3,15 +3,16 @@ name = "maanantairastit-reader-poc"
 version = "0.1.0"
 description = "EMIT 250 reader proof of concept"
 edition = "2021"
+rust-version = "1.88"
 
 [lib]
 name = "maanantairastit_reader_poc_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
-serde = { version = "1", features = ["derive"] }
-serialport = "4"
+tauri = { version = "2.11.5", features = [] }
+serde = { version = "1.0.229", features = ["derive"] }
+serialport = "4.10.0"
