@@ -165,16 +165,13 @@ fn read_emit250_loop(
     while listening.load(Ordering::SeqCst) {
         let available = port.bytes_to_read().unwrap_or(0);
         if available > 0 {
-            eprintln!("EMIT {port_name}: {available} tavua odottaa");
             match port.read(&mut buffer) {
                 Ok(count) => {
-                    eprintln!("EMIT {port_name}: luettu {count} tavua");
                     bytes_received += count;
                     raw.extend_from_slice(&buffer[..count]);
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::TimedOut => {}
                 Err(error) => {
-                    eprintln!("EMIT {port_name}: lukuvirhe: {error}");
                     return Err(format!("Read failed on {port_name}: {error}"));
                 }
             }
@@ -189,7 +186,6 @@ fn read_emit250_loop(
             },
         );
         if let Some(frame) = find_emit250_frame(&raw) {
-            eprintln!("EMIT {port_name}: kelvollinen 217 tavun kehys löytyi");
             let result = Emit250Read {
                 port_name: port_name.to_owned(),
                 bytes_received,
@@ -215,17 +211,6 @@ fn read_emit250_loop(
         }
         if raw.len() > EMIT_250_FRAME_LENGTH * 4 {
             raw.drain(..EMIT_250_FRAME_LENGTH);
-        }
-        if raw.len() >= EMIT_250_FRAME_LENGTH {
-            let probe: Vec<u8> = raw[..EMIT_250_FRAME_LENGTH]
-                .iter()
-                .map(|byte| byte ^ EMIT_OD)
-                .collect();
-            let checksum: u16 = probe.iter().map(|byte| u16::from(*byte)).sum();
-            eprintln!(
-                "EMIT {port_name}: parser-debug len={} header={:02X}{:02X} checksum_mod256={}",
-                raw.len(), probe[0], probe[1], checksum % 256
-            );
         }
     }
     Ok(())
