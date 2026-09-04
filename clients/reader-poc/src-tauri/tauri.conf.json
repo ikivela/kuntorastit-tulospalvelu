@@ -12,13 +12,13 @@
   "app": {
     "windows": [
       {
-        "title": "Maanantairastit - EMIT 250 PoC",
+        "title": "Maanantairastit - client",
         "width": 900,
         "height": 650
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost http://localhost:3001; img-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {

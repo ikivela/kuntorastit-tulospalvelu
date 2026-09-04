@@ -1,3 +1,6 @@
+mod database;
+
+use database::{ApiRegistration, Database, Participant, StoredCardRead};
 use serde::Serialize;
 use serialport::{DataBits, Parity, SerialPort, SerialPortType, StopBits};
 use std::io::Read;
@@ -6,7 +9,7 @@ use std::sync::{
     Arc, Mutex,
 };
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, State};
 
 const EMIT_250_BAUD_RATE: u32 = 9_600;
 const EMIT_250_FRAME_LENGTH: usize = 217;
@@ -208,6 +211,7 @@ fn read_emit250_loop(
             app.emit("emit250://read", result)
                 .map_err(|error| format!("Could not publish EMIT read: {error}"))?;
             raw.clear();
+            listening.store(false, Ordering::SeqCst);
         }
         if raw.len() > EMIT_250_FRAME_LENGTH * 4 {
             raw.drain(..EMIT_250_FRAME_LENGTH);
@@ -302,9 +306,143 @@ fn parse_punches(frame: &[u8]) -> Vec<Emit250Punch> {
         .collect()
 }
 
+#[tauri::command]
+fn recent_card_reads(database: State<'_, Database>, event_id: String, limit: Option<usize>) -> Result<Vec<StoredCardRead>, String> {
+    database.recent_reads(&event_id, limit.unwrap_or(20))
+}
+
+#[tauri::command]
+fn database_path(database: State<'_, Database>) -> String {
+    database.path().display().to_string()
+}
+
+#[tauri::command]
+fn reader_port_setting(database: State<'_, Database>) -> Result<Option<String>, String> {
+    database.setting("reader.port")
+}
+
+#[tauri::command]
+fn set_reader_port_setting(database: State<'_, Database>, port_name: String) -> Result<(), String> {
+    if port_name.trim().is_empty() {
+        return Err("Sarjaportin polku ei voi olla tyhjä.".into());
+    }
+    database.set_setting("reader.port", port_name.trim())
+}
+
+#[tauri::command]
+fn setting_value(database: State<'_, Database>, key: String) -> Result<Option<String>, String> {
+    if !matches!(key.as_str(), "reader.installation_id") {
+        return Err("Tuntematon asetusavain.".into());
+    }
+    database.setting(&key)
+}
+
+#[tauri::command]
+fn set_setting_value(database: State<'_, Database>, key: String, value: String) -> Result<(), String> {
+    if !matches!(key.as_str(), "reader.installation_id") || value.trim().is_empty() {
+        return Err("Virheellinen client-asetus.".into());
+    }
+    database.set_setting(&key, value.trim())
+}
+
+#[tauri::command]
+fn participant_by_card(database: State<'_, Database>, card_number: u32) -> Result<Option<Participant>, String> {
+    database.participant_by_card(card_number)
+}
+
+#[tauri::command]
+fn participant_by_card_for_event(database: State<'_, Database>, event_id: String, card_number: u32) -> Result<Option<Participant>, String> {
+    database.participant_by_card_for_event(&event_id, card_number)
+}
+
+#[tauri::command]
+fn sync_event_registrations(database: State<'_, Database>, event_id: String, registrations: Vec<ApiRegistration>) -> Result<usize, String> {
+    database.replace_event_registrations(&event_id, &registrations)
+}
+
+#[tauri::command]
+fn register_participant(
+    database: State<'_, Database>,
+    card_number: u32,
+    first_name: String,
+    last_name: String,
+    club: Option<String>,
+    event_id: Option<String>,
+    course_id: Option<String>,
+) -> Result<Participant, String> {
+    if first_name.trim().is_empty() || last_name.trim().is_empty() {
+        return Err("Etunimi ja sukunimi ovat pakollisia.".into());
+    }
+    let participant = database.create_participant(
+        card_number,
+        &first_name,
+        &last_name,
+        club.as_deref(),
+    )?;
+    if let Some(event_id) = event_id {
+        database.link_participant_to_event(&event_id, participant.id, course_id.as_deref())?;
+    }
+    Ok(participant)
+}
+
+#[tauri::command]
+fn confirm_latest_emit250_read(
+    reader: State<'_, ReaderState>,
+    database: State<'_, Database>,
+    participant_id: i64,
+    event_id: String,
+    course_id: Option<String>,
+    result_status: String,
+) -> Result<i64, String> {
+    let latest = reader
+        .latest_read
+        .lock()
+        .map_err(|_| "Lukutilan lukeminen epäonnistui.".to_string())?
+        .clone()
+        .ok_or_else(|| "Kuitattavaa korttilukua ei löytynyt.".to_string())?;
+    let read_id = database.save_read(&latest, participant_id, &event_id, course_id.as_deref(), &result_status)?;
+    *reader
+        .latest_read
+        .lock()
+        .map_err(|_| "Lukutilan päivittäminen epäonnistui.".to_string())? = None;
+    Ok(read_id)
+}
+
+#[tauri::command]
+fn mark_card_read_sync(database: State<'_, Database>, read_id: i64, synced: bool, error: Option<String>) -> Result<(), String> {
+    database.mark_read_sync(read_id, synced, error.as_deref())
+}
+
+#[tauri::command]
+fn update_card_read_status(
+    database: State<'_, Database>,
+    read_id: i64,
+    result_status: String,
+) -> Result<(), String> {
+    database.update_read_status(read_id, &result_status)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            let database_file = app.path().app_data_dir()?.join("reader.sqlite3");
+            app.manage(Database::open(database_file).map_err(std::io::Error::other)?);
+            if let Some(window) = app.get_webview_window("main") {
+                let monitor = window.current_monitor()?.or(window.primary_monitor()?);
+                if let Some(monitor) = monitor {
+                    let scale = monitor.scale_factor();
+                    let work_area = monitor.work_area().size;
+                    let available_width = f64::from(work_area.width) / scale;
+                    let available_height = f64::from(work_area.height) / scale;
+                    let height = (available_height * 0.85).clamp(600.0, 1_000.0).min(available_height);
+                    let width = (height * 1.35).clamp(850.0, 1_200.0).min(available_width * 0.94);
+                    window.set_size(LogicalSize::new(width, height))?;
+                    window.center()?;
+                }
+            }
+            Ok(())
+        })
         .manage(ReaderState {
             listening: Arc::new(AtomicBool::new(false)),
             latest_read: Arc::new(Mutex::new(None)),
@@ -314,7 +452,20 @@ pub fn run() {
             probe_emit250,
             start_emit250,
             stop_emit250,
-            latest_emit250_read
+            latest_emit250_read,
+            recent_card_reads,
+            database_path,
+            reader_port_setting,
+            set_reader_port_setting,
+            setting_value,
+            set_setting_value,
+            participant_by_card,
+            participant_by_card_for_event,
+            sync_event_registrations,
+            register_participant,
+            confirm_latest_emit250_read,
+            mark_card_read_sync,
+            update_card_read_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running Tauri application");

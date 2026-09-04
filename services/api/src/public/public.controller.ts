@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, ParseIntPipe, ParseUUIDPipe, Post, Query } from "@nestjs/common";
 import { ApiQuery, ApiTags } from "@nestjs/swagger";
 import { CreateRegistrationDto } from "./create-registration.dto.js";
+import { CreateReaderResultDto } from "./create-reader-result.dto.js";
 import { PublicService } from "./public.service.js";
 
 @ApiTags("public")
@@ -20,5 +21,23 @@ export class PublicController {
     @Body() input: CreateRegistrationDto,
   ) {
     return this.publicService.register(eventId, input);
+  }
+
+  @Post("events/:eventId/reader-results")
+  saveReaderResult(
+    @Param("eventId", new ParseUUIDPipe()) eventId: string,
+    @Body() input: CreateReaderResultDto,
+  ) {
+    return this.publicService.saveReaderResult(eventId, input);
+  }
+
+  @Get("events/:eventId/results")
+  results(@Param("eventId", new ParseUUIDPipe()) eventId: string) {
+    return this.publicService.results(eventId);
+  }
+
+  @Get("events/:eventId/reader-registrations")
+  readerRegistrations(@Param("eventId", new ParseUUIDPipe()) eventId: string) {
+    return this.publicService.readerRegistrations(eventId);
   }
 }

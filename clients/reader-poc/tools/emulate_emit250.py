@@ -15,6 +15,28 @@ import time
 
 FRAME_LENGTH = 217
 XOR_MASK = 0xDF
+SCENARIOS = {
+    "a-hyvaksytty": {
+        "card": 123456,
+        "punches": [(31, 95), (32, 79), (33, 89), (31, 88), (34, 93), (35, 88), (31, 89), (100, 85)],
+        "description": "Yliopistokeskus-sprintti / A-rata / hyväksytty",
+    },
+    "a-hylatty": {
+        "card": 654321,
+        "punches": [(31, 102), (32, 86), (99, 93), (31, 89), (34, 96), (35, 92), (31, 93), (100, 91)],
+        "description": "Yliopistokeskus-sprintti / A-rata / hylätty (väärä rasti 99)",
+    },
+    "halkokari-e-hyvaksytty": {
+        "card": 54021,
+        "punches": [(137, 265), (38, 238), (158, 252), (138, 231), (41, 246), (45, 224), (141, 259), (40, 243), (43, 235), (157, 267), (44, 229), (78, 248), (32, 236), (50, 218)],
+        "description": "Halkokari 2026 / E-rata / hyväksytty",
+    },
+    "halkokari-e-hylatty": {
+        "card": 32012,
+        "punches": [(137, 265), (38, 238), (99, 252), (138, 231), (41, 246), (45, 224), (141, 259), (40, 243), (43, 235), (157, 267), (44, 229), (78, 248), (32, 236), (50, 218)],
+        "description": "Halkokari 2026 / E-rata / hylätty (rastin 158 tilalla 99)",
+    },
+}
 
 
 def configure_serial(fd: int) -> None:
@@ -29,7 +51,7 @@ def configure_serial(fd: int) -> None:
     termios.tcflush(fd, termios.TCIOFLUSH)
 
 
-def make_frame(card_number: int, sequence: int) -> bytes:
+def make_frame(card_number: int, punches: list[tuple[int, int]]) -> bytes:
     if not 0 <= card_number <= 0xFFFFFF:
         raise ValueError("card number must fit in 3 bytes (0..16777215)")
     decoded = bytearray(FRAME_LENGTH)
@@ -37,17 +59,27 @@ def make_frame(card_number: int, sequence: int) -> bytes:
     decoded[2:5] = card_number.to_bytes(3, "little")
     decoded[6] = 20  # production week
     decoded[7] = 126  # production year (2026 in the legacy format)
-    decoded[10:13] = bytes((31, 0x2C, 0x01))  # control 31 at 300 seconds
-    # Deterministic filler makes the raw frame easy to recognize in traces.
-    for index in range(13, FRAME_LENGTH - 1):
-        decoded[index] = (index + sequence) & 0xFF
+    if len(punches) > 50:
+        raise ValueError("at most 50 punches fit in an EMIT 250 frame")
+    for index, (control_code, time_seconds) in enumerate(punches):
+        if not 0 <= control_code <= 0xFF or not 0 <= time_seconds <= 0xFFFF:
+            raise ValueError("invalid control code or punch time")
+        offset = 10 + index * 3
+        decoded[offset] = control_code
+        decoded[offset + 1 : offset + 3] = time_seconds.to_bytes(2, "little")
     decoded[-1] = (-sum(decoded[:-1])) & 0xFF
     return bytes(value ^ XOR_MASK for value in decoded)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--card", type=int, default=123456, help="card number (default: 123456)")
+    parser.add_argument("--card", type=int, help="override scenario card number")
+    parser.add_argument(
+        "--scenario",
+        choices=SCENARIOS,
+        default="a-hyvaksytty",
+        help="test scenario (default: a-hyvaksytty)",
+    )
     parser.add_argument("--interval", type=float, default=3.0, help="seconds between frames (default: 3)")
     parser.add_argument("--once", action="store_true", help="send one frame and exit")
     parser.add_argument("--port", default="/dev/cu.usbserial-FTDBLBY5", help="physical serial device")
@@ -59,6 +91,9 @@ def main() -> int:
     if args.interval <= 0:
         raise SystemExit("--interval must be positive")
 
+    scenario = SCENARIOS[args.scenario]
+    card_number = args.card if args.card is not None else scenario["card"]
+    punches = scenario["punches"]
     port_name = args.port
     try:
         # macOS cu.* devices require a read/write open for correct modem-line
@@ -69,14 +104,15 @@ def main() -> int:
         raise SystemExit(f"Sarjaportin avaaminen epäonnistui ({port_name}): {error}") from error
 
     print(f"Fyysinen sarjaportti: {port_name}", flush=True)
-    
+    print(f"Skenaario: {scenario['description']}", flush=True)
+    print(f"Kortti: {card_number}, leimoja: {len(punches)}", flush=True)
     print("Lopeta painamalla Ctrl+C.", flush=True)
 
     sequence = 0
     try:
         while True:
-            os.write(port, make_frame(args.card, sequence))
-            print(f"Lähetetty kortti {args.card} ({FRAME_LENGTH} tavua)", flush=True)
+            os.write(port, make_frame(card_number, punches))
+            print(f"Lähetetty kortti {card_number} ({FRAME_LENGTH} tavua)", flush=True)
             if args.once:
                 return 0
             sequence += 1

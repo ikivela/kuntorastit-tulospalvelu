@@ -10,6 +10,11 @@ Tämän kokeen tarkoitus on varmistaa, että Maanantairastien desktop-client voi
 - tekee EMITin käyttämän XOR-muunnoksen (0xDF)
 - etsii 217 tavun EMIT 250 -kehyksen
 - näyttää kortin numeron, jos kokonainen kehys löytyy
+- tallentaa kortinlukemat ja rastileimat paikalliseen SQLite-tietokantaan
+
+Tietokanta luodaan automaattisesti käyttöjärjestelmän sovellusdatahakemistoon
+nimellä `reader.sqlite3`. Client näyttää käytössä olevan tiedoston polun sekä 20
+viimeisintä lukutapahtumaa.
 
 Tämä ei vielä validoi tarkistussummia eikä pura rasteja/aikoja. Nykyinen kehystunnistus osoittaa siksi vain mahdollisen EMIT 250 -kehyksen. Täysi validointi lisätään, kun fyysisellä lukijalla saatuja näytteitä on käytettävissä.
 
@@ -35,6 +40,28 @@ Skripti kirjoittaa EMIT-kehykset fyysiseen sarjaporttiin. Anna portti
 ```bash
 python3 tools/emulate_emit250.py --port /dev/cu.usbserial-FTDBLBY5 --card 123456
 ```
+
+Yliopistokeskus-sprintin A-radalle on kaksi valmista yhden kortin testiä:
+
+```bash
+python3 tools/emulate_emit250.py --scenario a-hyvaksytty --once
+python3 tools/emulate_emit250.py --scenario a-hylatty --once
+```
+
+Hyväksytty käyttää korttia `123456` ja A-radan koodeja
+`31–32–33–31–34–35–31–100`. Hylätty käyttää korttia `654321` ja korvaa
+rastin `33` väärällä koodilla `99`.
+
+Halkokari 2026 -tapahtuman E-radalle on kaksi kortin `32012` testiä:
+
+```bash
+python3 tools/emulate_emit250.py --scenario halkokari-e-hyvaksytty --once
+python3 tools/emulate_emit250.py --scenario halkokari-e-hylatty --once
+```
+
+Hyväksytty käyttää E-radan koodeja
+`137–38–158–138–41–45–141–40–43–157–44–78–32–50`. Hylätyssä rastin
+`158` tilalla on väärä koodi `99`.
 
 Valitse sama portti Reader PoC:ssa ja käynnistä kuuntelu. Oletuksena sama kortti
 lähetetään kolmen sekunnin välein; yhden kehyksen testin saa komennolla `--once`.

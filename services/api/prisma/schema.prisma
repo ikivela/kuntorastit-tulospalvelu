@@ -304,6 +304,7 @@ model Performance {
 
 model CardRead {
   id               String         @id @default(uuid()) @db.Uuid
+  clientReference  String?        @unique @map("client_reference")
   eventId          String         @db.Uuid @map("event_id")
   event            Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
   punchCardId      String         @db.Uuid @map("punch_card_id")

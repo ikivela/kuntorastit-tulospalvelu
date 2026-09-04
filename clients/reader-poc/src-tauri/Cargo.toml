@@ -16,3 +16,4 @@ tauri-build = { version = "2.6.3", features = [] }
 tauri = { version = "2.11.5", features = [] }
 serde = { version = "1.0.229", features = ["derive"] }
 serialport = "4.10.0"
+rusqlite = { version = "0.38.0", features = ["bundled"] }
