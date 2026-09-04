@@ -47,8 +47,10 @@ type StoredCardRead = {
   resultStatus: "OK" | "NO_TIME" | "DISQUALIFIED" | "MISSING_CONTROL";
   syncStatus: "PENDING" | "SYNCED" | "ERROR";
   syncError?: string;
+  source: "EMIT" | "MANUAL";
+  personId?: string;
 };
-type Participant = { id: number; cardNumber: number; firstName: string; lastName: string; club?: string };
+type Participant = { id: number; cardNumber: number; firstName: string; lastName: string; club?: string; apiPersonId?: string };
 type CourseControl = { sequenceNumber: number; type: string; controlCodes: string[]; control: { code: string } };
 type Course = { id: string; name: string; lengthMeters: number; climbMeters?: number; controls?: CourseControl[] };
 type CalendarEvent = { id: string; name: string; locationName?: string; startsAt: string; endsAt: string; status: string; courses: Course[] };
@@ -76,9 +78,22 @@ function App() {
   const [calendarLoading, setCalendarLoading] = useState(true);
   const [calendarError, setCalendarError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [apiKeyVisible, setApiKeyVisible] = useState(false);
+  const [apiKeySaved, setApiKeySaved] = useState(false);
   const [editingReadId, setEditingReadId] = useState<number | null>(null);
   const [resumeAfterEdit, setResumeAfterEdit] = useState(false);
   const [registrationSyncStatus, setRegistrationSyncStatus] = useState("");
+  const [manualEntryOpen, setManualEntryOpen] = useState(false);
+  const [manualQuery, setManualQuery] = useState("");
+  const [manualFirstName, setManualFirstName] = useState("");
+  const [manualLastName, setManualLastName] = useState("");
+  const [manualClub, setManualClub] = useState("");
+  const [manualCourseId, setManualCourseId] = useState("");
+  const [manualError, setManualError] = useState("");
+  const [manualPersonId, setManualPersonId] = useState<string | null>(null);
+  const [manualSuggestions, setManualSuggestions] = useState<Participant[]>([]);
 
   useEffect(() => {
     let disposed = false;
@@ -153,10 +168,28 @@ function App() {
     }
   }
 
+  function authHeaders(extra?: Record<string, string>) {
+    return apiKey ? { ...extra, authorization: `Bearer ${apiKey}` } : extra ?? {};
+  }
+
+  async function saveApiKey() {
+    const value = apiKeyInput.trim();
+    if (!value) return;
+    try {
+      await invoke("set_setting_value", { key: "reader.api_key", value });
+      setApiKey(value);
+      setApiKeySaved(true);
+      window.setTimeout(() => setApiKeySaved(false), 2000);
+    } catch (error) {
+      setStatus(String(error));
+    }
+  }
+
   async function syncRegistrations(eventId: string) {
     setRegistrationSyncStatus("Päivitetään ilmoittautuneita…");
     try {
-      const response = await fetch(`${API_BASE}/public/events/${eventId}/reader-registrations`, { cache: "no-store" });
+      const response = await fetch(`${API_BASE}/public/events/${eventId}/reader-registrations`, { cache: "no-store", headers: authHeaders() });
+      if (response.status === 401) throw new Error("API-avain puuttuu tai on virheellinen");
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const registrations = await response.json() as ApiRegistration[];
       const count = await invoke<number>("sync_event_registrations", { eventId, registrations });
@@ -207,28 +240,41 @@ function App() {
     const clientId = await installationId();
     for (const read of pending) {
       syncingReadIds.add(read.id);
-      if (!read.courseId || !read.cardNumber) {
+      if (!read.courseId || (read.source === "EMIT" && !read.cardNumber)) {
         await invoke("mark_card_read_sync", { readId: read.id, synced: false, error: "Ratatieto puuttuu." });
         syncingReadIds.delete(read.id);
         continue;
       }
       try {
-        const response = await fetch(`${API_BASE}/public/events/${read.eventId}/reader-results`, {
+        const url = read.source === "MANUAL"
+          ? `${API_BASE}/public/events/${read.eventId}/manual-results`
+          : `${API_BASE}/public/events/${read.eventId}/reader-results`;
+        const body = read.source === "MANUAL"
+          ? {
+              courseId: read.courseId,
+              personId: read.personId || undefined,
+              firstName: read.firstName,
+              lastName: read.lastName,
+              clubName: read.club || undefined,
+            }
+          : {
+              clientReference: `${clientId}:${read.id}`,
+              courseId: read.courseId,
+              resultStatus: read.resultStatus,
+              cardNumber: String(read.cardNumber),
+              firstName: read.firstName,
+              lastName: read.lastName,
+              clubName: read.club || undefined,
+              readAt: new Date(read.readAtMs).toISOString(),
+              readerSerial: read.portName,
+              punches: read.punches,
+            };
+        const response = await fetch(url, {
           method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            clientReference: `${clientId}:${read.id}`,
-            courseId: read.courseId,
-            resultStatus: read.resultStatus,
-            cardNumber: String(read.cardNumber),
-            firstName: read.firstName,
-            lastName: read.lastName,
-            clubName: read.club || undefined,
-            readAt: new Date(read.readAtMs).toISOString(),
-            readerSerial: read.portName,
-            punches: read.punches,
-          }),
+          headers: authHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify(body),
         });
+        if (response.status === 401) throw new Error("API-avain puuttuu tai on virheellinen. Aseta se asetuksista.");
         if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
         await invoke("mark_card_read_sync", { readId: read.id, synced: true, error: null });
         setHistory((current) => current.map((item) => item.id === read.id ? { ...item, syncStatus: "SYNCED", syncError: undefined } : item));
@@ -240,6 +286,53 @@ function App() {
         syncingReadIds.delete(read.id);
       }
     }
+  }
+
+  async function saveManualResult(event: React.FormEvent) {
+    event.preventDefault();
+    if (!activeEvent) return;
+    setManualError("");
+    try {
+      await invoke("add_manual_result", {
+        eventId: activeEvent.id,
+        courseId: manualCourseId || null,
+        firstName: manualFirstName,
+        lastName: manualLastName,
+        club: manualClub || null,
+        personId: manualPersonId,
+      });
+      const name = `${manualFirstName} ${manualLastName}`;
+      closeManualEntry();
+      await refreshHistory();
+      setStatus(`${name} lisätty tuloksiin ilman aikaa.`);
+    } catch (error) {
+      setManualError(String(error));
+    }
+  }
+
+  function closeManualEntry() {
+    setManualEntryOpen(false);
+    setManualQuery(""); setManualFirstName(""); setManualLastName(""); setManualClub(""); setManualCourseId("");
+    setManualPersonId(null); setManualSuggestions([]); setManualError("");
+  }
+
+  function openManualEntry() {
+    closeManualEntry();
+    setManualCourseId(activeEvent?.courses[0]?.id ?? "");
+    setManualEntryOpen(true);
+  }
+
+  function pickManualSuggestion(person: Participant) {
+    setManualFirstName(person.firstName);
+    setManualLastName(person.lastName);
+    setManualClub(person.club || "");
+    setManualPersonId(person.apiPersonId ?? null);
+    setManualQuery(""); setManualSuggestions([]);
+  }
+
+  function editManualName(setter: (value: string) => void, value: string) {
+    setter(value);
+    setManualPersonId(null);
   }
 
   async function saveParticipant(event: React.FormEvent) {
@@ -314,6 +407,9 @@ function App() {
     void invoke<string | null>("reader_port_setting").then((port) => {
       if (port) setSelected(port);
     }).catch(() => undefined);
+    void invoke<string | null>("setting_value", { key: "reader.api_key" }).then((key) => {
+      if (key) { setApiKey(key); setApiKeyInput(key); }
+    }).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -321,6 +417,22 @@ function App() {
     const interval = window.setInterval(() => void syncRegistrations(activeEvent.id), 30_000);
     return () => window.clearInterval(interval);
   }, [activeEvent?.id]);
+
+  useEffect(() => {
+    if (!manualEntryOpen) { setManualSuggestions([]); return; }
+    const query = manualQuery.trim();
+    if (query.length < 3) { setManualSuggestions([]); return; }
+    let disposed = false;
+    const timeout = window.setTimeout(async () => {
+      try {
+        const matches = await invoke<Participant[]>("search_participants", { query, limit: 10 });
+        if (!disposed) setManualSuggestions(matches);
+      } catch {
+        if (!disposed) setManualSuggestions([]);
+      }
+    }, 250);
+    return () => { disposed = true; window.clearTimeout(timeout); };
+  }, [manualQuery, manualEntryOpen]);
 
   useEffect(() => {
     if (!reading || !activeEvent) return;
@@ -380,10 +492,10 @@ function App() {
       <p className="build-version">Build: {new Date(__BUILD_DATE__).toLocaleString("fi-FI")}</p>
 
       <section>
-        {activeEvent ? <><div className="event-running"><div><span className="eyebrow">Tapahtuma käynnissä</span><h2>{activeEvent.name}</h2><p>{new Date(activeEvent.startsAt).toLocaleString("fi-FI")} · {activeEvent.locationName || "Paikka ei tiedossa"}</p><small>{registrationSyncStatus}</small></div><div className={`reader-badge ${reading ? "ok" : "error"}`}><span />{pendingCard ? "Kuittaus odottaa" : reading ? "Lukija OK" : "Lukija ei yhteydessä"}</div><button onClick={() => void stopEvent()}>Lopeta tapahtuma</button></div><div className="course-list"><strong>Radat</strong>{activeEvent.courses.length ? activeEvent.courses.map((course) => <span key={course.id}>{course.name} · {(course.lengthMeters / 1000).toLocaleString("fi-FI", { maximumFractionDigits: 1 })} km</span>) : <span>Ei julkaistuja ratoja</span>}</div></> : <div className="event-start"><div><span className="eyebrow">Valitse tapahtuma</span><h2>Käynnistä ajanotto</h2></div>{calendarLoading ? <p>Haetaan tapahtumia…</p> : calendarError ? <div><p className="error">{calendarError}</p><button onClick={() => void loadCalendar()}>Yritä uudelleen</button></div> : <><select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}><option value="">Valitse tapahtuma</option>{events.map((event) => <option key={event.id} value={event.id}>{new Date(event.startsAt).toLocaleDateString("fi-FI")} · {event.name}</option>)}</select><button className="primary" onClick={() => void startEvent()} disabled={!selectedEventId}>Käynnistä tapahtuma</button></>}</div>}
+        {activeEvent ? <><div className="event-running"><div><span className="eyebrow">Tapahtuma käynnissä</span><h2>{activeEvent.name}</h2><p>{new Date(activeEvent.startsAt).toLocaleString("fi-FI")} · {activeEvent.locationName || "Paikka ei tiedossa"}</p><small>{registrationSyncStatus}</small></div><div className={`reader-badge ${reading ? "ok" : "error"}`}><span />{pendingCard ? "Kuittaus odottaa" : reading ? "Lukija OK" : "Lukija ei yhteydessä"}</div><button onClick={() => void stopEvent()}>Lopeta tapahtuma</button></div><div className="course-list"><strong>Radat</strong>{activeEvent.courses.length ? activeEvent.courses.map((course) => <span key={course.id}>{course.name} · {(course.lengthMeters / 1000).toLocaleString("fi-FI", { maximumFractionDigits: 1 })} km</span>) : <span>Ei julkaistuja ratoja</span>}</div></> : <div className="event-start"><div><span className="eyebrow">Valitse tapahtuma</span></div>{calendarLoading ? <p>Haetaan tapahtumia…</p> : calendarError ? <div><p className="error">{calendarError}</p><button onClick={() => void loadCalendar()}>Yritä uudelleen</button></div> : <><select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}><option value="">Valitse tapahtuma</option>{events.map((event) => <option key={event.id} value={event.id}>{new Date(event.startsAt).toLocaleDateString("fi-FI")} · {event.name}</option>)}</select><button className="primary" onClick={() => void startEvent()} disabled={!selectedEventId}>Valitse tapahtuma</button></>}</div>}
         {status && <p className="status">{status}</p>}
-        <button className="settings-toggle" onClick={() => setSettingsOpen((value) => !value)} aria-expanded={settingsOpen}>⚙ Lukijan asetukset</button>
-        {settingsOpen && <div className="reader-settings"><select value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading}><option value="">Valitse sarjaportti</option>{devices.map((device) => <option key={device.portName} value={device.portName}>{device.portName} – {device.product || device.manufacturer || device.portType}</option>)}</select><input className="port-input" value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading} placeholder="Sarjaportin polku" aria-label="Sarjaportin polku" /><button onClick={() => void refresh()} disabled={reading}>Päivitä portit</button></div>}
+        <button className="settings-toggle" onClick={() => setSettingsOpen((value) => !value)} aria-expanded={settingsOpen}>{settingsOpen ? "⚙ Sulje" : "⚙ Asetukset"}</button>
+        {settingsOpen && <div className="reader-settings"><select value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading}><option value="">Valitse sarjaportti</option>{devices.map((device) => <option key={device.portName} value={device.portName}>{device.portName} – {device.product || device.manufacturer || device.portType}</option>)}</select><input className="port-input" value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading} placeholder="Sarjaportin polku" aria-label="Sarjaportin polku" /><button onClick={() => void refresh()} disabled={reading}>Päivitä portit</button><div className="api-key-row"><input type={apiKeyVisible ? "text" : "password"} className="api-key-input" value={apiKeyInput} onChange={(e) => setApiKeyInput(e.target.value)} placeholder="Lukijan API-avain" aria-label="Lukijan API-avain" autoComplete="off" /><button type="button" onClick={() => setApiKeyVisible((value) => !value)}>{apiKeyVisible ? "Piilota" : "Näytä"}</button><button onClick={() => void saveApiKey()} disabled={!apiKeyInput.trim() || apiKeyInput.trim() === apiKey}>{apiKeySaved ? "Tallennettu ✓" : "Tallenna avain"}</button></div></div>}
       </section>
 
       {result && (
@@ -402,8 +514,8 @@ function App() {
       )}
 
       <section>
-        <div className="log-heading"><div><h2>Tulokset</h2><p>{history.length} viimeisintä tulosta</p></div><label className="log-search"><span className="sr-only">Hae tuloksista</span><input type="search" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Hae nimellä, seuralla tai kortilla…" /></label></div>
-        {history.length === 0 ? <p>Ei tallennettuja tuloksia.</p> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Kortti</th><th>Tulos</th><th>Aika</th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td><time>{new Date(item.readAtMs).toLocaleString("fi-FI")}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="card-number">{item.cardNumber ?? "–"}</td><td><span className={`log-status ${item.resultStatus.toLowerCase()}`} title={item.syncStatus === "SYNCED" ? "Synkronoitu API:in" : item.syncError || "Odottaa synkronointia"}>{item.resultStatus === "OK" ? <><span aria-hidden="true">✓</span><span className="sr-only">OK</span></> : resultStatusLabel(item.resultStatus)} {item.syncStatus === "SYNCED" ? "☁" : "↻"}</span></td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : formatDuration(totalTime(item.punches))}</td></tr>)}</tbody></table></div></>}
+        <div className="log-heading"><div><h2>Tulokset</h2><p>{history.length} viimeisintä tulosta</p></div><div className="log-heading-actions"><label className="log-search"><span className="sr-only">Hae tuloksista</span><input type="search" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Hae nimellä, seuralla tai kortilla…" /></label><button onClick={openManualEntry} disabled={!activeEvent}>+ Lisää kilpailija ilman aikaa</button></div></div>
+        {history.length === 0 ? <p>Ei tallennettuja tuloksia.</p> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Seura</th><th>Kortti</th><th>Tulos</th><th>Aika</th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td><time>{new Date(item.readAtMs).toLocaleString("fi-FI")}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="log-club">{item.club || "–"}</td><td className="card-number">{item.source === "MANUAL" ? "–" : item.cardNumber ?? "–"}</td><td><span className={`log-status ${item.resultStatus.toLowerCase()}`} title={item.syncStatus === "SYNCED" ? "Synkronoitu API:in" : item.syncError || "Odottaa synkronointia"}>{item.resultStatus === "OK" ? <><span aria-hidden="true">✓</span><span className="sr-only">OK</span></> : resultStatusLabel(item.resultStatus)} {item.syncStatus === "SYNCED" ? "☁" : "↻"}</span></td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : formatDuration(totalTime(item.punches))}</td></tr>)}</tbody></table></div></>}
       </section>
 
       {pendingCard && (
@@ -417,6 +529,39 @@ function App() {
               {formError && <p className="error">{formError}</p>}
               <button className="primary" type="submit">Tallenna osallistuja</button>
             </form></>}
+          </section>
+        </div>
+      )}
+
+      {manualEntryOpen && activeEvent && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="manual-title">
+            <h2 id="manual-title">Lisää kilpailija ilman aikaa</h2>
+            <form onSubmit={(event) => void saveManualResult(event)}>
+              <div className="manual-search-field">
+                <label>Hae henkilöä<input autoFocus type="search" value={manualQuery} onChange={(event) => setManualQuery(event.target.value)} placeholder="Kirjoita vähintään 3 merkkiä…" autoComplete="off" /></label>
+                {manualSuggestions.length > 0 && (
+                  <ul className="manual-suggestions">
+                    {manualSuggestions.map((person) => (
+                      <li key={person.id}>
+                        <button type="button" onClick={() => pickManualSuggestion(person)}>
+                          {person.firstName} {person.lastName}{person.club ? ` · ${person.club}` : ""}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <label>Etunimi<input required value={manualFirstName} onChange={(event) => editManualName(setManualFirstName, event.target.value)} autoComplete="off" /></label>
+              <label>Sukunimi<input required value={manualLastName} onChange={(event) => editManualName(setManualLastName, event.target.value)} autoComplete="off" /></label>
+              <label>Seura<input value={manualClub} onChange={(event) => setManualClub(event.target.value)} disabled={manualPersonId != null} /></label>
+              <label>Rata<select required value={manualCourseId} onChange={(event) => setManualCourseId(event.target.value)}><option value="">Valitse rata</option>{activeEvent.courses.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select></label>
+              {manualError && <p className="error">{manualError}</p>}
+              <div className="confirm-actions">
+                <button className="primary" type="submit">Tallenna ilman aikaa</button>
+                <button type="button" onClick={closeManualEntry}>Peruuta</button>
+              </div>
+            </form>
           </section>
         </div>
       )}

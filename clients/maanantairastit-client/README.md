@@ -23,7 +23,7 @@ Tämä ei vielä validoi tarkistussummia eikä pura rasteja/aikoja. Nykyinen keh
 Tarvitset Node.js:n, Rustin ja Tauri 2:n käyttöjärjestelmäkohtaiset prerequisite-paketit.
 
 ```bash
-cd clients/reader-poc
+cd clients/maanantairastit-client
 npm install
 npm run tauri dev
 ```
@@ -63,7 +63,7 @@ Hyväksytty käyttää E-radan koodeja
 `137–38–158–138–41–45–141–40–43–157–44–78–32–50`. Hylätyssä rastin
 `158` tilalla on väärä koodi `99`.
 
-Valitse sama portti Reader PoC:ssa ja käynnistä kuuntelu. Oletuksena sama kortti
+Valitse sama portti clientissä ja käynnistä kuuntelu. Oletuksena sama kortti
 lähetetään kolmen sekunnin välein; yhden kehyksen testin saa komennolla `--once`.
 
 Emulaattori tuottaa tämän PoC:n 217 tavun XOR-kehyksen. Se ei emuloi vielä EMITin virallista tarkistussummaa tai täydellistä kilpailukortin sisältöä.
@@ -72,7 +72,7 @@ Emulaattori tuottaa tämän PoC:n 217 tavun XOR-kehyksen. Se ei emuloi vielä EM
 
 ## FTDI-kaapeliyhteyden testaus
 
-Kahden ristiinkytketyn FTDI-portin voi testata ilman Reader PoC -clientiä:
+Kahden ristiinkytketyn FTDI-portin voi testata ilman clientiä:
 
 ```bash
 python3 tools/test_serial_link.py \

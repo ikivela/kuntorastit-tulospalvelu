@@ -331,7 +331,7 @@ fn set_reader_port_setting(database: State<'_, Database>, port_name: String) -> 
 
 #[tauri::command]
 fn setting_value(database: State<'_, Database>, key: String) -> Result<Option<String>, String> {
-    if !matches!(key.as_str(), "reader.installation_id") {
+    if !matches!(key.as_str(), "reader.installation_id" | "reader.api_key") {
         return Err("Tuntematon asetusavain.".into());
     }
     database.setting(&key)
@@ -339,7 +339,7 @@ fn setting_value(database: State<'_, Database>, key: String) -> Result<Option<St
 
 #[tauri::command]
 fn set_setting_value(database: State<'_, Database>, key: String, value: String) -> Result<(), String> {
-    if !matches!(key.as_str(), "reader.installation_id") || value.trim().is_empty() {
+    if !matches!(key.as_str(), "reader.installation_id" | "reader.api_key") || value.trim().is_empty() {
         return Err("Virheellinen client-asetus.".into());
     }
     database.set_setting(&key, value.trim())
@@ -358,6 +358,11 @@ fn participant_by_card_for_event(database: State<'_, Database>, event_id: String
 #[tauri::command]
 fn sync_event_registrations(database: State<'_, Database>, event_id: String, registrations: Vec<ApiRegistration>) -> Result<usize, String> {
     database.replace_event_registrations(&event_id, &registrations)
+}
+
+#[tauri::command]
+fn search_participants(database: State<'_, Database>, query: String, limit: Option<usize>) -> Result<Vec<Participant>, String> {
+    database.search_participants(&query, limit.unwrap_or(10))
 }
 
 #[tauri::command]
@@ -383,6 +388,19 @@ fn register_participant(
         database.link_participant_to_event(&event_id, participant.id, course_id.as_deref())?;
     }
     Ok(participant)
+}
+
+#[tauri::command]
+fn add_manual_result(
+    database: State<'_, Database>,
+    event_id: String,
+    course_id: Option<String>,
+    first_name: String,
+    last_name: String,
+    club: Option<String>,
+    person_id: Option<String>,
+) -> Result<i64, String> {
+    database.add_manual_result(&event_id, course_id.as_deref(), &first_name, &last_name, club.as_deref(), person_id.as_deref())
 }
 
 #[tauri::command]
@@ -462,7 +480,9 @@ pub fn run() {
             participant_by_card,
             participant_by_card_for_event,
             sync_event_registrations,
+            search_participants,
             register_participant,
+            add_manual_result,
             confirm_latest_emit250_read,
             mark_card_read_sync,
             update_card_read_status

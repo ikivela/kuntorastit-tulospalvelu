@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { PrismaService } from "../prisma/prisma.service.js";
 import { CreateRegistrationDto } from "./create-registration.dto.js";
 import { CreateReaderResultDto } from "./create-reader-result.dto.js";
+import { CreateManualResultDto } from "./create-manual-result.dto.js";
 
 @Injectable()
 export class PublicService {
@@ -210,6 +211,71 @@ export class PublicService {
       });
       return { cardReadId: cardRead.id, performanceId: performance.id, duplicate: false };
     });
+  }
+
+  async addManualResult(eventId: string, input: CreateManualResultDto) {
+    const course = await this.prisma.course.findFirst({ where: { id: input.courseId, eventId } });
+    if (!course) throw new BadRequestException("Valittu rata ei kuulu tapahtumaan.");
+    const event = await this.prisma.event.findUnique({ where: { id: eventId }, select: { id: true, status: true } });
+    if (!event || event.status === "DRAFT") throw new NotFoundException("Tapahtumaa ei löytynyt.");
+
+    return this.prisma.$transaction(async (tx) => {
+      let person = input.personId ? await tx.person.findUnique({ where: { id: input.personId } }) : null;
+      if (input.personId && !person) throw new NotFoundException("Henkilöä ei löytynyt.");
+      if (!person) {
+        const clubName = input.clubName?.trim() || undefined;
+        const club = clubName ? await tx.club.upsert({ where: { name: clubName }, update: {}, create: { name: clubName } }) : null;
+        person = await tx.person.findFirst({
+          where: { firstName: { equals: input.firstName.trim(), mode: "insensitive" }, lastName: { equals: input.lastName.trim(), mode: "insensitive" } },
+          orderBy: { createdAt: "asc" },
+        });
+        if (!person) person = await tx.person.create({ data: { firstName: input.firstName.trim(), lastName: input.lastName.trim(), clubId: club?.id } });
+        else if (club && person.clubId !== club.id) person = await tx.person.update({ where: { id: person.id }, data: { clubId: club.id } });
+      }
+
+      const attendance = await tx.attendance.upsert({
+        where: { eventId_personId: { eventId, personId: person.id } },
+        update: {},
+        create: { eventId, personId: person.id },
+      });
+      const performance = await tx.performance.create({
+        data: {
+          attendanceId: attendance.id,
+          courseId: course.id,
+          source: "ONSITE",
+          status: "NO_TIME",
+          readAt: new Date(),
+        },
+      });
+      return { performanceId: performance.id, participant: `${person.firstName} ${person.lastName}` };
+    });
+  }
+
+  async searchPersons(query: string) {
+    const trimmed = query.trim();
+    if (trimmed.length < 2) return [];
+    const words = trimmed.split(/\s+/).filter(Boolean);
+    const nameConditions = words.length > 1
+      ? [
+          { firstName: { contains: words[0], mode: "insensitive" as const }, lastName: { contains: words.slice(1).join(" "), mode: "insensitive" as const } },
+          { lastName: { contains: words[0], mode: "insensitive" as const }, firstName: { contains: words.slice(1).join(" "), mode: "insensitive" as const } },
+        ]
+      : [
+          { firstName: { contains: trimmed, mode: "insensitive" as const } },
+          { lastName: { contains: trimmed, mode: "insensitive" as const } },
+        ];
+    const persons = await this.prisma.person.findMany({
+      where: { OR: nameConditions },
+      include: { club: { select: { name: true } } },
+      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+      take: 10,
+    });
+    return persons.map((person) => ({
+      id: person.id,
+      firstName: person.firstName,
+      lastName: person.lastName,
+      clubName: person.club?.name ?? null,
+    }));
   }
 
   async results(eventId: string) {

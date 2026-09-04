@@ -27,6 +27,8 @@ button:disabled { opacity: .5; cursor: default; }
 .reader-badge.error span { background: #d84a3b; }
 .settings-toggle { margin-top: 14px; border: 0; padding-left: 0; color: #4d596d; background: transparent; }
 .reader-settings { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding-top: 14px; border-top: 1px solid #edf0f3; }
+.api-key-row { flex-basis: 100%; display: flex; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #edf0f3; }
+.api-key-input { flex: 1; min-width: 260px; }
 .course-list { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 16px; padding-top: 14px; border-top: 1px solid #edf0f3; }
 .course-list span { border-radius: 999px; background: #edf5ef; color: #244b30; padding: 6px 10px; font-size: .88rem; font-weight: 650; }
 .device { display: grid; grid-template-columns: 1fr 1.5fr 1fr; gap: 12px; padding: 10px 0; border-top: 1px solid #edf0f3; }
@@ -38,6 +40,7 @@ pre { overflow: auto; white-space: pre-wrap; word-break: break-all; background: 
 .log-heading { display: flex; align-items: end; justify-content: space-between; gap: 18px; }
 .log-heading h2 { margin-bottom: 2px; }
 .log-heading p { margin: 0; color: #7a8494; font-size: .8rem; }
+.log-heading-actions { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; }
 .log-search { flex: 0 1 360px; }
 .log-search input { width: 100%; box-sizing: border-box; }
 .log-result-count { margin-top: 12px; color: #7a8494; font-size: .78rem; text-align: right; }
@@ -48,6 +51,7 @@ pre { overflow: auto; white-space: pre-wrap; word-break: break-all; background: 
 .log-table th, .log-table td { border-bottom: 1px solid #edf0f3; padding: 11px 13px; white-space: nowrap; }
 .log-table tbody tr:last-child td { border-bottom: 0; }
 .log-table .card-number, .log-table .log-time { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.log-table .log-club { color: #5b6578; }
 .log-name { border: 0; padding: 0; background: transparent; color: #172033; font-weight: 750; text-decoration: underline; text-decoration-color: #bdc5d0; text-underline-offset: 3px; }
 .log-name:hover { color: #116329; text-decoration-color: currentColor; }
 .log-table .log-time { font-weight: 750; }
@@ -62,6 +66,11 @@ pre { overflow: auto; white-space: pre-wrap; word-break: break-all; background: 
 .modal form { display: grid; gap: 14px; }
 .modal label { display: grid; gap: 6px; font-weight: 600; }
 .modal input { width: 100%; box-sizing: border-box; font-weight: 400; }
+.manual-search-field { position: relative; }
+.manual-suggestions { position: absolute; top: 100%; left: 0; right: 0; z-index: 1; margin: 4px 0 0; padding: 4px; list-style: none; background: white; border: 1px solid #dfe3e8; border-radius: 8px; box-shadow: 0 12px 24px rgb(0 0 0 / .12); max-height: 220px; overflow: auto; }
+.manual-suggestions li + li { margin-top: 2px; }
+.manual-suggestions button { display: block; width: 100%; text-align: left; padding: 8px 10px; border: 0; font-weight: 400; background: transparent; border-radius: 6px; }
+.manual-suggestions button:hover { background: #f4f6f8; }
 .result-confirm { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 22px; }
 .result-person { border-radius: 10px; background: #f4f6f8; padding: 18px; }
 .result-person h3 { margin: 6px 0 3px; font-size: 1.35rem; }
@@ -88,4 +97,4 @@ pre { overflow: auto; white-space: pre-wrap; word-break: break-all; background: 
 .confirm-actions { display: flex; gap: 10px; margin-top: 18px; }
 .confirm-actions button { flex: 1; }
 .error { color: #b42318; margin: 0; }
-@media (max-width: 700px) { .event-start, .event-running, .result-confirm { grid-template-columns: 1fr; align-items: stretch; } .log-heading { align-items: stretch; flex-direction: column; } .log-search { flex-basis: auto; width: 100%; } .result-error, .confirm-actions { grid-column: 1; } .punch-panel { max-height: 300px; } }
+@media (max-width: 700px) { .event-start, .event-running, .result-confirm { grid-template-columns: 1fr; align-items: stretch; } .log-heading { align-items: stretch; flex-direction: column; } .log-heading-actions { flex-direction: column; align-items: stretch; } .log-search { flex-basis: auto; width: 100%; } .result-error, .confirm-actions { grid-column: 1; } .punch-panel { max-height: 300px; } }

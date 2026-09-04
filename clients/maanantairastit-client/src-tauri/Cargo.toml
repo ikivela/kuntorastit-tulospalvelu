@@ -1,12 +1,12 @@
 [package]
-name = "maanantairastit-reader-poc"
+name = "maanantairastit-client"
 version = "0.1.0"
-description = "EMIT 250 reader proof of concept"
+description = "Maanantairastien EMIT 250 -lukijaclient"
 edition = "2021"
 rust-version = "1.88"
 
 [lib]
-name = "maanantairastit_reader_poc_lib"
+name = "maanantairastit_client_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

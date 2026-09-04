@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Maanantairastit Reader PoC",
+  "productName": "Maanantairastit Client",
   "version": "0.1.0",
-  "identifier": "fi.maanantairastit.reader-poc",
+  "identifier": "fi.maanantairastit.client",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",

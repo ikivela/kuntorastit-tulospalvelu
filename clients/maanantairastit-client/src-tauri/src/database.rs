@@ -11,6 +11,12 @@ pub struct Database {
     path: PathBuf,
 }
 
+/// Local card numbers for manually added participants are allocated from this
+/// range so they stay unique against the `participants.card_number` column
+/// without colliding with real EMIT card numbers. They never leave this
+/// client; manual results sync to the API without a card number.
+const MANUAL_CARD_NUMBER_BASE: u32 = 900_000_000;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -45,6 +51,57 @@ mod tests {
         drop(database);
         let _ = std::fs::remove_file(path);
     }
+
+    #[test]
+    fn searches_participants_locally_case_and_word_order_insensitively() {
+        let path = std::env::temp_dir().join(format!(
+            "maanantairastit-reader-search-{}-{}.sqlite3",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let database = Database::open(path.clone()).unwrap();
+        database.create_participant(111111, "Maija", "Meikäläinen", Some("MR")).unwrap();
+        database.create_participant(222222, "Pekka", "Peloton", None).unwrap();
+
+        let by_last_name = database.search_participants("meikäl", 10).unwrap();
+        assert_eq!(by_last_name.len(), 1);
+        assert_eq!(by_last_name[0].first_name, "Maija");
+
+        let by_full_name_reversed = database.search_participants("meikäläinen maija", 10).unwrap();
+        assert_eq!(by_full_name_reversed.len(), 1);
+
+        let too_short = database.search_participants("m", 10).unwrap();
+        assert!(too_short.is_empty());
+
+        let no_match = database.search_participants("nokonen", 10).unwrap();
+        assert!(no_match.is_empty());
+
+        drop(database);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn adds_manual_result_without_card() {
+        let path = std::env::temp_dir().join(format!(
+            "maanantairastit-reader-manual-{}-{}.sqlite3",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let database = Database::open(path.clone()).unwrap();
+        let read_id = database.add_manual_result("event-1", Some("course-1"), "Maija", "Meikäläinen", Some("MR"), Some("person-uuid-1")).unwrap();
+        let history = database.recent_reads("event-1", 20).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].id, read_id);
+        assert_eq!(history[0].participant_name, "Maija Meikäläinen");
+        assert_eq!(history[0].result_status, "NO_TIME");
+        assert_eq!(history[0].source, "MANUAL");
+        assert_eq!(history[0].person_id.as_deref(), Some("person-uuid-1"));
+        assert!(history[0].card_number.unwrap() >= MANUAL_CARD_NUMBER_BASE);
+        let second_id = database.add_manual_result("event-1", Some("course-1"), "Pekka", "Peloton", None, None).unwrap();
+        assert_ne!(read_id, second_id);
+        drop(database);
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -67,6 +124,8 @@ pub struct StoredCardRead {
     pub result_status: String,
     pub sync_status: String,
     pub sync_error: Option<String>,
+    pub source: String,
+    pub person_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -77,6 +136,7 @@ pub struct Participant {
     pub first_name: String,
     pub last_name: String,
     pub club: Option<String>,
+    pub api_person_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -191,6 +251,8 @@ impl Database {
             ("course_id", "TEXT"),
             ("sync_status", "TEXT NOT NULL DEFAULT 'PENDING'"),
             ("sync_error", "TEXT"),
+            ("source", "TEXT NOT NULL DEFAULT 'EMIT'"),
+            ("person_id", "TEXT"),
         ] {
             let exists = connection
                 .prepare("PRAGMA table_info(card_reads)")
@@ -204,6 +266,18 @@ impl Database {
                     .execute(&format!("ALTER TABLE card_reads ADD COLUMN {column} {definition}"), [])
                     .map_err(|error| error.to_string())?;
             }
+        }
+        let has_api_person_id = connection
+            .prepare("PRAGMA table_info(participants)")
+            .and_then(|mut statement| {
+                let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+                Ok(columns.filter_map(Result::ok).any(|name| name == "api_person_id"))
+            })
+            .map_err(|error| error.to_string())?;
+        if !has_api_person_id {
+            connection
+                .execute("ALTER TABLE participants ADD COLUMN api_person_id TEXT", [])
+                .map_err(|error| error.to_string())?;
         }
         connection
             .execute("CREATE INDEX IF NOT EXISTS idx_card_reads_event_time ON card_reads(event_id, read_at_ms DESC)", [])
@@ -250,7 +324,7 @@ impl Database {
     pub fn participant_by_card(&self, card_number: u32) -> Result<Option<Participant>, String> {
         let connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
         let mut statement = connection
-            .prepare("SELECT id, card_number, first_name, last_name, club FROM participants WHERE card_number = ?1")
+            .prepare("SELECT id, card_number, first_name, last_name, club, api_person_id FROM participants WHERE card_number = ?1")
             .map_err(|error| error.to_string())?;
         let mut rows = statement.query([card_number]).map_err(|error| error.to_string())?;
         let Some(row) = rows.next().map_err(|error| error.to_string())? else { return Ok(None) };
@@ -260,13 +334,14 @@ impl Database {
             first_name: row.get(2).map_err(|error| error.to_string())?,
             last_name: row.get(3).map_err(|error| error.to_string())?,
             club: row.get(4).map_err(|error| error.to_string())?,
+            api_person_id: row.get(5).map_err(|error| error.to_string())?,
         }))
     }
 
     pub fn participant_by_card_for_event(&self, event_id: &str, card_number: u32) -> Result<Option<Participant>, String> {
         let connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
         let mut statement = connection.prepare(
-            "SELECT p.id, p.card_number, p.first_name, p.last_name, p.club
+            "SELECT p.id, p.card_number, p.first_name, p.last_name, p.club, p.api_person_id
              FROM participants p
              JOIN event_registrations er ON er.participant_id = p.id
              WHERE er.event_id = ?1 AND p.card_number = ?2",
@@ -279,7 +354,56 @@ impl Database {
             first_name: row.get(2).map_err(|error| error.to_string())?,
             last_name: row.get(3).map_err(|error| error.to_string())?,
             club: row.get(4).map_err(|error| error.to_string())?,
+            api_person_id: row.get(5).map_err(|error| error.to_string())?,
         }))
+    }
+
+    /// Finds locally known participants (from EMIT registration sync, prior
+    /// card reads, or earlier manual entries) whose name contains `query`.
+    /// Used for the "Hae henkilöä" find-as-you-type box, kept local so it
+    /// works without a network connection.
+    pub fn search_participants(&self, query: &str, limit: usize) -> Result<Vec<Participant>, String> {
+        let trimmed = query.trim();
+        if trimmed.chars().count() < 2 {
+            return Ok(Vec::new());
+        }
+        let needle = trimmed.to_lowercase();
+        let words: Vec<String> = needle.split_whitespace().map(str::to_string).collect();
+        let connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
+        let mut statement = connection
+            .prepare("SELECT id, card_number, first_name, last_name, club, api_person_id FROM participants ORDER BY last_name, first_name")
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(Participant {
+                    id: row.get(0)?,
+                    card_number: row.get(1)?,
+                    first_name: row.get(2)?,
+                    last_name: row.get(3)?,
+                    club: row.get(4)?,
+                    api_person_id: row.get(5)?,
+                })
+            })
+            .map_err(|error| error.to_string())?;
+        let mut matches = Vec::new();
+        for participant in rows {
+            let participant = participant.map_err(|error| error.to_string())?;
+            let first = participant.first_name.to_lowercase();
+            let last = participant.last_name.to_lowercase();
+            let matched = if words.len() > 1 {
+                let rest = words[1..].join(" ");
+                (first.contains(&words[0]) && last.contains(&rest)) || (last.contains(&words[0]) && first.contains(&rest))
+            } else {
+                first.contains(&needle) || last.contains(&needle)
+            };
+            if matched {
+                matches.push(participant);
+                if matches.len() >= limit {
+                    break;
+                }
+            }
+        }
+        Ok(matches)
     }
 
     pub fn replace_event_registrations(&self, event_id: &str, registrations: &[ApiRegistration]) -> Result<usize, String> {
@@ -291,10 +415,10 @@ impl Database {
         for registration in registrations {
             let Ok(card_number) = registration.card_number.parse::<u32>() else { continue };
             transaction.execute(
-                "INSERT INTO participants (card_number, first_name, last_name, club, created_at_ms)
-                 VALUES (?1, ?2, ?3, ?4, ?5)
-                 ON CONFLICT(card_number) DO UPDATE SET first_name = excluded.first_name, last_name = excluded.last_name, club = excluded.club",
-                params![card_number, registration.first_name.trim(), registration.last_name.trim(), registration.club_name.as_deref(), synced_at_ms],
+                "INSERT INTO participants (card_number, first_name, last_name, club, api_person_id, created_at_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(card_number) DO UPDATE SET first_name = excluded.first_name, last_name = excluded.last_name, club = excluded.club, api_person_id = excluded.api_person_id",
+                params![card_number, registration.first_name.trim(), registration.last_name.trim(), registration.club_name.as_deref(), registration.person_id, synced_at_ms],
             ).map_err(|error| error.to_string())?;
             let participant_id: i64 = transaction.query_row("SELECT id FROM participants WHERE card_number = ?1", [card_number], |row| row.get(0)).map_err(|error| error.to_string())?;
             transaction.execute(
@@ -334,7 +458,48 @@ impl Database {
             params![card_number, first_name.trim(), last_name.trim(), club.filter(|value| !value.trim().is_empty()).map(str::trim), created_at_ms],
         ).map_err(|error| error.to_string())?;
         let id = connection.query_row("SELECT id FROM participants WHERE card_number = ?1", [card_number], |row| row.get(0)).map_err(|error| error.to_string())?;
-        Ok(Participant { id, card_number, first_name: first_name.trim().into(), last_name: last_name.trim().into(), club: club.filter(|value| !value.trim().is_empty()).map(|value| value.trim().into()) })
+        Ok(Participant { id, card_number, first_name: first_name.trim().into(), last_name: last_name.trim().into(), club: club.filter(|value| !value.trim().is_empty()).map(|value| value.trim().into()), api_person_id: None })
+    }
+
+    /// Adds a participant directly to the results without a card read, e.g. when
+    /// someone should be listed without a time. Allocates a local-only
+    /// placeholder card number to satisfy the participants table constraint;
+    /// this number is never sent to the API.
+    pub fn add_manual_result(&self, event_id: &str, course_id: Option<&str>, first_name: &str, last_name: &str, club: Option<&str>, person_id: Option<&str>) -> Result<i64, String> {
+        if first_name.trim().is_empty() || last_name.trim().is_empty() {
+            return Err("Etunimi ja sukunimi ovat pakollisia.".into());
+        }
+        let mut connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
+        let transaction = connection.transaction().map_err(|error| error.to_string())?;
+        let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_millis() as i64;
+        let next_card_number: u32 = transaction
+            .query_row(
+                "SELECT COALESCE(MAX(card_number), ?1) + 1 FROM participants WHERE card_number >= ?1",
+                [MANUAL_CARD_NUMBER_BASE],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        transaction.execute(
+            "INSERT INTO participants (card_number, first_name, last_name, club, created_at_ms) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![next_card_number, first_name.trim(), last_name.trim(), club.filter(|value| !value.trim().is_empty()).map(str::trim), now_ms],
+        ).map_err(|error| error.to_string())?;
+        let participant_id = transaction.last_insert_rowid();
+        transaction.execute(
+            "INSERT INTO event_registrations (event_id, participant_id, course_id, synced_at_ms)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(event_id, participant_id) DO UPDATE SET course_id = excluded.course_id, synced_at_ms = excluded.synced_at_ms",
+            params![event_id, participant_id, course_id, now_ms],
+        ).map_err(|error| error.to_string())?;
+        transaction.execute(
+            "INSERT INTO card_reads
+             (event_id, course_id, participant_id, card_number, port_name, bytes_received, frame_found, raw_hex,
+              result_status, sync_status, source, person_id, read_at_ms)
+             VALUES (?1, ?2, ?3, ?4, 'manual', 0, 0, '', 'NO_TIME', 'PENDING', 'MANUAL', ?5, ?6)",
+            params![event_id, course_id, participant_id, next_card_number, person_id, now_ms],
+        ).map_err(|error| error.to_string())?;
+        let read_id = transaction.last_insert_rowid();
+        transaction.commit().map_err(|error| error.to_string())?;
+        Ok(read_id)
     }
 
     pub fn save_read(&self, read: &Emit250Read, participant_id: i64, event_id: &str, course_id: Option<&str>, result_status: &str) -> Result<i64, String> {
@@ -415,7 +580,7 @@ impl Database {
             .prepare(
                 "SELECT r.id, r.event_id, r.course_id, r.card_number, r.port_name, r.read_at_ms, r.production_week,
                         r.production_year, p.id, p.first_name, p.last_name, p.club,
-                        r.result_status, r.sync_status, r.sync_error
+                        r.result_status, r.sync_status, r.sync_error, r.source, r.person_id
                  FROM card_reads r JOIN participants p ON p.id = r.participant_id
                  WHERE r.event_id = ?1
                  ORDER BY r.read_at_ms DESC LIMIT ?2",
@@ -441,6 +606,8 @@ impl Database {
                     result_status: row.get(12)?,
                     sync_status: row.get(13)?,
                     sync_error: row.get(14)?,
+                    source: row.get(15)?,
+                    person_id: row.get(16)?,
                 })
             })
             .map_err(|error| error.to_string())?;
