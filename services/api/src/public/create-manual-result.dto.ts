@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsOptional, IsString, IsUUID, Length, MaxLength } from "class-validator";
+import { IsInt, IsOptional, IsString, IsUUID, Length, Max, MaxLength, Min } from "class-validator";
 
 export class CreateManualResultDto {
   @ApiProperty({ format: "uuid" })
@@ -26,4 +26,11 @@ export class CreateManualResultDto {
   @IsString()
   @MaxLength(120)
   clubName?: string;
+
+  @ApiPropertyOptional({ description: "Käsin syötetty aika sekunteina. Jätä pois merkitäksesi tuloksen ilman aikaa.", example: 2322 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(24 * 60 * 60)
+  durationSeconds?: number;
 }

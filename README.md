@@ -1,17 +1,25 @@
 # Maanantairastien tulospalvelu
 
-Kokkolan maanantairastien uusi tulospalvelu. Kokonaisuus sisältää julkisen
-kalenterin ja tulosnäkymän, TypeScript/NestJS REST API:n, PostgreSQL-tietomallin
-sekä myöhemmin toteutettavan Electron-clientin EMIT 250 -kortinlukua varten.
+Kokkolan maanantairastien tulospalvelu. Kokonaisuus sisältää julkisen
+kalenterin ja tulosnäkymän, ylläpitäjän tapahtumahallinnan, TypeScript/NestJS
+REST API:n, PostgreSQL-tietomallin sekä Tauri-pohjaisen desktop-clientin
+EMIT 250 -kortinlukua ja tuloskirjausta varten.
 
 ## Nykyinen toteutus
 
 - responsiivinen julkinen tapahtuma- ja tulosnäkymä
-- NestJS + Fastify API
-- Prisma + PostgreSQL -tietomalli
-- tapahtumien listaus-, haku- ja luontirajapinnat
+- ylläpitäjän kirjautuminen, tapahtuma-/ratahallinta ja lukijalaitteiden
+  hyväksyntä (`app/admin`)
+- NestJS + Fastify API, Bearer-token-suojaus admin- ja lukijarajapinnoille;
+  lukijaclientit rekisteröityvät ja odottavat ylläpitäjän hyväksyntää ennen
+  tokenin saamista
+- Prisma + PostgreSQL -tietomalli, tietokantamigraatiot
+- tapahtumien listaus-, haku-, luonti- ja ilmoittautumisrajapinnat
 - Swagger/OpenAPI-dokumentaatio
 - Docker Compose PostgreSQLille ja API:lle
+- Tauri-desktop-client EMIT 250 -lukijalle: kortinluku, manuaalinen
+  tuloskirjaus, offline-synkronointi ja automaattiset Windows/Linux-buildit
+  (ks. [clients/maanantairastit-client](clients/maanantairastit-client))
 
 Tietomalli tukee tapahtumasarjoja, kausia, tapahtumia, ratoja, rasteja,
 henkilöitä, seuroja, ilmoittautumisia, osallistumiskertoja, suorituksia,
@@ -59,17 +67,18 @@ Kopioi tarvittaessa `services/api/.env.example` tiedostoksi `.env`.
 ## Keskeiset hakemistot
 
 ```text
-app/                         Julkinen web-käyttöliittymä
-services/api/src/            NestJS REST API
-services/api/prisma/         PostgreSQL/Prisma-tietomalli
-components/ui/               Käyttöliittymäkomponentit
-compose.api.yaml              Paikallinen API ja PostgreSQL
+app/                              Julkinen web-käyttöliittymä ja admin (Next.js)
+services/api/src/                 NestJS REST API
+services/api/prisma/              PostgreSQL/Prisma-tietomalli
+clients/maanantairastit-client/   Tauri-desktop-client EMIT 250 -lukijalle
+components/ui/                    Käyttöliittymäkomponentit
+compose.api.yaml                  Paikallinen API ja PostgreSQL
+.github/workflows/                CI: clientin Windows/Linux-buildit
 ```
 
-## Seuraavat vaiheet
+## Tunnetut rajoitukset ja seuraavat vaiheet
 
-1. Ensimmäinen tietokantamigraatio ja seed-data.
-2. Julkisen kalenterin yhdistäminen REST API:in.
-3. Ilmoittautuminen ja ylläpitäjän tapahtumahallinta.
-4. Electron-client, SQLite-offline-tallennus ja synkronointi.
-5. EMIT 250 -lukijaintegraatio ja tuloslaskenta.
+- EMIT 250:n virallinen tarkistussumma ja täysi rastikoodien validointi
+  puuttuu vielä (ks. clientin README).
+- Muiden leimausjärjestelmien (esim. SportIdent) tuki tietomalli sallii
+  (`PunchCard`), mutta clientissä on toteutettu vain EMIT 250.

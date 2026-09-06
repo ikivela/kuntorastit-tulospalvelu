@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { ArrowLeft, CalendarDays, Clock3, FileUp, Loader2, LockKeyhole, LogOut, MapPin, Pencil, Plus, Route, ShieldCheck, Trash2, UserRound, Users } from "lucide-react";
+import { ArrowLeft, CalendarDays, Clock3, Cpu, FileUp, Loader2, LockKeyhole, LogOut, MapPin, Pencil, Plus, Route, ShieldCheck, Trash2, UserRound, Users } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,8 @@ type Course = { id: string; name: string; lengthMeters: number; climbMeters: num
 type EventItem = { id: string; seasonId: string; name: string; locationName: string | null; address: string | null; startsAt: string; endsAt: string; status: EventStatus; registrationOpen: boolean; registrationCount: number; courses: Course[]; season: { name: string; year: number } };
 type RegistrationItem = { id: string; registeredAt: string; person: { firstName: string; lastName: string; club: { name: string } | null }; course: { id: string; name: string } | null; punchCard: { system: "EMIT" | "SPORT_IDENT"; cardNumber: string } | null };
 type Season = { id: string; name: string; year: number };
+type ReaderDeviceStatus = "PENDING" | "APPROVED" | "REVOKED";
+type ReaderDeviceItem = { id: string; name: string; status: ReaderDeviceStatus; requestedAt: string; approvedAt: string | null; revokedAt: string | null; lastSeenAt: string | null };
 const statusLabels: Record<EventStatus, string> = { DRAFT: "Luonnos", OPEN: "Avoinna", FINISHED: "Päättynyt", PUBLISHED: "Julkaistu" };
 const editableStatuses: EventStatus[] = ["DRAFT", "PUBLISHED", "FINISHED"];
 
@@ -60,6 +62,7 @@ function AdminEvents({ token, onLogout }: { token: string; onLogout: () => void 
   const [editing, setEditing] = useState<EventItem | null>(null);
   const [courseEvent, setCourseEvent] = useState<EventItem | null>(null);
   const [registrationEvent, setRegistrationEvent] = useState<EventItem | null>(null);
+  const [readerDevicesOpen, setReaderDevicesOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const headers = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const load = useCallback(async () => {
@@ -101,7 +104,7 @@ function AdminEvents({ token, onLogout }: { token: string; onLogout: () => void 
     await load();
   }
   return <main className="min-h-screen bg-muted/30">
-    <header className="border-b bg-background"><div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground"><ShieldCheck className="size-5" /></span><div><b className="block">Maanantairastit</b><span className="text-xs text-muted-foreground">Ylläpito</span></div></div><div className="flex gap-2"><Button asChild variant="ghost" className="rounded-full"><a href="/">Julkinen sivu</a></Button><Button variant="outline" className="rounded-full" onClick={onLogout}><LogOut className="mr-2 size-4" />Kirjaudu ulos</Button></div></div></header>
+    <header className="border-b bg-background"><div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground"><ShieldCheck className="size-5" /></span><div><b className="block">Maanantairastit</b><span className="text-xs text-muted-foreground">Ylläpito</span></div></div><div className="flex gap-2"><Button asChild variant="ghost" className="rounded-full"><a href="/">Julkinen sivu</a></Button><Button variant="outline" className="rounded-full" onClick={() => setReaderDevicesOpen(true)}><Cpu className="mr-2 size-4" />Lukijalaitteet</Button><Button variant="outline" className="rounded-full" onClick={onLogout}><LogOut className="mr-2 size-4" />Kirjaudu ulos</Button></div></div></header>
     <div className="mx-auto max-w-6xl px-5 py-10"><div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-sm font-bold uppercase tracking-wider text-primary">Hallinta</p><h1 className="mt-2 text-3xl font-black tracking-tight">Tapahtumat</h1><p className="mt-2 text-muted-foreground">Lisää, muokkaa ja julkaise kauden tapahtumia.</p></div><Button className="rounded-full" onClick={openCreate}><Plus className="mr-2 size-4" />Lisää tapahtuma</Button></div>
       {error && <p role="alert" className="mb-5 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}
       {loading ? <div className="grid place-items-center py-20"><Loader2 className="size-7 animate-spin text-primary" /></div> : events.length === 0 ? <Card className="rounded-3xl border-dashed"><CardContent className="grid place-items-center py-16 text-center"><CalendarDays className="mb-4 size-9 text-muted-foreground" /><p className="font-bold">Ei tapahtumia</p><p className="mt-1 text-sm text-muted-foreground">Luo kauden ensimmäinen tapahtuma.</p></CardContent></Card> : <div className="grid gap-4">{events.map((item) => <EventCard key={item.id} item={item} onRegistrations={() => setRegistrationEvent(item)} onCourses={() => setCourseEvent(item)} onEdit={() => openEdit(item)} onDelete={() => remove(item.id)} />)}</div>}
@@ -109,6 +112,7 @@ function AdminEvents({ token, onLogout }: { token: string; onLogout: () => void 
     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-2xl"><DialogHeader><DialogTitle>{editing ? "Muokkaa tapahtumaa" : "Lisää tapahtuma"}</DialogTitle><DialogDescription>Täytä tapahtuman perustiedot ja valitse julkaisutila.</DialogDescription></DialogHeader><EventForm key={editing?.id ?? "new"} item={editing} seasons={seasons} saving={saving} onSubmit={save} onCancel={() => setDialogOpen(false)} /></DialogContent></Dialog>
     <Dialog open={Boolean(courseEvent)} onOpenChange={(open) => { if (!open) { setCourseEvent(null); void load(); } }}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-3xl">{courseEvent && <CourseManager event={courseEvent} token={token} onSessionExpired={onLogout} />}</DialogContent></Dialog>
     <Dialog open={Boolean(registrationEvent)} onOpenChange={(open) => { if (!open) setRegistrationEvent(null); }}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-4xl">{registrationEvent && <RegistrationManager event={registrationEvent} token={token} onSessionExpired={onLogout} />}</DialogContent></Dialog>
+    <Dialog open={readerDevicesOpen} onOpenChange={setReaderDevicesOpen}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-3xl">{readerDevicesOpen && <ReaderDevicesManager token={token} onSessionExpired={onLogout} />}</DialogContent></Dialog>
   </main>;
 }
 
@@ -127,6 +131,53 @@ function RegistrationManager({ event, token, onSessionExpired }: { event: EventI
       .then(setItems).catch((cause) => setError(cause instanceof Error ? cause.message : "Ilmoittautuneiden lataaminen epäonnistui.")).finally(() => setLoading(false));
   }, [event.id, token, onSessionExpired]);
   return <><DialogHeader><DialogTitle>Ilmoittautuneet · {event.name}</DialogTitle><DialogDescription>{loading ? "Ladataan osallistujia…" : `${items.length} aktiivista ilmoittautumista.`}</DialogDescription></DialogHeader>{error && <p role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}{loading ? <div className="grid min-h-40 place-items-center"><Loader2 className="size-6 animate-spin text-primary" /></div> : items.length === 0 ? <div className="grid min-h-40 place-items-center rounded-2xl border border-dashed text-center text-muted-foreground"><div><UserRound className="mx-auto mb-3 size-8" /><p>Tapahtumaan ei ole vielä ilmoittautuneita.</p></div></div> : <div className="overflow-hidden rounded-2xl border"><Table><TableHeader><TableRow><TableHead>Nimi</TableHead><TableHead>Seura</TableHead><TableHead>Rata</TableHead><TableHead>Leimauskortti</TableHead><TableHead>Ilmoittautunut</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.person.lastName}, {item.person.firstName}</TableCell><TableCell>{item.person.club?.name ?? "—"}</TableCell><TableCell>{item.course?.name ?? "—"}</TableCell><TableCell>{item.punchCard ? `${item.punchCard.system === "EMIT" ? "Emit" : "SportIdent"} ${item.punchCard.cardNumber}` : "—"}</TableCell><TableCell>{formatDate(item.registeredAt)}</TableCell></TableRow>)}</TableBody></Table></div>}</>;
+}
+
+function ReaderDevicesManager({ token, onSessionExpired }: { token: string; onSessionExpired: () => void }) {
+  const [items, setItems] = useState<ReaderDeviceItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [actingId, setActingId] = useState<string | null>(null);
+  const headers = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
+  const load = useCallback(async () => {
+    setError("");
+    try {
+      const response = await fetch(`${apiBase}/reader-devices`, { headers: headers() });
+      if (response.status === 401) { onSessionExpired(); throw new Error("Istunto on vanhentunut. Kirjaudu uudelleen."); }
+      if (!response.ok) throw new Error("Lukijalaitteiden lataaminen epäonnistui.");
+      setItems(await response.json() as ReaderDeviceItem[]);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Lukijalaitteiden lataaminen epäonnistui."); }
+    finally { setLoading(false); }
+  }, [headers, onSessionExpired]);
+  useEffect(() => {
+    void load();
+    const interval = window.setInterval(() => void load(), 10_000);
+    return () => window.clearInterval(interval);
+  }, [load]);
+  async function approve(id: string) {
+    setActingId(id); setError("");
+    try {
+      const response = await fetch(`${apiBase}/reader-devices/${id}/approve`, { method: "POST", headers: headers() });
+      if (response.status === 401) { onSessionExpired(); throw new Error("Istunto on vanhentunut. Kirjaudu uudelleen."); }
+      if (!response.ok) throw new Error("Laitteen hyväksyminen epäonnistui.");
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Laitteen hyväksyminen epäonnistui."); }
+    finally { setActingId(null); }
+  }
+  async function revoke(id: string) {
+    setActingId(id); setError("");
+    try {
+      const response = await fetch(`${apiBase}/reader-devices/${id}/revoke`, { method: "POST", headers: headers() });
+      if (response.status === 401) { onSessionExpired(); throw new Error("Istunto on vanhentunut. Kirjaudu uudelleen."); }
+      if (!response.ok) throw new Error("Pääsyn peruminen epäonnistui.");
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Pääsyn peruminen epäonnistui."); }
+    finally { setActingId(null); }
+  }
+  const statusLabel: Record<ReaderDeviceStatus, string> = { PENDING: "Odottaa hyväksyntää", APPROVED: "Hyväksytty", REVOKED: "Peruttu" };
+  return <><DialogHeader><DialogTitle>Lukijalaitteet</DialogTitle><DialogDescription>Hyväksy tai peru maanantairastit-clientin laitteita. Client rekisteröi itsensä nimellä ja odottaa hyväksyntää.</DialogDescription></DialogHeader>
+    {error && <p role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}
+    {loading ? <div className="grid min-h-40 place-items-center"><Loader2 className="size-6 animate-spin text-primary" /></div> : items.length === 0 ? <div className="grid min-h-40 place-items-center rounded-2xl border border-dashed text-center text-muted-foreground"><div><Cpu className="mx-auto mb-3 size-8" /><p>Yksikään lukija ei ole vielä pyytänyt pääsyä.</p></div></div> : <div className="overflow-hidden rounded-2xl border"><Table><TableHeader><TableRow><TableHead>Nimi</TableHead><TableHead>Tila</TableHead><TableHead>Pyydetty</TableHead><TableHead>Viimeksi käytetty</TableHead><TableHead className="text-right">Toiminnot</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.name}</TableCell><TableCell><Badge variant={item.status === "APPROVED" ? "default" : item.status === "PENDING" ? "secondary" : "destructive"}>{statusLabel[item.status]}</Badge></TableCell><TableCell>{formatDate(item.requestedAt)}</TableCell><TableCell>{item.lastSeenAt ? formatDate(item.lastSeenAt) : "Ei koskaan"}</TableCell><TableCell className="text-right">{item.status === "PENDING" ? <Button size="sm" className="rounded-full" disabled={actingId === item.id} onClick={() => void approve(item.id)}>{actingId === item.id ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}Hyväksy</Button> : item.status === "APPROVED" ? <AlertDialog><AlertDialogTrigger asChild><Button size="sm" variant="outline" className="rounded-full text-destructive" disabled={actingId === item.id}>Peru pääsy</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Perutaanko laitteen pääsy?</AlertDialogTitle><AlertDialogDescription>Laite “{item.name}” ei voi enää lähettää tuloksia ennen kuin se hyväksytään uudelleen.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Peruuta</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={() => void revoke(item.id)}>Peru pääsy</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog> : <span className="text-sm text-muted-foreground">—</span>}</TableCell></TableRow>)}</TableBody></Table></div>}</>;
 }
 
 function CourseManager({ event, token, onSessionExpired }: { event: EventItem; token: string; onSessionExpired: () => void }) {

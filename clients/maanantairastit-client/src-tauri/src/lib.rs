@@ -329,9 +329,11 @@ fn set_reader_port_setting(database: State<'_, Database>, port_name: String) -> 
     database.set_setting("reader.port", port_name.trim())
 }
 
+const SETTING_KEYS: &[&str] = &["reader.installation_id", "reader.device_token", "reader.device_name"];
+
 #[tauri::command]
 fn setting_value(database: State<'_, Database>, key: String) -> Result<Option<String>, String> {
-    if !matches!(key.as_str(), "reader.installation_id" | "reader.api_key") {
+    if !SETTING_KEYS.contains(&key.as_str()) {
         return Err("Tuntematon asetusavain.".into());
     }
     database.setting(&key)
@@ -339,10 +341,18 @@ fn setting_value(database: State<'_, Database>, key: String) -> Result<Option<St
 
 #[tauri::command]
 fn set_setting_value(database: State<'_, Database>, key: String, value: String) -> Result<(), String> {
-    if !matches!(key.as_str(), "reader.installation_id" | "reader.api_key") || value.trim().is_empty() {
+    if !SETTING_KEYS.contains(&key.as_str()) || value.trim().is_empty() {
         return Err("Virheellinen client-asetus.".into());
     }
     database.set_setting(&key, value.trim())
+}
+
+#[tauri::command]
+fn clear_setting_value(database: State<'_, Database>, key: String) -> Result<(), String> {
+    if !SETTING_KEYS.contains(&key.as_str()) {
+        return Err("Tuntematon asetusavain.".into());
+    }
+    database.clear_setting(&key)
 }
 
 #[tauri::command]
@@ -399,8 +409,9 @@ fn add_manual_result(
     last_name: String,
     club: Option<String>,
     person_id: Option<String>,
+    duration_seconds: Option<i64>,
 ) -> Result<i64, String> {
-    database.add_manual_result(&event_id, course_id.as_deref(), &first_name, &last_name, club.as_deref(), person_id.as_deref())
+    database.add_manual_result(&event_id, course_id.as_deref(), &first_name, &last_name, club.as_deref(), person_id.as_deref(), duration_seconds)
 }
 
 #[tauri::command]
@@ -477,6 +488,7 @@ pub fn run() {
             set_reader_port_setting,
             setting_value,
             set_setting_value,
+            clear_setting_value,
             participant_by_card,
             participant_by_card_for_event,
             sync_event_registrations,

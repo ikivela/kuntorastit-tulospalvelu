@@ -49,6 +49,7 @@ type StoredCardRead = {
   syncError?: string;
   source: "EMIT" | "MANUAL";
   personId?: string;
+  manualDurationSeconds?: number;
 };
 type Participant = { id: number; cardNumber: number; firstName: string; lastName: string; club?: string; apiPersonId?: string };
 type CourseControl = { sequenceNumber: number; type: string; controlCodes: string[]; control: { code: string } };
@@ -78,10 +79,11 @@ function App() {
   const [calendarLoading, setCalendarLoading] = useState(true);
   const [calendarError, setCalendarError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [apiKey, setApiKey] = useState("");
-  const [apiKeyInput, setApiKeyInput] = useState("");
-  const [apiKeyVisible, setApiKeyVisible] = useState(false);
-  const [apiKeySaved, setApiKeySaved] = useState(false);
+  const [deviceToken, setDeviceToken] = useState("");
+  const [deviceName, setDeviceName] = useState("");
+  const [deviceNameInput, setDeviceNameInput] = useState("");
+  const [deviceStatus, setDeviceStatus] = useState<"unregistered" | "pending" | "approved" | "revoked">("unregistered");
+  const [deviceError, setDeviceError] = useState("");
   const [editingReadId, setEditingReadId] = useState<number | null>(null);
   const [resumeAfterEdit, setResumeAfterEdit] = useState(false);
   const [registrationSyncStatus, setRegistrationSyncStatus] = useState("");
@@ -91,6 +93,7 @@ function App() {
   const [manualLastName, setManualLastName] = useState("");
   const [manualClub, setManualClub] = useState("");
   const [manualCourseId, setManualCourseId] = useState("");
+  const [manualDuration, setManualDuration] = useState("");
   const [manualError, setManualError] = useState("");
   const [manualPersonId, setManualPersonId] = useState<string | null>(null);
   const [manualSuggestions, setManualSuggestions] = useState<Participant[]>([]);
@@ -169,27 +172,65 @@ function App() {
   }
 
   function authHeaders(extra?: Record<string, string>) {
-    return apiKey ? { ...extra, authorization: `Bearer ${apiKey}` } : extra ?? {};
+    return deviceToken ? { ...extra, authorization: `Bearer ${deviceToken}` } : extra ?? {};
   }
 
-  async function saveApiKey() {
-    const value = apiKeyInput.trim();
-    if (!value) return;
+  async function checkDeviceStatus() {
     try {
-      await invoke("set_setting_value", { key: "reader.api_key", value });
-      setApiKey(value);
-      setApiKeySaved(true);
-      window.setTimeout(() => setApiKeySaved(false), 2000);
-    } catch (error) {
-      setStatus(String(error));
+      const id = await installationId();
+      const response = await fetch(`${API_BASE}/public/reader-devices/${id}/status`, { cache: "no-store" });
+      if (response.status === 404) { setDeviceStatus("unregistered"); return; }
+      if (!response.ok) return;
+      const data = await response.json() as { status: "PENDING" | "APPROVED" | "REVOKED"; token?: string };
+      if (data.status === "APPROVED") {
+        if (data.token) await invoke("set_setting_value", { key: "reader.device_token", value: data.token });
+        setDeviceToken((current) => data.token || current);
+        setDeviceStatus("approved");
+      } else if (data.status === "REVOKED") {
+        await invoke("clear_setting_value", { key: "reader.device_token" }).catch(() => undefined);
+        setDeviceToken("");
+        setDeviceStatus("revoked");
+      } else {
+        setDeviceStatus("pending");
+      }
+    } catch {
+      // offline: keep whatever we last knew locally
     }
+  }
+
+  async function registerDevice() {
+    const name = deviceNameInput.trim();
+    if (!name) return;
+    setDeviceError("");
+    try {
+      const id = await installationId();
+      const response = await fetch(`${API_BASE}/public/reader-devices/register`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ installationId: id, name }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      await invoke("set_setting_value", { key: "reader.device_name", value: name });
+      setDeviceName(name);
+      setDeviceStatus("pending");
+      void checkDeviceStatus();
+    } catch (error) {
+      setDeviceError(String(error));
+    }
+  }
+
+  async function forgetDevice() {
+    await invoke("clear_setting_value", { key: "reader.device_token" }).catch(() => undefined);
+    await invoke("clear_setting_value", { key: "reader.device_name" }).catch(() => undefined);
+    setDeviceToken(""); setDeviceName(""); setDeviceNameInput(""); setDeviceError("");
+    setDeviceStatus("unregistered");
   }
 
   async function syncRegistrations(eventId: string) {
     setRegistrationSyncStatus("Päivitetään ilmoittautuneita…");
     try {
       const response = await fetch(`${API_BASE}/public/events/${eventId}/reader-registrations`, { cache: "no-store", headers: authHeaders() });
-      if (response.status === 401) throw new Error("API-avain puuttuu tai on virheellinen");
+      if (response.status === 401) throw new Error("Lukijaa ei ole hyväksytty tai pääsy on peruutettu");
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const registrations = await response.json() as ApiRegistration[];
       const count = await invoke<number>("sync_event_registrations", { eventId, registrations });
@@ -256,6 +297,7 @@ function App() {
               firstName: read.firstName,
               lastName: read.lastName,
               clubName: read.club || undefined,
+              durationSeconds: read.manualDurationSeconds,
             }
           : {
               clientReference: `${clientId}:${read.id}`,
@@ -274,7 +316,7 @@ function App() {
           headers: authHeaders({ "content-type": "application/json" }),
           body: JSON.stringify(body),
         });
-        if (response.status === 401) throw new Error("API-avain puuttuu tai on virheellinen. Aseta se asetuksista.");
+        if (response.status === 401) throw new Error("Lukijaa ei ole hyväksytty tai pääsy on peruutettu. Tarkista Asetukset-paneelista.");
         if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
         await invoke("mark_card_read_sync", { readId: read.id, synced: true, error: null });
         setHistory((current) => current.map((item) => item.id === read.id ? { ...item, syncStatus: "SYNCED", syncError: undefined } : item));
@@ -292,6 +334,11 @@ function App() {
     event.preventDefault();
     if (!activeEvent) return;
     setManualError("");
+    let durationSeconds: number | null = null;
+    if (manualDuration.trim()) {
+      durationSeconds = parseDurationInput(manualDuration);
+      if (durationSeconds == null) { setManualError("Anna aika muodossa mm:ss tai h:mm:ss, esim. 38:42."); return; }
+    }
     try {
       await invoke("add_manual_result", {
         eventId: activeEvent.id,
@@ -300,11 +347,12 @@ function App() {
         lastName: manualLastName,
         club: manualClub || null,
         personId: manualPersonId,
+        durationSeconds,
       });
       const name = `${manualFirstName} ${manualLastName}`;
       closeManualEntry();
       await refreshHistory();
-      setStatus(`${name} lisätty tuloksiin ilman aikaa.`);
+      setStatus(durationSeconds != null ? `${name}: tulos ${formatDuration(durationSeconds)} tallennettu.` : `${name} lisätty tuloksiin ilman aikaa.`);
     } catch (error) {
       setManualError(String(error));
     }
@@ -312,7 +360,7 @@ function App() {
 
   function closeManualEntry() {
     setManualEntryOpen(false);
-    setManualQuery(""); setManualFirstName(""); setManualLastName(""); setManualClub(""); setManualCourseId("");
+    setManualQuery(""); setManualFirstName(""); setManualLastName(""); setManualClub(""); setManualCourseId(""); setManualDuration("");
     setManualPersonId(null); setManualSuggestions([]); setManualError("");
   }
 
@@ -407,9 +455,16 @@ function App() {
     void invoke<string | null>("reader_port_setting").then((port) => {
       if (port) setSelected(port);
     }).catch(() => undefined);
-    void invoke<string | null>("setting_value", { key: "reader.api_key" }).then((key) => {
-      if (key) { setApiKey(key); setApiKeyInput(key); }
-    }).catch(() => undefined);
+    void (async () => {
+      const [token, name] = await Promise.all([
+        invoke<string | null>("setting_value", { key: "reader.device_token" }).catch(() => null),
+        invoke<string | null>("setting_value", { key: "reader.device_name" }).catch(() => null),
+      ]);
+      if (token) { setDeviceToken(token); setDeviceStatus("approved"); }
+      else if (name) { setDeviceStatus("pending"); }
+      if (name) { setDeviceName(name); setDeviceNameInput(name); }
+      void checkDeviceStatus();
+    })();
   }, []);
 
   useEffect(() => {
@@ -417,6 +472,12 @@ function App() {
     const interval = window.setInterval(() => void syncRegistrations(activeEvent.id), 30_000);
     return () => window.clearInterval(interval);
   }, [activeEvent?.id]);
+
+  useEffect(() => {
+    if (deviceStatus === "unregistered") return;
+    const interval = window.setInterval(() => void checkDeviceStatus(), 2 * 60 * 60 * 1000);
+    return () => window.clearInterval(interval);
+  }, [deviceStatus]);
 
   useEffect(() => {
     if (!manualEntryOpen) { setManualSuggestions([]); return; }
@@ -495,7 +556,7 @@ function App() {
         {activeEvent ? <><div className="event-running"><div><span className="eyebrow">Tapahtuma käynnissä</span><h2>{activeEvent.name}</h2><p>{new Date(activeEvent.startsAt).toLocaleString("fi-FI")} · {activeEvent.locationName || "Paikka ei tiedossa"}</p><small>{registrationSyncStatus}</small></div><div className={`reader-badge ${reading ? "ok" : "error"}`}><span />{pendingCard ? "Kuittaus odottaa" : reading ? "Lukija OK" : "Lukija ei yhteydessä"}</div><button onClick={() => void stopEvent()}>Lopeta tapahtuma</button></div><div className="course-list"><strong>Radat</strong>{activeEvent.courses.length ? activeEvent.courses.map((course) => <span key={course.id}>{course.name} · {(course.lengthMeters / 1000).toLocaleString("fi-FI", { maximumFractionDigits: 1 })} km</span>) : <span>Ei julkaistuja ratoja</span>}</div></> : <div className="event-start"><div><span className="eyebrow">Valitse tapahtuma</span></div>{calendarLoading ? <p>Haetaan tapahtumia…</p> : calendarError ? <div><p className="error">{calendarError}</p><button onClick={() => void loadCalendar()}>Yritä uudelleen</button></div> : <><select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}><option value="">Valitse tapahtuma</option>{events.map((event) => <option key={event.id} value={event.id}>{new Date(event.startsAt).toLocaleDateString("fi-FI")} · {event.name}</option>)}</select><button className="primary" onClick={() => void startEvent()} disabled={!selectedEventId}>Valitse tapahtuma</button></>}</div>}
         {status && <p className="status">{status}</p>}
         <button className="settings-toggle" onClick={() => setSettingsOpen((value) => !value)} aria-expanded={settingsOpen}>{settingsOpen ? "⚙ Sulje" : "⚙ Asetukset"}</button>
-        {settingsOpen && <div className="reader-settings"><select value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading}><option value="">Valitse sarjaportti</option>{devices.map((device) => <option key={device.portName} value={device.portName}>{device.portName} – {device.product || device.manufacturer || device.portType}</option>)}</select><input className="port-input" value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading} placeholder="Sarjaportin polku" aria-label="Sarjaportin polku" /><button onClick={() => void refresh()} disabled={reading}>Päivitä portit</button><div className="api-key-row"><input type={apiKeyVisible ? "text" : "password"} className="api-key-input" value={apiKeyInput} onChange={(e) => setApiKeyInput(e.target.value)} placeholder="Lukijan API-avain" aria-label="Lukijan API-avain" autoComplete="off" /><button type="button" onClick={() => setApiKeyVisible((value) => !value)}>{apiKeyVisible ? "Piilota" : "Näytä"}</button><button onClick={() => void saveApiKey()} disabled={!apiKeyInput.trim() || apiKeyInput.trim() === apiKey}>{apiKeySaved ? "Tallennettu ✓" : "Tallenna avain"}</button></div></div>}
+        {settingsOpen && <div className="reader-settings"><select value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading}><option value="">Valitse sarjaportti</option>{devices.map((device) => <option key={device.portName} value={device.portName}>{device.portName} – {device.product || device.manufacturer || device.portType}</option>)}</select><input className="port-input" value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading} placeholder="Sarjaportin polku" aria-label="Sarjaportin polku" /><button onClick={() => void refresh()} disabled={reading}>Päivitä portit</button><div className="device-row">{deviceStatus === "unregistered" || deviceStatus === "revoked" ? <>{deviceStatus === "revoked" && <p className="error">Ylläpitäjä on peruuttanut tämän laitteen pääsyn. Rekisteröidy uudelleen.</p>}<input className="device-name-input" value={deviceNameInput} onChange={(e) => setDeviceNameInput(e.target.value)} placeholder="Laitteen nimi, esim. Kokkolan lukija #1" aria-label="Laitteen nimi" /><button onClick={() => void registerDevice()} disabled={!deviceNameInput.trim()}>Lähetä hyväksyntäpyyntö</button></> : deviceStatus === "pending" ? <><span>Odotetaan ylläpitäjän hyväksyntää (nimellä &quot;{deviceName}&quot;)…</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button></> : <><span className="device-approved">✓ Hyväksytty (nimellä &quot;{deviceName}&quot;)</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button><button type="button" onClick={() => void forgetDevice()}>Unohda laite</button></>}{deviceError && <p className="error">{deviceError}</p>}</div></div>}
       </section>
 
       {result && (
@@ -514,8 +575,8 @@ function App() {
       )}
 
       <section>
-        <div className="log-heading"><div><h2>Tulokset</h2><p>{history.length} viimeisintä tulosta</p></div><div className="log-heading-actions"><label className="log-search"><span className="sr-only">Hae tuloksista</span><input type="search" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Hae nimellä, seuralla tai kortilla…" /></label><button onClick={openManualEntry} disabled={!activeEvent}>+ Lisää kilpailija ilman aikaa</button></div></div>
-        {history.length === 0 ? <p>Ei tallennettuja tuloksia.</p> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Seura</th><th>Kortti</th><th>Tulos</th><th>Aika</th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td><time>{new Date(item.readAtMs).toLocaleString("fi-FI")}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="log-club">{item.club || "–"}</td><td className="card-number">{item.source === "MANUAL" ? "–" : item.cardNumber ?? "–"}</td><td><span className={`log-status ${item.resultStatus.toLowerCase()}`} title={item.syncStatus === "SYNCED" ? "Synkronoitu API:in" : item.syncError || "Odottaa synkronointia"}>{item.resultStatus === "OK" ? <><span aria-hidden="true">✓</span><span className="sr-only">OK</span></> : resultStatusLabel(item.resultStatus)} {item.syncStatus === "SYNCED" ? "☁" : "↻"}</span></td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : formatDuration(totalTime(item.punches))}</td></tr>)}</tbody></table></div></>}
+        <div className="log-heading"><div><h2>Tulokset</h2><p>{history.length} viimeisintä tulosta</p></div><div className="log-heading-actions"><label className="log-search"><span className="sr-only">Hae tuloksista</span><input type="search" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Hae nimellä, seuralla tai kortilla…" /></label><button onClick={openManualEntry} disabled={!activeEvent}>+ Syötä osanottoja</button></div></div>
+        {history.length === 0 ? <p>Ei tallennettuja tuloksia.</p> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Seura</th><th>Kortti</th><th>Tulos</th><th>Aika</th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td><time>{new Date(item.readAtMs).toLocaleString("fi-FI")}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="log-club">{item.club || "–"}</td><td className="card-number">{item.source === "MANUAL" ? "–" : item.cardNumber ?? "–"}</td><td><span className={`log-status ${item.resultStatus.toLowerCase()}`} title={item.syncStatus === "SYNCED" ? "Synkronoitu API:in" : item.syncError || "Odottaa synkronointia"}>{item.resultStatus === "OK" ? <><span aria-hidden="true">✓</span><span className="sr-only">OK</span></> : resultStatusLabel(item.resultStatus)} {item.syncStatus === "SYNCED" ? "☁" : "↻"}</span></td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : formatDuration(item.source === "MANUAL" ? item.manualDurationSeconds : totalTime(item.punches))}</td></tr>)}</tbody></table></div></>}
       </section>
 
       {pendingCard && (
@@ -536,7 +597,7 @@ function App() {
       {manualEntryOpen && activeEvent && (
         <div className="modal-backdrop" role="presentation">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="manual-title">
-            <h2 id="manual-title">Lisää kilpailija ilman aikaa</h2>
+            <h2 id="manual-title">Syötä osanottoja</h2>
             <form onSubmit={(event) => void saveManualResult(event)}>
               <div className="manual-search-field">
                 <label>Hae henkilöä<input autoFocus type="search" value={manualQuery} onChange={(event) => setManualQuery(event.target.value)} placeholder="Kirjoita vähintään 3 merkkiä…" autoComplete="off" /></label>
@@ -556,9 +617,10 @@ function App() {
               <label>Sukunimi<input required value={manualLastName} onChange={(event) => editManualName(setManualLastName, event.target.value)} autoComplete="off" /></label>
               <label>Seura<input value={manualClub} onChange={(event) => setManualClub(event.target.value)} disabled={manualPersonId != null} /></label>
               <label>Rata<select required value={manualCourseId} onChange={(event) => setManualCourseId(event.target.value)}><option value="">Valitse rata</option>{activeEvent.courses.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select></label>
+              <label>Aika (valinnainen)<input value={manualDuration} onChange={(event) => setManualDuration(event.target.value)} placeholder="esim. 38:42" autoComplete="off" /></label>
               {manualError && <p className="error">{manualError}</p>}
               <div className="confirm-actions">
-                <button className="primary" type="submit">Tallenna ilman aikaa</button>
+                <button className="primary" type="submit">{manualDuration.trim() ? "Tallenna tulos" : "Tallenna ilman aikaa"}</button>
                 <button type="button" onClick={closeManualEntry}>Peruuta</button>
               </div>
             </form>
@@ -581,6 +643,16 @@ function formatDuration(seconds?: number) {
   return hours > 0
     ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
     : `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
+function parseDurationInput(value: string): number | null {
+  const parts = value.trim().split(":");
+  if (parts.length < 2 || parts.length > 3 || parts.some((part) => !/^\d+$/.test(part))) return null;
+  const numbers = parts.map(Number);
+  const seconds = numbers.length === 3
+    ? numbers[0] * 3600 + numbers[1] * 60 + numbers[2]
+    : numbers[0] * 60 + numbers[1];
+  return seconds > 0 ? seconds : null;
 }
 
 function totalTime(punches: ProbeResult["punches"]) {

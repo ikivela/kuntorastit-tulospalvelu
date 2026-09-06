@@ -1,26 +1,37 @@
-# EMIT 250 / Tauri proof of concept
+# Maanantairastit Client
 
-Tämän kokeen tarkoitus on varmistaa, että Maanantairastien desktop-client voidaan toteuttaa Tauri 2:lla siten, että EMIT 250 -lukija toimii natiivin sarjaportin kautta sekä Windowsissa että Linuxissa ilman WebSerial-riippuvuutta.
+Desktop-client (Tauri 2 + React) rastihenkilökunnalle: lukee EMIT 250
+-leimauskortteja natiivin sarjaportin kautta Windowsissa, Linuxissa ja
+macOS:ssa, ja synkronoi tulokset Maanantairastien REST API:in.
 
-## Mitä PoC tekee
+## Ominaisuudet
 
-- listaa käyttöjärjestelmän sarjaportit ja USB VID/PID -tiedot
-- avaa valitun portin EMIT 250 -asetuksilla: 9600 baud, 8 data bits, no parity, 2 stop bits
-- kuuntelee raakadataa jatkuvasti, kunnes käyttäjä lopettaa kuuntelun
-- tekee EMITin käyttämän XOR-muunnoksen (0xDF)
-- etsii 217 tavun EMIT 250 -kehyksen
-- näyttää kortin numeron, jos kokonainen kehys löytyy
-- tallentaa kortinlukemat ja rastileimat paikalliseen SQLite-tietokantaan
+- listaa käyttöjärjestelmän sarjaportit ja avaa valitun portin EMIT 250
+  -asetuksilla (9600 baud, 8 data bits, no parity, 2 stop bits)
+- purkaa EMITin XOR-koodatun (0xDF) 217 tavun kehyksen: kortin numero,
+  valmistuspäivä ja rastileimat ajoista
+- hakee tapahtumakalenterin ja ilmoittautuneet API:sta tapahtuman
+  käynnistyessä, ja tallentaa ne paikalliseen SQLite-tietokantaan
+  (`reader.sqlite3`, käyttöjärjestelmän sovellusdatahakemistossa)
+- validoi luetun kortin radan rasteja vasten (hyväksytty / hylätty / rasti
+  puuttuu) ja synkronoi tuloksen API:in heti kuittauksen jälkeen
+- **Syötä osanottoja**: manuaalinen tuloslisäys niille, joilla ei ole
+  EMIT-korttia tai lukema epäonnistui — hakuboxi (`Hae henkilöä`) etsii jo
+  tunnetuista osallistujista, ja tulokselle voi valinnaisesti syöttää ajan
+  käsin (esim. sekuntikellolla otetun ajan); ilman aikaa jätetty tulos
+  merkitään "ilman aikaa"
+- toimii offline: lukemat ja manuaaliset lisäykset jäävät paikalliseen kantaan
+  `PENDING`-tilaan ja synkronoituvat automaattisesti kun API on taas
+  tavoitettavissa
+- Bearer-token-suojaus API:n lukijakohtaisiin rajapintoihin (ks. alla)
 
-Tietokanta luodaan automaattisesti käyttöjärjestelmän sovellusdatahakemistoon
-nimellä `reader.sqlite3`. Client näyttää käytössä olevan tiedoston polun sekä 20
-viimeisintä lukutapahtumaa.
+Tämä ei vielä validoi EMITin virallista tarkistussummaa. Nykyinen
+kehystunnistus hyväksyy siis vain rakenteellisesti oikean 217 tavun kehyksen.
 
-Tämä ei vielä validoi tarkistussummia eikä pura rasteja/aikoja. Nykyinen kehystunnistus osoittaa siksi vain mahdollisen EMIT 250 -kehyksen. Täysi validointi lisätään, kun fyysisellä lukijalla saatuja näytteitä on käytettävissä.
+## Käynnistys (kehitys)
 
-## Käynnistys
-
-Tarvitset Node.js:n, Rustin ja Tauri 2:n käyttöjärjestelmäkohtaiset prerequisite-paketit.
+Tarvitset Node.js 22:n, Rustin ja Tauri 2:n käyttöjärjestelmäkohtaiset
+prerequisite-paketit (ks. [Taurin ohjeet](https://v2.tauri.app/start/prerequisites/)).
 
 ```bash
 cd clients/maanantairastit-client
@@ -28,9 +39,53 @@ npm install
 npm run tauri dev
 ```
 
-Tuotantobuild tehdään komennolla `npm run tauri build`. macOS:ssa tuloksena on `.app`; Windowsissa ja Linuxissa Tauri käyttää alustan normaaleja pakettityyppejä.
+Client odottaa API:a osoitteessa `http://localhost:3001/api/v1` — käynnistä
+se ensin repon juuresta: `docker compose -f compose.api.yaml up --build`.
 
-Liitä EMIT 250 USB:llä, valitse listasta oikea portti, paina **Käynnistä kuuntelu**, aseta kortti lukijaan ja lopeta kuuntelu **Lopeta kuuntelu** -painikkeella.
+## Laitteen hyväksyntä (kirjautuminen)
+
+Lukijan omat rajapinnat (`reader-results`, `manual-results`,
+`reader-registrations`, `persons/search`) vaativat hyväksytyn laitteen
+bearer-tokenin; julkinen kalenteri ja tulossivu eivät.
+
+Kirjautuminen toimii samalla periaatteella kuin esim. `gh auth login` tai
+älytelevision sovelluskirjautuminen:
+
+1. Avaa clientissä **⚙ Lukijan asetukset**, anna laitteelle nimi (esim.
+   "Kokkolan lukija #1") ja paina **Lähetä hyväksyntäpyyntö**.
+2. Ylläpitäjä hyväksyy laitteen admin-UI:n **Lukijalaitteet**-näkymästä
+   (`/admin` → Lukijalaitteet).
+3. Client saa tokenin automaattisesti heti kun se on hyväksytty — se
+   tarkistaa tilan taustalla eikä vaadi mitään toimenpiteitä. Halutessaan voi
+   painaa **Tarkista nyt** nopeuttaakseen tätä.
+
+Ylläpitäjä näkee kunkin laitteen viimeisimmän käyttöajan ja voi perua
+yksittäisen laitteen pääsyn milloin tahansa (**Peru pääsy**) — esim. jos
+kannettava katoaa tai vaihtaa käyttäjää. Peruttu laite voi rekisteröityä
+uudelleen samalla nimellä ja odottaa uutta hyväksyntää.
+
+## Tuotantobuild
+
+Paikallisesti: `npm run tauri build` (macOS: `.app`/`.dmg`; Windows/Linux
+käyttävät alustan normaaleja pakettityyppejä `.msi`, `.deb`, `.rpm`,
+`.AppImage`).
+
+GitHub Actions (`.github/workflows/client-build.yml`) buildaa Windows- ja
+Linux-versiot automaattisesti jokaisesta pushista/PR:stä jotka koskettavat
+tätä hakemistoa, sekä manuaalisesti ajettuna (`workflow_dispatch`). Buildit
+löytyvät ajon liitteistä (artifacts) Actions-välilehdeltä.
+
+## Testidatan generointi
+
+`tools/generate_dummy.py` lisää satunnaisia osallistujia paikalliseen
+SQLite-kantaan, jotta korttihakua ja "Syötä osanottoja" -hakuboxia voi
+testata ilman oikeita ilmoittautumisia:
+
+```bash
+python3 tools/generate_dummy.py                    # 100 osallistujaa oletus-DB:hen
+python3 tools/generate_dummy.py --count 20 --seed 1 # toistettava pienempi erä
+python3 tools/generate_dummy.py --event-id <uuid> --course-id <uuid>  # sido tapahtumaan/rataan
+```
 
 ## Fyysisen sarjaportin korttiemulaattori
 
@@ -66,9 +121,8 @@ Hyväksytty käyttää E-radan koodeja
 Valitse sama portti clientissä ja käynnistä kuuntelu. Oletuksena sama kortti
 lähetetään kolmen sekunnin välein; yhden kehyksen testin saa komennolla `--once`.
 
-Emulaattori tuottaa tämän PoC:n 217 tavun XOR-kehyksen. Se ei emuloi vielä EMITin virallista tarkistussummaa tai täydellistä kilpailukortin sisältöä.
-
-## Linux
+Emulaattori tuottaa 217 tavun XOR-kehyksen. Se ei emuloi vielä EMITin
+virallista tarkistussummaa tai täydellistä kilpailukortin sisältöä.
 
 ## FTDI-kaapeliyhteyden testaus
 
@@ -83,15 +137,12 @@ python3 tools/test_serial_link.py \
 Testi lähettää tunnisteet molempiin suuntiin ja raportoi `OK`, jos ne palaavat
 toiselle portille. Molemmat suunnat sekä yhteinen GND on kytkettävä.
 
-Käyttäjällä pitää olla oikeus sarjaporttiin (tyypillisesti `/dev/ttyUSB*` tai `/dev/ttyACM*`). Jakelusta riippuen tämä tarkoittaa esimerkiksi jäsenyyttä `dialout`-ryhmässä tai udev-sääntöä.
+Käyttäjällä pitää olla oikeus sarjaporttiin (tyypillisesti `/dev/ttyUSB*` tai
+`/dev/ttyACM*`). Jakelusta riippuen tämä tarkoittaa esimerkiksi jäsenyyttä
+`dialout`-ryhmässä tai udev-sääntöä.
 
-## Onnistumiskriteeri
+## Seuraavaksi
 
-PoC hyväksytään, kun samalla lähdekoodilla:
-
-1. EMIT 250 näkyy porttilistassa Windowsissa.
-2. Kortin numero saadaan luettua Windowsissa.
-3. EMIT 250 näkyy porttilistassa Linuxissa.
-4. Kortin numero saadaan luettua Linuxissa.
-
-Tämän jälkeen seuraava vaihe on siirtää EMIT 250:n täysi parseri Rustiin ja tehdä yleinen `PunchCardReader`-rajapinta.
+EMIT 250:n virallinen tarkistussumma ja täysi rastikoodien validointi, sekä
+yleinen `PunchCardReader`-rajapinta muille leimausjärjestelmille (esim.
+SportIdent).

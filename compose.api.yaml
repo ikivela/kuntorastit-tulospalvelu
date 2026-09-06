@@ -20,7 +20,6 @@ services:
     environment:
       DATABASE_URL: postgresql://maanantairastit:maanantairastit@postgres:5432/maanantairastit
       PORT: 3001
-      READER_API_KEY: ${READER_API_KEY:-maanantairastit-reader-dev-key}
     ports:
       - "3001:3001"
     depends_on:

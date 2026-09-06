@@ -88,7 +88,7 @@ mod tests {
             SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
         ));
         let database = Database::open(path.clone()).unwrap();
-        let read_id = database.add_manual_result("event-1", Some("course-1"), "Maija", "Meikäläinen", Some("MR"), Some("person-uuid-1")).unwrap();
+        let read_id = database.add_manual_result("event-1", Some("course-1"), "Maija", "Meikäläinen", Some("MR"), Some("person-uuid-1"), None).unwrap();
         let history = database.recent_reads("event-1", 20).unwrap();
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].id, read_id);
@@ -96,9 +96,14 @@ mod tests {
         assert_eq!(history[0].result_status, "NO_TIME");
         assert_eq!(history[0].source, "MANUAL");
         assert_eq!(history[0].person_id.as_deref(), Some("person-uuid-1"));
+        assert_eq!(history[0].manual_duration_seconds, None);
         assert!(history[0].card_number.unwrap() >= MANUAL_CARD_NUMBER_BASE);
-        let second_id = database.add_manual_result("event-1", Some("course-1"), "Pekka", "Peloton", None, None).unwrap();
+        let second_id = database.add_manual_result("event-1", Some("course-1"), "Pekka", "Peloton", None, None, Some(2322)).unwrap();
         assert_ne!(read_id, second_id);
+        let history = database.recent_reads("event-1", 20).unwrap();
+        let pekka = history.iter().find(|item| item.id == second_id).unwrap();
+        assert_eq!(pekka.result_status, "OK");
+        assert_eq!(pekka.manual_duration_seconds, Some(2322));
         drop(database);
         let _ = std::fs::remove_file(path);
     }
@@ -126,6 +131,7 @@ pub struct StoredCardRead {
     pub sync_error: Option<String>,
     pub source: String,
     pub person_id: Option<String>,
+    pub manual_duration_seconds: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -253,6 +259,7 @@ impl Database {
             ("sync_error", "TEXT"),
             ("source", "TEXT NOT NULL DEFAULT 'EMIT'"),
             ("person_id", "TEXT"),
+            ("manual_duration_seconds", "INTEGER"),
         ] {
             let exists = connection
                 .prepare("PRAGMA table_info(card_reads)")
@@ -317,6 +324,14 @@ impl Database {
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at_ms = excluded.updated_at_ms",
                 params![key, value, updated_at_ms],
             )
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
+
+    pub fn clear_setting(&self, key: &str) -> Result<(), String> {
+        let connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
+        connection
+            .execute("DELETE FROM settings WHERE key = ?1", [key])
             .map_err(|error| error.to_string())?;
         Ok(())
     }
@@ -462,13 +477,16 @@ impl Database {
     }
 
     /// Adds a participant directly to the results without a card read, e.g. when
-    /// someone should be listed without a time. Allocates a local-only
+    /// the reader missed them or they need to be entered by hand. If
+    /// `duration_seconds` is given the result is stored as an accepted time
+    /// (`OK`); otherwise it is stored as `NO_TIME`. Allocates a local-only
     /// placeholder card number to satisfy the participants table constraint;
     /// this number is never sent to the API.
-    pub fn add_manual_result(&self, event_id: &str, course_id: Option<&str>, first_name: &str, last_name: &str, club: Option<&str>, person_id: Option<&str>) -> Result<i64, String> {
+    pub fn add_manual_result(&self, event_id: &str, course_id: Option<&str>, first_name: &str, last_name: &str, club: Option<&str>, person_id: Option<&str>, duration_seconds: Option<i64>) -> Result<i64, String> {
         if first_name.trim().is_empty() || last_name.trim().is_empty() {
             return Err("Etunimi ja sukunimi ovat pakollisia.".into());
         }
+        let result_status = if duration_seconds.is_some() { "OK" } else { "NO_TIME" };
         let mut connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
         let transaction = connection.transaction().map_err(|error| error.to_string())?;
         let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_millis() as i64;
@@ -493,9 +511,9 @@ impl Database {
         transaction.execute(
             "INSERT INTO card_reads
              (event_id, course_id, participant_id, card_number, port_name, bytes_received, frame_found, raw_hex,
-              result_status, sync_status, source, person_id, read_at_ms)
-             VALUES (?1, ?2, ?3, ?4, 'manual', 0, 0, '', 'NO_TIME', 'PENDING', 'MANUAL', ?5, ?6)",
-            params![event_id, course_id, participant_id, next_card_number, person_id, now_ms],
+              result_status, sync_status, source, person_id, manual_duration_seconds, read_at_ms)
+             VALUES (?1, ?2, ?3, ?4, 'manual', 0, 0, '', ?5, 'PENDING', 'MANUAL', ?6, ?7, ?8)",
+            params![event_id, course_id, participant_id, next_card_number, result_status, person_id, duration_seconds, now_ms],
         ).map_err(|error| error.to_string())?;
         let read_id = transaction.last_insert_rowid();
         transaction.commit().map_err(|error| error.to_string())?;
@@ -580,7 +598,7 @@ impl Database {
             .prepare(
                 "SELECT r.id, r.event_id, r.course_id, r.card_number, r.port_name, r.read_at_ms, r.production_week,
                         r.production_year, p.id, p.first_name, p.last_name, p.club,
-                        r.result_status, r.sync_status, r.sync_error, r.source, r.person_id
+                        r.result_status, r.sync_status, r.sync_error, r.source, r.person_id, r.manual_duration_seconds
                  FROM card_reads r JOIN participants p ON p.id = r.participant_id
                  WHERE r.event_id = ?1
                  ORDER BY r.read_at_ms DESC LIMIT ?2",
@@ -608,6 +626,7 @@ impl Database {
                     sync_error: row.get(14)?,
                     source: row.get(15)?,
                     person_id: row.get(16)?,
+                    manual_duration_seconds: row.get(17)?,
                 })
             })
             .map_err(|error| error.to_string())?;

@@ -27,8 +27,10 @@ button:disabled { opacity: .5; cursor: default; }
 .reader-badge.error span { background: #d84a3b; }
 .settings-toggle { margin-top: 14px; border: 0; padding-left: 0; color: #4d596d; background: transparent; }
 .reader-settings { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding-top: 14px; border-top: 1px solid #edf0f3; }
-.api-key-row { flex-basis: 100%; display: flex; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #edf0f3; }
-.api-key-input { flex: 1; min-width: 260px; }
+.device-row { flex-basis: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #edf0f3; }
+.device-name-input { flex: 1; min-width: 260px; }
+.device-approved { color: #116329; font-weight: 650; }
+.device-row .error { flex-basis: 100%; margin: 0; }
 .course-list { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 16px; padding-top: 14px; border-top: 1px solid #edf0f3; }
 .course-list span { border-radius: 999px; background: #edf5ef; color: #244b30; padding: 6px 10px; font-size: .88rem; font-weight: 650; }
 .device { display: grid; grid-template-columns: 1fr 1.5fr 1fr; gap: 12px; padding: 10px 0; border-top: 1px solid #edf0f3; }

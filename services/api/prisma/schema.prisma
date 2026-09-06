@@ -72,6 +72,32 @@ model AdminUser {
   @@map("admin_user")
 }
 
+enum ReaderDeviceStatus {
+  PENDING
+  APPROVED
+  REVOKED
+}
+
+/// A physical reader-client installation. Registers itself (pending), an
+/// admin approves it, and only then does it receive a bearer token — see
+/// services/api/src/reader-devices.
+model ReaderDevice {
+  id             String             @id @default(uuid()) @db.Uuid
+  installationId String             @unique @map("installation_id")
+  name           String
+  status         ReaderDeviceStatus @default(PENDING)
+  /// SHA-256 hex of the active token; null until approved.
+  tokenHash      String?            @unique @map("token_hash")
+  /// Plaintext token, held only until the device's first authenticated
+  /// request so a dropped status poll can safely retry.
+  pendingToken   String?            @map("pending_token")
+  requestedAt    DateTime           @default(now()) @map("requested_at")
+  approvedAt     DateTime?          @map("approved_at")
+  revokedAt      DateTime?          @map("revoked_at")
+  lastSeenAt     DateTime?          @map("last_seen_at")
+  @@map("reader_device")
+}
+
 model EventSeries {
   id          String   @id @default(uuid()) @db.Uuid
   name        String

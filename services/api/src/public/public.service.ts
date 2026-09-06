@@ -238,13 +238,18 @@ export class PublicService {
         update: {},
         create: { eventId, personId: person.id },
       });
+      const readAt = new Date();
+      const durationMs = input.durationSeconds != null ? input.durationSeconds * 1000 : null;
       const performance = await tx.performance.create({
         data: {
           attendanceId: attendance.id,
           courseId: course.id,
           source: "ONSITE",
-          status: "NO_TIME",
-          readAt: new Date(),
+          status: durationMs != null ? "ACCEPTED" : "NO_TIME",
+          startedAt: durationMs != null ? new Date(readAt.getTime() - durationMs) : null,
+          finishedAt: durationMs != null ? readAt : null,
+          durationMs: durationMs != null ? BigInt(durationMs) : null,
+          readAt,
         },
       });
       return { performanceId: performance.id, participant: `${person.firstName} ${person.lastName}` };
