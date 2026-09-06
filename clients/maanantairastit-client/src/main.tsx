@@ -469,9 +469,13 @@ function App() {
 
   useEffect(() => {
     if (!activeEvent) return;
+    // Re-created whenever deviceToken changes too, so a token acquired after
+    // the event started (e.g. approved while running) is picked up on the
+    // very next sync instead of being stuck with the stale closure's token.
+    void syncRegistrations(activeEvent.id);
     const interval = window.setInterval(() => void syncRegistrations(activeEvent.id), 30_000);
     return () => window.clearInterval(interval);
-  }, [activeEvent?.id]);
+  }, [activeEvent?.id, deviceToken]);
 
   useEffect(() => {
     if (deviceStatus === "unregistered") return;
