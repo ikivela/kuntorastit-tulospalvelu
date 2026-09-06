@@ -1,14 +1,22 @@
-:root { font-family: Inter, system-ui, sans-serif; color: #172033; background: #f4f6f8; }
+:root {
+  font-family: Inter, system-ui, sans-serif;
+  color: #172033;
+  background: #f4f6f8;
+  /* Fluid type scale: text (and everything sized in rem) grows with the
+     window/screen width instead of staying pinned to a fixed px size. */
+  font-size: clamp(14px, calc(10px + 0.56vw), 19px);
+}
 body { margin: 0; }
-main { max-width: 850px; margin: 0 auto; padding: 32px; }
+main { max-width: 850px; margin: 0 auto; padding: 14px 20px; }
 h1 { margin-bottom: 4px; }
 h2 { margin: 4px 0 8px; }
+h4 { margin: 0 0 2px; }
 .lead { margin-top: 0; color: #5b6578; }
 .eyebrow { color: #687386; font-size: .72rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
-.build-version { margin-top: 6px; color: #7a8494; font-size: 0.8rem; }
-section { background: white; border: 1px solid #dfe3e8; border-radius: 12px; padding: 20px; margin-top: 20px; }
+.build-version { margin-top: 2px; margin-bottom: 0; color: #7a8494; font-size: 0.8rem; }
+section { background: white; border: 1px solid #dfe3e8; border-radius: 12px; padding: 14px 16px; margin-top: 12px; }
 .toolbar { display: flex; gap: 10px; flex-wrap: wrap; }
-select, input, button { font: inherit; padding: 9px 12px; border: 1px solid #bdc5d0; border-radius: 7px; background: white; }
+select, input, button { font: inherit; padding: 0.56em 0.75em; border: 1px solid #bdc5d0; border-radius: 7px; background: white; }
 select { flex: 1; min-width: 260px; }
 .port-input { flex: 1; min-width: 260px; }
 button { cursor: pointer; }
@@ -26,12 +34,12 @@ button:disabled { opacity: .5; cursor: default; }
 .reader-badge.error { color: #8b2c22; background: #fff0ee; }
 .reader-badge.error span { background: #d84a3b; }
 .settings-toggle { margin-top: 14px; border: 0; padding-left: 0; color: #4d596d; background: transparent; }
-.reader-settings { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding-top: 14px; border-top: 1px solid #edf0f3; }
+.reader-settings { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; padding-top: 10px; border-top: 1px solid #edf0f3; }
 .device-row { flex-basis: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #edf0f3; }
 .device-name-input { flex: 1; min-width: 260px; }
 .device-approved { color: #116329; font-weight: 650; }
 .device-row .error { flex-basis: 100%; margin: 0; }
-.course-list { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 16px; padding-top: 14px; border-top: 1px solid #edf0f3; }
+.course-list { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px solid #edf0f3; }
 .course-list span { border-radius: 999px; background: #edf5ef; color: #244b30; padding: 6px 10px; font-size: .88rem; font-weight: 650; }
 .device { display: grid; grid-template-columns: 1fr 1.5fr 1fr; gap: 12px; padding: 10px 0; border-top: 1px solid #edf0f3; }
 .device:first-of-type { border-top: 0; }
@@ -47,7 +55,7 @@ pre { overflow: auto; white-space: pre-wrap; word-break: break-all; background: 
 .log-search input { width: 100%; box-sizing: border-box; }
 .log-result-count { margin-top: 12px; color: #7a8494; font-size: .78rem; text-align: right; }
 .log-empty { border: 1px dashed #d7dde5; border-radius: 10px; margin-top: 14px; padding: 24px; color: #687386; text-align: center; }
-.log-table-wrap { max-height: 278px; margin-top: 6px; overflow: auto; border: 1px solid #e3e7ec; border-radius: 10px; scrollbar-gutter: stable; }
+.log-table-wrap { max-height: clamp(240px, 55vh, 560px); margin-top: 6px; overflow: auto; border: 1px solid #e3e7ec; border-radius: 10px; scrollbar-gutter: stable; }
 .log-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .log-table th { position: sticky; top: 0; z-index: 1; background: #f4f6f8; color: #5b6578; font-size: .72rem; letter-spacing: .05em; text-align: left; text-transform: uppercase; }
 .log-table th, .log-table td { border-bottom: 1px solid #edf0f3; padding: 11px 13px; white-space: nowrap; }
