@@ -330,6 +330,17 @@ export class PublicService {
     });
     if (!event) throw new NotFoundException("Tapahtumaa ei löytynyt.");
 
+    const personIds = new Set<string>();
+    for (const course of event.courses) for (const performance of course.performances) personIds.add(performance.attendance.personId);
+    const seasonEvents = await this.prisma.event.findMany({ where: { seasonId: event.seasonId }, select: { id: true } });
+    const attendanceCounts = personIds.size === 0
+      ? new Map<string, number>()
+      : await this.prisma.attendance.groupBy({
+          by: ["personId"],
+          where: { personId: { in: [...personIds] }, eventId: { in: seasonEvents.map((seasonEvent) => seasonEvent.id) } },
+          _count: { _all: true },
+        }).then((rows) => new Map(rows.map((row) => [row.personId, row._count._all])));
+
     return {
       id: event.id,
       name: event.name,
@@ -363,6 +374,7 @@ export class PublicService {
               firstName: performance.attendance.person.firstName,
               lastName: performance.attendance.person.lastName,
               clubName: performance.attendance.person.club?.name ?? null,
+              attendanceCount: attendanceCounts.get(performance.attendance.personId) ?? 0,
               status: performance.status,
               durationMs: performance.durationMs == null ? null : Number(performance.durationMs),
               readAt: performance.readAt,

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { AlertCircle, ArrowLeft, CheckCircle2, Clock3, Loader2, MapPin, RotateCcw, Trophy } from "lucide-react";
+import { AlertCircle, ArrowLeft, Clock3, Loader2, MapPin, RotateCcw, Trophy } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import { SITE_NAME } from "@/lib/site";
 
 const apiBase = "http://localhost:3001/api/v1";
 type ResultStatus = "PENDING" | "ACCEPTED" | "DISQUALIFIED" | "NO_TIME" | "DID_NOT_FINISH";
-type EventResult = { id: string; rank: number | null; firstName: string; lastName: string; clubName: string | null; status: ResultStatus; durationMs: number | null };
+type EventResult = { id: string; rank: number | null; firstName: string; lastName: string; clubName: string | null; attendanceCount: number; status: ResultStatus; durationMs: number | null };
 type ResultCourse = { id: string; name: string; lengthMeters: number; results: EventResult[] };
 type ResultEvent = { id: string; name: string; locationName: string | null; startsAt: string; endsAt: string; updatedAt: string; courses: ResultCourse[] };
 
@@ -51,18 +51,29 @@ export default function ResultsPage() {
 }
 
 function CourseResults({ course }: { course: ResultCourse }) {
-  return <Card className="overflow-hidden rounded-3xl"><CardHeader className="flex flex-row items-end justify-between border-b bg-muted/35"><div><p className="eyebrow">Rata</p><CardTitle className="mt-1 text-2xl">{course.name}</CardTitle></div><span className="text-sm font-semibold text-muted-foreground">{formatDistance(course.lengthMeters)} · {course.results.length} tulosta</span></CardHeader><CardContent className="p-0"><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead className="w-16 text-right">Sija</TableHead><TableHead>Nimi</TableHead><TableHead>Seura</TableHead><TableHead>Tulos</TableHead><TableHead className="text-right">Aika</TableHead></TableRow></TableHeader><TableBody>{course.results.map((result) => <TableRow key={result.id}><TableCell className="text-right font-bold tabular-nums">{result.rank ?? "–"}</TableCell><TableCell className="font-bold">{result.firstName} {result.lastName}</TableCell><TableCell className="text-muted-foreground">{result.clubName || "–"}</TableCell><TableCell><ResultBadge status={result.status} /></TableCell><TableCell className="text-right font-black tabular-nums">{result.status === "ACCEPTED" ? formatDuration(result.durationMs) : "–"}</TableCell></TableRow>)}</TableBody></Table></div></CardContent></Card>;
+  const winnerDurationMs = course.results.find((result) => result.rank === 1)?.durationMs ?? null;
+  return <Card className="overflow-hidden rounded-3xl"><CardHeader className="flex flex-row items-end justify-between border-b bg-muted/35"><div><p className="eyebrow">Rata</p><CardTitle className="mt-1 text-2xl">{course.name}</CardTitle></div><span className="text-sm font-semibold text-muted-foreground">{formatDistance(course.lengthMeters)} · {course.results.length} tulosta</span></CardHeader><CardContent className="p-0"><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead className="w-16 text-right">Sija</TableHead><TableHead>Nimi</TableHead><TableHead>Seura</TableHead><TableHead className="text-right">Tulos</TableHead><TableHead className="text-right">Ero kärkeen</TableHead><TableHead className="text-right">Vauhti</TableHead><TableHead className="text-right">Osallistumiskerrat</TableHead></TableRow></TableHeader><TableBody>{course.results.map((result) => <TableRow key={result.id}><TableCell className="text-right font-bold tabular-nums">{result.rank ?? "–"}</TableCell><TableCell className="font-bold">{result.firstName} {result.lastName}</TableCell><TableCell className="text-muted-foreground">{result.clubName || "–"}</TableCell><TableCell className="text-right"><ResultOutcome status={result.status} durationMs={result.durationMs} /></TableCell><TableCell className="text-right tabular-nums text-muted-foreground">{formatGap(result.durationMs, winnerDurationMs)}</TableCell><TableCell className="text-right tabular-nums text-muted-foreground">{formatPace(result.durationMs, course.lengthMeters)}</TableCell><TableCell className="text-right tabular-nums text-muted-foreground">{result.attendanceCount}</TableCell></TableRow>)}</TableBody></Table></div></CardContent></Card>;
 }
 
-function ResultBadge({ status }: { status: ResultStatus }) {
-  if (status === "ACCEPTED") return <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100"><CheckCircle2 className="mr-1 size-3" />Hyväksytty</Badge>;
-  if (status === "NO_TIME") return <Badge variant="secondary">Ilman aikaa</Badge>;
-  if (status === "DID_NOT_FINISH") return <Badge variant="destructive">Keskeyttänyt</Badge>;
-  if (status === "DISQUALIFIED") return <Badge variant="destructive">Hylätty</Badge>;
-  return <Badge variant="outline">Odottaa</Badge>;
+function ResultOutcome({ status, durationMs }: { status: ResultStatus; durationMs: number | null }) {
+  if (status === "ACCEPTED") return <span className="font-black tabular-nums">{formatDuration(durationMs)}</span>;
+  if (status === "NO_TIME") return <span className="font-semibold text-muted-foreground">Ei aikaa</span>;
+  if (status === "DISQUALIFIED") return <span className="font-semibold text-destructive">Leima puuttuu</span>;
+  if (status === "DID_NOT_FINISH") return <span className="font-semibold text-destructive">Keskeyttänyt</span>;
+  return <span className="font-semibold text-muted-foreground">Odottaa</span>;
 }
 
 function ResultsSkeleton() { return <div className="mx-auto max-w-6xl space-y-6 px-5 py-10 lg:px-8"><Skeleton className="h-12 w-80 max-w-full" /><Skeleton className="h-52 rounded-3xl" /><Skeleton className="h-52 rounded-3xl" /></div>; }
 function formatDate(value: string) { return new Intl.DateTimeFormat("fi-FI", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date(value)); }
 function formatDistance(meters: number) { return `${(meters / 1000).toLocaleString("fi-FI", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`; }
+function formatGap(durationMs: number | null, winnerDurationMs: number | null) {
+  if (durationMs == null || winnerDurationMs == null) return "–";
+  const gapMs = durationMs - winnerDurationMs;
+  if (gapMs <= 0) return "–";
+  return `+${formatDuration(gapMs)}`;
+}
+function formatPace(durationMs: number | null, lengthMeters: number) {
+  if (durationMs == null || lengthMeters <= 0) return "–";
+  return `${formatDuration(durationMs / (lengthMeters / 1000))} /km`;
+}
 function formatDuration(milliseconds: number | null) { if (milliseconds == null) return "–"; const seconds = Math.floor(milliseconds / 1000); const hours = Math.floor(seconds / 3600); const minutes = Math.floor((seconds % 3600) / 60); const remainder = seconds % 60; return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}` : `${minutes}:${String(remainder).padStart(2, "0")}`; }

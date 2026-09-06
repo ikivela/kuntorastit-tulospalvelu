@@ -106,7 +106,7 @@ function formatEventDate(value: string) {
 }
 
 function performanceStatusLabel(status: PerformanceStatus) {
-  return ({ ACCEPTED: "—", PENDING: "Kesken", DISQUALIFIED: "Hylätty", NO_TIME: "Ilman aikaa", DID_NOT_FINISH: "Ei maalissa" } as const)[status];
+  return ({ ACCEPTED: "—", PENDING: "Kesken", DISQUALIFIED: "Leima puuttuu", NO_TIME: "Ilman aikaa", DID_NOT_FINISH: "Ei maalissa" } as const)[status];
 }
 
 function formatPerformanceDuration(ms: number | null) {
