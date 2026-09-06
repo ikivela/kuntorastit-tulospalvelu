@@ -2,6 +2,11 @@ import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { IsInt, IsOptional, IsString, IsUUID, Length, Max, MaxLength, Min } from "class-validator";
 
 export class CreateManualResultDto {
+  @ApiProperty({ description: "Clientin pysyvä, idempotentti lukutunniste" })
+  @IsString()
+  @Length(1, 200)
+  clientReference!: string;
+
   @ApiProperty({ format: "uuid" })
   @IsUUID()
   courseId!: string;

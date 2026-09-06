@@ -322,6 +322,10 @@ model Performance {
   durationMs             BigInt?           @map("duration_ms")
   readAt                 DateTime?         @map("read_at")
   disqualificationReason String?           @map("disqualification_reason")
+  /// Idempotency key for manually-entered results (see CardRead.clientReference
+  /// for the EMIT equivalent); lets a client safely retry the same local
+  /// queued entry without creating a duplicate result.
+  clientReference        String?           @unique @map("client_reference")
   version                Int               @default(1)
   punches                Punch[]
   cardReads              CardRead[]

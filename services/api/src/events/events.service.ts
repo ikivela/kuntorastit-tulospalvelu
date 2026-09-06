@@ -10,6 +10,34 @@ export class EventsService {
   constructor(private readonly prisma: PrismaService) {}
   list() { return this.prisma.event.findMany({ include: { courses: { orderBy: { sortOrder: "asc" } }, season: { select: { name: true, year: true } }, _count: { select: { registrations: { where: { status: "ACTIVE" } } } } }, orderBy: { startsAt: "asc" } }).then((events) => events.map(({ _count, ...event }) => ({ ...event, registrationCount: _count.registrations }))); }
   seasons() { return this.prisma.season.findMany({ select: { id: true, name: true, year: true }, orderBy: { year: "desc" } }); }
+  async seasonAttendanceSummary(seasonId: string) {
+    const season = await this.prisma.season.findUnique({
+      where: { id: seasonId },
+      select: {
+        id: true,
+        name: true,
+        year: true,
+        rewards: { orderBy: { requiredAttendances: "asc" }, select: { id: true, name: true, requiredAttendances: true } },
+        events: { select: { id: true } },
+      },
+    });
+    if (!season) throw new NotFoundException("Kautta ei löytynyt");
+    const eventIds = season.events.map((event) => event.id);
+    const attendances = eventIds.length === 0 ? [] : await this.prisma.attendance.findMany({
+      where: { eventId: { in: eventIds } },
+      select: { eventId: true, person: { select: { id: true, firstName: true, lastName: true, club: { select: { name: true } } } } },
+    });
+    const byPerson = new Map<string, { firstName: string; lastName: string; clubName: string | null; eventIds: Set<string> }>();
+    for (const attendance of attendances) {
+      const entry = byPerson.get(attendance.person.id) ?? { firstName: attendance.person.firstName, lastName: attendance.person.lastName, clubName: attendance.person.club?.name ?? null, eventIds: new Set<string>() };
+      entry.eventIds.add(attendance.eventId);
+      byPerson.set(attendance.person.id, entry);
+    }
+    const rows = [...byPerson.entries()]
+      .map(([personId, entry]) => ({ personId, firstName: entry.firstName, lastName: entry.lastName, clubName: entry.clubName, attendanceCount: entry.eventIds.size }))
+      .sort((a, b) => b.attendanceCount - a.attendanceCount || a.lastName.localeCompare(b.lastName, "fi") || a.firstName.localeCompare(b.firstName, "fi"));
+    return { seasonId: season.id, seasonName: season.name, year: season.year, eventCount: eventIds.length, rewardThresholds: season.rewards, rows };
+  }
   async get(id: string) {
     const event = await this.prisma.event.findUnique({ where: { id }, include: { courses: { orderBy: { sortOrder: "asc" }, include: { controls: { orderBy: { sequenceNumber: "asc" }, include: { control: true } } } } } });
     if (!event) throw new NotFoundException("Tapahtumaa ei löytynyt");

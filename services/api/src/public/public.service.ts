@@ -222,8 +222,30 @@ export class PublicService {
     if (!course) throw new BadRequestException("Valittu rata ei kuulu tapahtumaan.");
     const event = await this.prisma.event.findUnique({ where: { id: eventId }, select: { id: true, status: true } });
     if (!event || event.status === "DRAFT") throw new NotFoundException("Tapahtumaa ei löytynyt.");
+    const existing = await this.prisma.performance.findUnique({
+      where: { clientReference: input.clientReference },
+      select: { id: true, attendance: { select: { person: { select: { firstName: true, lastName: true } } } } },
+    });
 
     return this.prisma.$transaction(async (tx) => {
+      if (existing) {
+        const readAt = new Date();
+        const durationMs = input.durationSeconds != null ? input.durationSeconds * 1000 : null;
+        const performance = await tx.performance.update({
+          where: { id: existing.id },
+          data: {
+            courseId: course.id,
+            status: durationMs != null ? "ACCEPTED" : "NO_TIME",
+            startedAt: durationMs != null ? new Date(readAt.getTime() - durationMs) : null,
+            finishedAt: durationMs != null ? readAt : null,
+            durationMs: durationMs != null ? BigInt(durationMs) : null,
+            readAt,
+          },
+        });
+        const { firstName, lastName } = existing.attendance.person;
+        return { performanceId: performance.id, participant: `${firstName} ${lastName}` };
+      }
+
       let person = input.personId ? await tx.person.findUnique({ where: { id: input.personId } }) : null;
       if (input.personId && !person) throw new NotFoundException("Henkilöä ei löytynyt.");
       if (!person) {
@@ -254,6 +276,7 @@ export class PublicService {
           finishedAt: durationMs != null ? readAt : null,
           durationMs: durationMs != null ? BigInt(durationMs) : null,
           readAt,
+          clientReference: input.clientReference,
         },
       });
       return { performanceId: performance.id, participant: `${person.firstName} ${person.lastName}` };

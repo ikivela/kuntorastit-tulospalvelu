@@ -292,6 +292,7 @@ function App() {
           : `${API_BASE}/public/events/${read.eventId}/reader-results`;
         const body = read.source === "MANUAL"
           ? {
+              clientReference: `${clientId}:${read.id}`,
               courseId: read.courseId,
               personId: read.personId || undefined,
               firstName: read.firstName,
