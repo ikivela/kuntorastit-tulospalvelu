@@ -66,6 +66,9 @@ export class PublicService {
     if (!event.courses.some((course) => course.id === input.courseId)) {
       throw new BadRequestException("Valittu rata ei kuulu tapahtumaan.");
     }
+    if (!event.paymentMethods.includes(input.paymentMethod)) {
+      throw new BadRequestException(`Valittu maksutapa ei ole sallittu tälle tapahtumalle. Sallitut maksutavat: ${event.paymentMethods.join(", ")}`);
+    }
 
     return this.prisma.$transaction(async (tx) => {
       const club = clubName
@@ -93,9 +96,10 @@ export class PublicService {
         if (!assignment) await tx.personPunchCard.create({ data: { personId: person.id, punchCardId: card.id } });
       }
 
+      const notes = input.notes?.trim() || null;
       const registration = existing
-        ? await tx.registration.update({ where: { id: existing.id }, data: { status: "ACTIVE", courseId: input.courseId, punchCardId: card?.id ?? null, registeredAt: new Date() } })
-        : await tx.registration.create({ data: { eventId, personId: person.id, courseId: input.courseId, punchCardId: card?.id } });
+        ? await tx.registration.update({ where: { id: existing.id }, data: { status: "ACTIVE", courseId: input.courseId, punchCardId: card?.id ?? null, paymentMethod: input.paymentMethod, notes, registeredAt: new Date() } })
+        : await tx.registration.create({ data: { eventId, personId: person.id, courseId: input.courseId, punchCardId: card?.id, paymentMethod: input.paymentMethod, notes } });
       return { id: registration.id, registeredAt: registration.registeredAt, participant: `${person.firstName} ${person.lastName}` };
     });
   }

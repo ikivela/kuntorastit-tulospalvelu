@@ -33,4 +33,15 @@ export class CreateRegistrationDto {
   @IsString()
   @Matches(/^\d{1,20}$/, { message: "cardNumber must contain only digits" })
   cardNumber?: string;
+
+  @ApiProperty({ description: "Yksi tapahtuman sallituista maksutavoista (ks. GET /public/calendar)." })
+  @IsString()
+  @Length(1, 200)
+  paymentMethod!: string;
+
+  @ApiPropertyOptional({ description: "Lisätiedot, esim. ilmaiseen karttaan oikeuttava syntymävuosi" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  notes?: string;
 }

@@ -137,6 +137,7 @@ model Event {
   endsAt           DateTime       @map("ends_at")
   status           EventStatus    @default(DRAFT)
   registrationOpen Boolean        @default(false) @map("registration_open")
+  paymentMethods   String[]       @default([]) @map("payment_methods")
   version          Int            @default(1)
   courses          Course[]
   controls         Control[]
@@ -283,6 +284,8 @@ model Registration {
   punchCardId String?            @db.Uuid @map("punch_card_id")
   punchCard   PunchCard?         @relation(fields: [punchCardId], references: [id], onDelete: SetNull)
   status      RegistrationStatus @default(ACTIVE)
+  paymentMethod String?          @map("payment_method")
+  notes       String?
   registeredAt DateTime          @default(now()) @map("registered_at")
   @@unique([eventId, personId])
   @@map("registration")

@@ -22,6 +22,8 @@ export class EventsService {
       select: {
         id: true,
         registeredAt: true,
+        paymentMethod: true,
+        notes: true,
         person: { select: { firstName: true, lastName: true, club: { select: { name: true } } } },
         course: { select: { id: true, name: true } },
         punchCard: { select: { system: true, cardNumber: true } },
