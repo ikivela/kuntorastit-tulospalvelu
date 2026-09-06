@@ -1,5 +1,5 @@
 {
-  "name": "maanantairastit-tulospalvelu",
+  "name": "kuntorastit-tulospalvelu",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -60,5 +60,5 @@
     "wrangler": "4.92.0"
   },
   "type": "module",
-  "displayName": "Maanantairastien tulospalvelu"
+  "displayName": "KoS-Kuntorastit"
 }

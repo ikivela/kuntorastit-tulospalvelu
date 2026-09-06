@@ -2,15 +2,15 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: maanantairastit
-      POSTGRES_USER: maanantairastit
-      POSTGRES_PASSWORD: maanantairastit
+      POSTGRES_DB: ${POSTGRES_DB:-kuntorastit}
+      POSTGRES_USER: ${POSTGRES_USER:-kuntorastit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kuntorastit}
     ports:
       - "5432:5432"
     volumes:
-      - maanantairastit-postgres:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U maanantairastit"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kuntorastit}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -18,8 +18,9 @@ services:
   api:
     build: ./services/api
     environment:
-      DATABASE_URL: postgresql://maanantairastit:maanantairastit@postgres:5432/maanantairastit
-      PORT: 3001
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kuntorastit}:${POSTGRES_PASSWORD:-kuntorastit}@postgres:5432/${POSTGRES_DB:-kuntorastit}
+      PORT: ${PORT:-3001}
+      ADMIN_TOKEN_SECRET: ${ADMIN_TOKEN_SECRET:-kuntorastit-local-development-secret}
     ports:
       - "3001:3001"
     depends_on:
@@ -27,4 +28,4 @@ services:
         condition: service_healthy
 
 volumes:
-  maanantairastit-postgres:
+  postgres-data:

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { AlertCircle, ArrowLeft, CheckCircle2, Clock3, Loader2, MapPin, Navigation, RotateCcw, Trophy } from "lucide-react";
+import { AlertCircle, ArrowLeft, CheckCircle2, Clock3, Loader2, MapPin, RotateCcw, Trophy } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { SITE_NAME } from "@/lib/site";
 
 const apiBase = "http://localhost:3001/api/v1";
 type ResultStatus = "PENDING" | "ACCEPTED" | "DISQUALIFIED" | "NO_TIME" | "DID_NOT_FINISH";
@@ -41,7 +42,7 @@ export default function ResultsPage() {
 
   const resultCount = event?.courses.reduce((sum, course) => sum + course.results.length, 0) ?? 0;
   return <main className="min-h-screen bg-background text-foreground">
-    <header className="sticky top-0 z-30 border-b bg-white/90 backdrop-blur"><div className="mx-auto flex max-w-6xl items-center justify-between gap-5 px-5 py-4 lg:px-8"><a className="flex items-center gap-3" href="/"><span className="grid size-10 place-items-center rounded-xl bg-primary text-white"><Navigation className="size-5 rotate-45" /></span><span><b className="block tracking-tight">Maanantairastit</b><small className="block text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">Kokkolan Suunnistajat</small></span></a><Button asChild variant="outline" className="rounded-full"><a href="/kalenteri"><ArrowLeft className="mr-2 size-4" />Kalenteriin</a></Button></div></header>
+    <header className="sticky top-0 z-30 border-b bg-white/90 backdrop-blur"><div className="mx-auto flex max-w-6xl items-center justify-between gap-5 px-5 py-4 lg:px-8"><a className="flex items-center gap-3" href="/"><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src="/kos-logo.png" alt="" className="size-8 object-contain" /></span><span><b className="block tracking-tight">{SITE_NAME}</b><small className="block text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">Kokkolan Suunnistajat</small></span></a><Button asChild variant="outline" className="rounded-full"><a href="/kalenteri"><ArrowLeft className="mr-2 size-4" />Kalenteriin</a></Button></div></header>
     {loading ? <ResultsSkeleton /> : !event ? <div className="mx-auto max-w-6xl px-5 py-10 lg:px-8"><Alert variant="destructive"><AlertCircle /><AlertTitle>Tuloksia ei voitu ladata</AlertTitle><AlertDescription><p>{error}</p><Button variant="outline" size="sm" className="mt-3" onClick={() => void load(true)}><RotateCcw className="mr-2 size-4" />Yritä uudelleen</Button></AlertDescription></Alert></div> : <>
       <section className="border-b bg-[linear-gradient(135deg,#eaf5ed_0%,#f8fbf7_65%,#fff4d8_100%)]"><div className="mx-auto max-w-6xl px-5 py-10 lg:px-8 lg:py-14"><div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between"><div><p className="eyebrow">Tulokset</p><h1 className="mt-2 text-4xl font-black tracking-[-.04em] sm:text-5xl">{event.name}</h1><div className="mt-4 flex flex-wrap gap-5 text-sm text-muted-foreground"><span className="flex items-center gap-2"><Clock3 className="size-4 text-primary" />{formatDate(event.startsAt)}</span>{event.locationName && <span className="flex items-center gap-2"><MapPin className="size-4 text-primary" />{event.locationName}</span>}</div></div><div className="flex items-center gap-3"><Badge variant="outline" className="rounded-full bg-white/70 px-3 py-1.5"><span className="mr-2 size-2 rounded-full bg-emerald-500" />Päivittyy automaattisesti</Badge>{refreshing && <Loader2 className="size-4 animate-spin text-primary" />}</div></div></div></section>
       <div className="mx-auto max-w-6xl px-5 py-8 lg:px-8 lg:py-10">{error && <Alert className="mb-6"><AlertCircle /><AlertTitle>Yhteys katkesi hetkeksi</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}{resultCount === 0 ? <Empty className="min-h-72 rounded-3xl border bg-card"><EmptyHeader><EmptyMedia variant="icon"><Trophy /></EmptyMedia><EmptyTitle>Ei vielä tuloksia</EmptyTitle><EmptyDescription>Tulokset ilmestyvät tähän automaattisesti, kun kortteja luetaan.</EmptyDescription></EmptyHeader></Empty> : <div className="space-y-6">{event.courses.filter((course) => course.results.length > 0).map((course) => <CourseResults key={course.id} course={course} />)}</div>}</div>

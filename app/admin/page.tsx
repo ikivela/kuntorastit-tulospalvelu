@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { ArrowLeft, CalendarDays, Clock3, Cpu, FileUp, Loader2, LockKeyhole, LogOut, MapPin, Pencil, Plus, Route, ShieldCheck, Trash2, UserRound, Users } from "lucide-react";
+import { ArrowLeft, CalendarDays, Clock3, Cpu, FileUp, Loader2, LockKeyhole, LogOut, MapPin, Pencil, Plus, Route, Trash2, UserRound, Users } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { SITE_NAME } from "@/lib/site";
 
 const apiBase = "http://localhost:3001/api/v1";
 type EventStatus = "DRAFT" | "OPEN" | "FINISHED" | "PUBLISHED";
@@ -50,11 +51,11 @@ export default function AdminPage() {
   const [checking, setChecking] = useState(true);
   const [loginError, setLoginError] = useState("");
   useEffect(() => {
-    const stored = window.localStorage.getItem("maanantairastit-admin-token");
+    const stored = window.localStorage.getItem("kuntorastit-admin-token");
     if (!stored) { setChecking(false); return; }
     fetch(`${apiBase}/auth/me`, { headers: { Authorization: `Bearer ${stored}` } })
       .then((response) => { if (!response.ok) throw new Error(); setToken(stored); })
-      .catch(() => window.localStorage.removeItem("maanantairastit-admin-token"))
+      .catch(() => window.localStorage.removeItem("kuntorastit-admin-token"))
       .finally(() => setChecking(false));
   }, []);
   async function login(event: FormEvent<HTMLFormElement>) {
@@ -63,16 +64,16 @@ export default function AdminPage() {
     const response = await fetch(`${apiBase}/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: data.get("username"), password: data.get("password") }) });
     if (!response.ok) { setLoginError("Virheellinen käyttäjätunnus tai salasana."); return; }
     const result = await response.json() as { accessToken: string };
-    window.localStorage.setItem("maanantairastit-admin-token", result.accessToken); setToken(result.accessToken);
+    window.localStorage.setItem("kuntorastit-admin-token", result.accessToken); setToken(result.accessToken);
   }
-  function logout() { window.localStorage.removeItem("maanantairastit-admin-token"); setToken(null); }
+  function logout() { window.localStorage.removeItem("kuntorastit-admin-token"); setToken(null); }
   if (checking) return <main className="grid min-h-screen place-items-center bg-muted/30"><Loader2 className="size-6 animate-spin text-primary" /></main>;
   if (!token) return <LoginForm onSubmit={login} error={loginError} />;
   return <AdminEvents token={token} onLogout={logout} />;
 }
 
 function LoginForm({ onSubmit, error }: { onSubmit: (event: FormEvent<HTMLFormElement>) => void; error: string }) {
-  return <main className="grid min-h-screen place-items-center bg-[linear-gradient(135deg,#eaf5ed,#fff8e5)] px-5 py-12"><Card className="w-full max-w-md rounded-3xl shadow-xl shadow-primary/10"><CardHeader className="space-y-4"><span className="grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground"><LockKeyhole className="size-5" /></span><div><CardTitle className="text-2xl">Ylläpidon kirjautuminen</CardTitle><CardDescription className="mt-2">Kirjaudu Maanantairastien hallintaan.</CardDescription></div></CardHeader><CardContent><form className="space-y-5" onSubmit={onSubmit}><Field label="Käyttäjätunnus" name="username" autoComplete="username" /><Field label="Salasana" name="password" type="password" autoComplete="current-password" />{error && <p role="alert" className="text-sm font-medium text-destructive">{error}</p>}<Button className="w-full rounded-full" type="submit">Kirjaudu hallintaan</Button><Button asChild variant="ghost" className="w-full rounded-full"><a href="/"><ArrowLeft className="mr-2 size-4" />Takaisin tulospalveluun</a></Button></form></CardContent></Card></main>;
+  return <main className="grid min-h-screen place-items-center bg-[linear-gradient(135deg,#eaf5ed,#fff8e5)] px-5 py-12"><Card className="w-full max-w-md rounded-3xl shadow-xl shadow-primary/10"><CardHeader className="space-y-4"><span className="grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground"><LockKeyhole className="size-5" /></span><div><CardTitle className="text-2xl">Ylläpidon kirjautuminen</CardTitle><CardDescription className="mt-2">Kirjaudu {SITE_NAME}:n hallintaan.</CardDescription></div></CardHeader><CardContent><form className="space-y-5" onSubmit={onSubmit}><Field label="Käyttäjätunnus" name="username" autoComplete="username" /><Field label="Salasana" name="password" type="password" autoComplete="current-password" />{error && <p role="alert" className="text-sm font-medium text-destructive">{error}</p>}<Button className="w-full rounded-full" type="submit">Kirjaudu hallintaan</Button><Button asChild variant="ghost" className="w-full rounded-full"><a href="/"><ArrowLeft className="mr-2 size-4" />Takaisin tulospalveluun</a></Button></form></CardContent></Card></main>;
 }
 
 function AdminEvents({ token, onLogout }: { token: string; onLogout: () => void }) {
@@ -127,7 +128,7 @@ function AdminEvents({ token, onLogout }: { token: string; onLogout: () => void 
     await load();
   }
   return <main className="min-h-screen bg-muted/30">
-    <header className="border-b bg-background"><div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground"><ShieldCheck className="size-5" /></span><div><b className="block">Maanantairastit</b><span className="text-xs text-muted-foreground">Ylläpito</span></div></div><div className="flex gap-2"><Button asChild variant="ghost" className="rounded-full"><a href="/">Julkinen sivu</a></Button><Button variant="outline" className="rounded-full" onClick={() => setReaderDevicesOpen(true)}><Cpu className="mr-2 size-4" />Lukijalaitteet</Button><Button variant="outline" className="rounded-full" onClick={onLogout}><LogOut className="mr-2 size-4" />Kirjaudu ulos</Button></div></div></header>
+    <header className="border-b bg-background"><div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4"><div className="flex items-center gap-3"><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src="/kos-logo.png" alt="" className="size-8 object-contain" /></span><div><b className="block">{SITE_NAME}</b><span className="text-xs text-muted-foreground">Ylläpito</span></div></div><div className="flex gap-2"><Button asChild variant="ghost" className="rounded-full"><a href="/">Julkinen sivu</a></Button><Button variant="outline" className="rounded-full" onClick={() => setReaderDevicesOpen(true)}><Cpu className="mr-2 size-4" />Lukijalaitteet</Button><Button variant="outline" className="rounded-full" onClick={onLogout}><LogOut className="mr-2 size-4" />Kirjaudu ulos</Button></div></div></header>
     <div className="mx-auto max-w-6xl px-5 py-10"><div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-sm font-bold uppercase tracking-wider text-primary">Hallinta</p><h1 className="mt-2 text-3xl font-black tracking-tight">Tapahtumat</h1><p className="mt-2 text-muted-foreground">Lisää, muokkaa ja julkaise kauden tapahtumia.</p></div><Button className="rounded-full" onClick={openCreate}><Plus className="mr-2 size-4" />Lisää tapahtuma</Button></div>
       {error && <p role="alert" className="mb-5 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}
       {loading ? <div className="grid place-items-center py-20"><Loader2 className="size-7 animate-spin text-primary" /></div> : events.length === 0 ? <Card className="rounded-3xl border-dashed"><CardContent className="grid place-items-center py-16 text-center"><CalendarDays className="mb-4 size-9 text-muted-foreground" /><p className="font-bold">Ei tapahtumia</p><p className="mt-1 text-sm text-muted-foreground">Luo kauden ensimmäinen tapahtuma.</p></CardContent></Card> : <div className="grid gap-4">{events.map((item) => <EventCard key={item.id} item={item} onRegistrations={() => setRegistrationEvent(item)} onCourses={() => setCourseEvent(item)} onEdit={() => openEdit(item)} onDelete={() => remove(item.id)} />)}</div>}
@@ -198,7 +199,7 @@ function ReaderDevicesManager({ token, onSessionExpired }: { token: string; onSe
     finally { setActingId(null); }
   }
   const statusLabel: Record<ReaderDeviceStatus, string> = { PENDING: "Odottaa hyväksyntää", APPROVED: "Hyväksytty", REVOKED: "Peruttu" };
-  return <><DialogHeader><DialogTitle>Lukijalaitteet</DialogTitle><DialogDescription>Hyväksy tai peru maanantairastit-clientin laitteita. Client rekisteröi itsensä nimellä ja odottaa hyväksyntää.</DialogDescription></DialogHeader>
+  return <><DialogHeader><DialogTitle>Lukijalaitteet</DialogTitle><DialogDescription>Hyväksy tai peru pc-clientin laitteita. Client rekisteröi itsensä nimellä ja odottaa hyväksyntää.</DialogDescription></DialogHeader>
     {error && <p role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}
     {loading ? <div className="grid min-h-40 place-items-center"><Loader2 className="size-6 animate-spin text-primary" /></div> : items.length === 0 ? <div className="grid min-h-40 place-items-center rounded-2xl border border-dashed text-center text-muted-foreground"><div><Cpu className="mx-auto mb-3 size-8" /><p>Yksikään lukija ei ole vielä pyytänyt pääsyä.</p></div></div> : <div className="overflow-hidden rounded-2xl border"><Table><TableHeader><TableRow><TableHead>Nimi</TableHead><TableHead>Tila</TableHead><TableHead>Pyydetty</TableHead><TableHead>Viimeksi käytetty</TableHead><TableHead className="text-right">Toiminnot</TableHead></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.name}</TableCell><TableCell><Badge variant={item.status === "APPROVED" ? "default" : item.status === "PENDING" ? "secondary" : "destructive"}>{statusLabel[item.status]}</Badge></TableCell><TableCell>{formatDate(item.requestedAt)}</TableCell><TableCell>{item.lastSeenAt ? formatDate(item.lastSeenAt) : "Ei koskaan"}</TableCell><TableCell className="text-right">{item.status === "PENDING" ? <Button size="sm" className="rounded-full" disabled={actingId === item.id} onClick={() => void approve(item.id)}>{actingId === item.id ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}Hyväksy</Button> : item.status === "APPROVED" ? <AlertDialog><AlertDialogTrigger asChild><Button size="sm" variant="outline" className="rounded-full text-destructive" disabled={actingId === item.id}>Peru pääsy</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Perutaanko laitteen pääsy?</AlertDialogTitle><AlertDialogDescription>Laite “{item.name}” ei voi enää lähettää tuloksia ennen kuin se hyväksytään uudelleen.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Peruuta</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={() => void revoke(item.id)}>Peru pääsy</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog> : <span className="text-sm text-muted-foreground">—</span>}</TableCell></TableRow>)}</TableBody></Table></div>}</>;
 }

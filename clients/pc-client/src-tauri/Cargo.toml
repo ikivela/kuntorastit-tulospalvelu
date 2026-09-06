@@ -1,12 +1,12 @@
 [package]
-name = "maanantairastit-client"
+name = "pc-client"
 version = "0.1.0"
-description = "Maanantairastien EMIT 250 -lukijaclient"
+description = "Kuntorastien EMIT 250 -lukijaclient"
 edition = "2021"
 rust-version = "1.88"
 
 [lib]
-name = "maanantairastit_client_lib"
+name = "pc_client_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

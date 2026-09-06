@@ -1,7 +1,7 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from "@nestjs/common";
 import { ReaderDevicesService } from "./reader-devices.service.js";
 
-/** Guards the maanantairastit-client's operational endpoints (submitting
+/** Guards the pc-client's operational endpoints (submitting
  * results, listing registrations, searching people). Requires a bearer
  * token issued to an admin-approved ReaderDevice. The public
  * calendar/results/registration endpoints stay open and must never use

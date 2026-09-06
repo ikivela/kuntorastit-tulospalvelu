@@ -51,7 +51,7 @@ export class AuthService {
   }
 
   private signature(encoded: string) {
-    const secret = process.env.ADMIN_TOKEN_SECRET ?? "maanantairastit-local-development-secret";
+    const secret = process.env.ADMIN_TOKEN_SECRET ?? "kuntorastit-local-development-secret";
     return createHmac("sha256", secret).update(encoded).digest("base64url");
   }
 }

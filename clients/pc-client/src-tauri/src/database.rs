@@ -24,7 +24,7 @@ mod tests {
     #[test]
     fn stores_participant_read_and_punches() {
         let path = std::env::temp_dir().join(format!(
-            "maanantairastit-reader-{}-{}.sqlite3",
+            "kuntorastit-reader-{}-{}.sqlite3",
             std::process::id(),
             SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
         ));
@@ -55,7 +55,7 @@ mod tests {
     #[test]
     fn searches_participants_locally_case_and_word_order_insensitively() {
         let path = std::env::temp_dir().join(format!(
-            "maanantairastit-reader-search-{}-{}.sqlite3",
+            "kuntorastit-reader-search-{}-{}.sqlite3",
             std::process::id(),
             SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
         ));
@@ -83,7 +83,7 @@ mod tests {
     #[test]
     fn adds_manual_result_without_card() {
         let path = std::env::temp_dir().join(format!(
-            "maanantairastit-reader-manual-{}-{}.sqlite3",
+            "kuntorastit-reader-manual-{}-{}.sqlite3",
             std::process::id(),
             SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
         ));

@@ -1,8 +1,8 @@
-# Maanantairastit Client
+# Kuntorastit PC Client
 
 Desktop-client (Tauri 2 + React) rastihenkilökunnalle: lukee EMIT 250
 -leimauskortteja natiivin sarjaportin kautta Windowsissa, Linuxissa ja
-macOS:ssa, ja synkronoi tulokset Maanantairastien REST API:in.
+macOS:ssa, ja synkronoi tulokset Kuntorastien REST API:in.
 
 ## Ominaisuudet
 
@@ -34,7 +34,7 @@ Tarvitset Node.js 22:n, Rustin ja Tauri 2:n käyttöjärjestelmäkohtaiset
 prerequisite-paketit (ks. [Taurin ohjeet](https://v2.tauri.app/start/prerequisites/)).
 
 ```bash
-cd clients/maanantairastit-client
+cd clients/pc-client
 npm install
 npm run tauri dev
 ```

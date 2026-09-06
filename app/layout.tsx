@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
+import { SITE_NAME } from "@/lib/site";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Maanantairastien tulospalvelu",
-  description: "Kokkolan maanantairastien tapahtumat, ilmoittautumiset, tulokset ja osallistumiskerrat.",
+  title: SITE_NAME,
+  description: `${SITE_NAME}: Kokkolan Suunnistajien kuntorastien tapahtumat, ilmoittautumiset, tulokset ja osallistumiskerrat.`,
   other: {
     "codex-preview": "development",
   },

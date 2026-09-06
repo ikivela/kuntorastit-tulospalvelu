@@ -14,7 +14,7 @@ import sqlite3
 import sys
 import time
 
-APP_IDENTIFIER = "fi.maanantairastit.client"
+APP_IDENTIFIER = "fi.kuntorastit.client"
 DB_FILENAME = "reader.sqlite3"
 
 FIRST_NAMES = [

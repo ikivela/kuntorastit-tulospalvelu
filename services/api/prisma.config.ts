@@ -9,6 +9,6 @@ export default defineConfig({
   },
   datasource: {
     url: process.env.DATABASE_URL ??
-      "postgresql://maanantairastit:maanantairastit@localhost:5432/maanantairastit",
+      "postgresql://kuntorastit:kuntorastit@localhost:5432/kuntorastit",
   },
 });

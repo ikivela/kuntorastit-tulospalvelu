@@ -9,7 +9,7 @@ concurrency:
 
 defaults:
   run:
-    working-directory: clients/maanantairastit-client
+    working-directory: clients/pc-client
 
 jobs:
   build:
@@ -48,7 +48,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: clients/maanantairastit-client/package-lock.json
+          cache-dependency-path: clients/pc-client/package-lock.json
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -56,7 +56,7 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: clients/maanantairastit-client/src-tauri -> target
+          workspaces: clients/pc-client/src-tauri -> target
 
       - name: Install npm dependencies
         run: npm ci
@@ -73,7 +73,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: maanantairastit-client-${{ matrix.name }}
-          path: clients/maanantairastit-client/src-tauri/target/release/bundle/**
+          name: pc-client-${{ matrix.name }}
+          path: clients/pc-client/src-tauri/target/release/bundle/**
           if-no-files-found: error
           retention-days: 30

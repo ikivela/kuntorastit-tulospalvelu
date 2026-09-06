@@ -15,7 +15,7 @@ async function bootstrap() {
   });
 
   const swaggerConfig = new DocumentBuilder()
-    .setTitle("Maanantairastien API")
+    .setTitle("Kuntorastien API")
     .setVersion("1.0")
     .addBearerAuth()
     .build();

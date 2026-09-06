@@ -46,8 +46,8 @@ def main() -> int:
             except (BlockingIOError, OSError):
                 pass
 
-        a_to_b = b"MAANANTAIRASTIT-LINK-A2B-123456\n"
-        b_to_a = b"MAANANTAIRASTIT-LINK-B2A-654321\n"
+        a_to_b = b"KUNTORASTIT-LINK-A2B-123456\n"
+        b_to_a = b"KUNTORASTIT-LINK-B2A-654321\n"
         os.write(a, a_to_b)
         os.write(b, b_to_a)
         got_b = read_until(b, a_to_b, args.timeout)

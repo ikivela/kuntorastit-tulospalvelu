@@ -4,7 +4,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client.js";
 
 const connectionString = process.env.DATABASE_URL ??
-  "postgresql://maanantairastit:maanantairastit@localhost:5432/maanantairastit";
+  "postgresql://kuntorastit:kuntorastit@localhost:5432/kuntorastit";
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
 
 const ids = {
@@ -34,8 +34,8 @@ async function main() {
 
   await prisma.eventSeries.upsert({
     where: { id: ids.series },
-    update: { name: "Kokkolan Maanantairastit" },
-    create: { id: ids.series, name: "Kokkolan Maanantairastit" },
+    update: { name: "KoS-Kuntorastit" },
+    create: { id: ids.series, name: "KoS-Kuntorastit" },
   });
 
   await prisma.season.upsert({

@@ -1,9 +1,10 @@
-# Maanantairastien tulospalvelu
+# KoS-Kuntorastit
 
-Kokkolan maanantairastien tulospalvelu. Kokonaisuus sisältää julkisen
-kalenterin ja tulosnäkymän, ylläpitäjän tapahtumahallinnan, TypeScript/NestJS
-REST API:n, PostgreSQL-tietomallin sekä Tauri-pohjaisen desktop-clientin
-EMIT 250 -kortinlukua ja tuloskirjausta varten.
+Kokkolan Suunnistajien kuntorastien tulospalvelu (tapahtumat eivät ole enää
+vain maanantaisin). Kokonaisuus sisältää julkisen kalenterin ja tulosnäkymän,
+ylläpitäjän tapahtumahallinnan, TypeScript/NestJS REST API:n, PostgreSQL-
+tietomallin sekä Tauri-pohjaisen desktop-clientin EMIT 250 -kortinlukua ja
+tuloskirjausta varten.
 
 ## Nykyinen toteutus
 
@@ -19,7 +20,7 @@ EMIT 250 -kortinlukua ja tuloskirjausta varten.
 - Docker Compose PostgreSQLille ja API:lle
 - Tauri-desktop-client EMIT 250 -lukijalle: kortinluku, manuaalinen
   tuloskirjaus, offline-synkronointi ja automaattiset Windows/Linux-buildit
-  (ks. [clients/maanantairastit-client](clients/maanantairastit-client))
+  (ks. [clients/pc-client](clients/pc-client))
 
 Tietomalli tukee tapahtumasarjoja, kausia, tapahtumia, ratoja, rasteja,
 henkilöitä, seuroja, ilmoittautumisia, osallistumiskertoja, suorituksia,
@@ -49,10 +50,15 @@ Koko kehitysympäristö:
 docker compose -f compose.api.yaml up --build
 ```
 
+Tietokannan ja API:n asetukset (`POSTGRES_DB`, `POSTGRES_USER`,
+`POSTGRES_PASSWORD`, `DATABASE_URL`, `PORT`, `ADMIN_TOKEN_SECRET`) luetaan
+juuren `.env`-tiedostosta (ks. `.env.example`); Docker Compose lukee sen
+automaattisesti.
+
 API käynnistyy osoitteeseen `http://localhost:3001/api/v1` ja Swagger-
 dokumentaatio osoitteeseen `http://localhost:3001/api/docs`.
 
-API erikseen:
+API erikseen (ilman Dockeria):
 
 ```bash
 cd services/api
@@ -62,18 +68,20 @@ npm run build
 npm run dev
 ```
 
-Kopioi tarvittaessa `services/api/.env.example` tiedostoksi `.env`.
+Kopioi tällöin `services/api/.env.example` tiedostoksi `.env` (samat
+muuttujat kuin juuren `.env`:ssä, mutta `DATABASE_URL`:n host on
+`localhost` eikä `postgres`).
 
 ## Keskeiset hakemistot
 
 ```text
-app/                              Julkinen web-käyttöliittymä ja admin (Next.js)
-services/api/src/                 NestJS REST API
-services/api/prisma/              PostgreSQL/Prisma-tietomalli
-clients/maanantairastit-client/   Tauri-desktop-client EMIT 250 -lukijalle
-components/ui/                    Käyttöliittymäkomponentit
-compose.api.yaml                  Paikallinen API ja PostgreSQL
-.github/workflows/                CI: clientin Windows/Linux-buildit
+app/                     Julkinen web-käyttöliittymä ja admin (Next.js)
+services/api/src/        NestJS REST API
+services/api/prisma/     PostgreSQL/Prisma-tietomalli
+clients/pc-client/       Tauri-desktop-client EMIT 250 -lukijalle
+components/ui/           Käyttöliittymäkomponentit
+compose.api.yaml         Paikallinen API ja PostgreSQL
+.github/workflows/       CI: clientin Windows/Linux-buildit
 ```
 
 ## Tunnetut rajoitukset ja seuraavat vaiheet
