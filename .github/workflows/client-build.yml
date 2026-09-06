@@ -1,14 +1,6 @@
 name: Client build
 
 on:
-  push:
-    branches: [master]
-    paths:
-      - "clients/maanantairastit-client/**"
-      - ".github/workflows/client-build.yml"
-  pull_request:
-    paths:
-      - "clients/maanantairastit-client/**"
   workflow_dispatch: {}
 
 concurrency:
