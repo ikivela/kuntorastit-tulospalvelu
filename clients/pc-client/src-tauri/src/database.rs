@@ -476,6 +476,17 @@ impl Database {
         Ok(Participant { id, card_number, first_name: first_name.trim().into(), last_name: last_name.trim().into(), club: club.filter(|value| !value.trim().is_empty()).map(|value| value.trim().into()), api_person_id: None })
     }
 
+    /// Corrects a participant's name/club before confirming a result, since the
+    /// name cached locally for a card can be stale or was mistyped originally.
+    pub fn update_participant_details(&self, participant_id: i64, first_name: &str, last_name: &str, club: Option<&str>) -> Result<(), String> {
+        let connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
+        connection.execute(
+            "UPDATE participants SET first_name = ?1, last_name = ?2, club = ?3 WHERE id = ?4",
+            params![first_name.trim(), last_name.trim(), club.filter(|value| !value.trim().is_empty()).map(str::trim), participant_id],
+        ).map_err(|error| error.to_string())?;
+        Ok(())
+    }
+
     /// Adds a participant directly to the results without a card read, e.g. when
     /// the reader missed them or they need to be entered by hand. If
     /// `duration_seconds` is given the result is stored as an accepted time

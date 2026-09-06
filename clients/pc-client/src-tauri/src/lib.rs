@@ -415,6 +415,20 @@ fn add_manual_result(
 }
 
 #[tauri::command]
+fn update_participant_details(
+    database: State<'_, Database>,
+    participant_id: i64,
+    first_name: String,
+    last_name: String,
+    club: Option<String>,
+) -> Result<(), String> {
+    if first_name.trim().is_empty() || last_name.trim().is_empty() {
+        return Err("Etunimi ja sukunimi ovat pakollisia.".into());
+    }
+    database.update_participant_details(participant_id, &first_name, &last_name, club.as_deref())
+}
+
+#[tauri::command]
 fn confirm_latest_emit250_read(
     reader: State<'_, ReaderState>,
     database: State<'_, Database>,
@@ -497,7 +511,8 @@ pub fn run() {
             add_manual_result,
             confirm_latest_emit250_read,
             mark_card_read_sync,
-            update_card_read_status
+            update_card_read_status,
+            update_participant_details
         ])
         .run(tauri::generate_context!())
         .expect("error while running Tauri application");

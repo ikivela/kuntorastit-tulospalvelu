@@ -83,9 +83,11 @@ pre { overflow: auto; white-space: pre-wrap; word-break: break-all; background: 
 .manual-suggestions button:hover { background: #f4f6f8; }
 .result-confirm { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 22px; }
 .result-person { border-radius: 10px; background: #f4f6f8; padding: 18px; }
-.result-person h3 { margin: 6px 0 3px; font-size: 1.35rem; }
-.result-person > p { margin: 0 0 22px; color: #5b6578; }
+.result-person-edit { display: grid; gap: 10px; margin: 8px 0 20px; }
+.result-person-edit label { display: grid; gap: 4px; font-size: .72rem; font-weight: 700; color: #687386; text-transform: uppercase; letter-spacing: .04em; }
+.result-person-edit input { font-size: 1rem; font-weight: 700; color: #1a2233; }
 .result-person dl { grid-template-columns: 1fr; gap: 3px; }
+
 .result-person dd { margin-bottom: 12px; }
 .result-person .result-time { color: #116329; font-size: 1.8rem; font-weight: 850; font-variant-numeric: tabular-nums; }
 .result-person.disqualified .result-time { color: #b42318; }
