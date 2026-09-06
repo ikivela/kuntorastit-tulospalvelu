@@ -1,6 +1,6 @@
 mod database;
 
-use database::{ApiRegistration, Database, Participant, StoredCardRead};
+use database::{Database, Participant, StoredCardRead};
 use serde::Serialize;
 use serialport::{DataBits, Parity, SerialPort, SerialPortType, StopBits};
 use std::io::Read;
@@ -366,11 +366,6 @@ fn participant_by_card_for_event(database: State<'_, Database>, event_id: String
 }
 
 #[tauri::command]
-fn sync_event_registrations(database: State<'_, Database>, event_id: String, registrations: Vec<ApiRegistration>) -> Result<usize, String> {
-    database.replace_event_registrations(&event_id, &registrations)
-}
-
-#[tauri::command]
 fn search_participants(database: State<'_, Database>, query: String, limit: Option<usize>) -> Result<Vec<Participant>, String> {
     database.search_participants(&query, limit.unwrap_or(10))
 }
@@ -505,7 +500,6 @@ pub fn run() {
             clear_setting_value,
             participant_by_card,
             participant_by_card_for_event,
-            sync_event_registrations,
             search_participants,
             register_participant,
             add_manual_result,

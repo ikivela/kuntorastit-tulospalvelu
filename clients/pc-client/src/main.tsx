@@ -56,7 +56,6 @@ type CourseControl = { sequenceNumber: number; type: string; controlCodes: strin
 type Course = { id: string; name: string; lengthMeters: number; climbMeters?: number; controls?: CourseControl[] };
 type CalendarEvent = { id: string; name: string; locationName?: string; startsAt: string; endsAt: string; status: string; courses: Course[] };
 type CalendarSeason = { id: string; name: string; events: CalendarEvent[] };
-type ApiRegistration = { registrationId: string; personId: string; firstName: string; lastName: string; clubName?: string; cardNumber: string; courseId?: string; courseName?: string; registeredAt: string };
 
 function App() {
   const [devices, setDevices] = useState<SerialDevice[]>([]);
@@ -88,7 +87,6 @@ function App() {
   const [editingSource, setEditingSource] = useState<"EMIT" | "MANUAL" | null>(null);
   const [editingManualDurationSeconds, setEditingManualDurationSeconds] = useState<number | undefined>(undefined);
   const [resumeAfterEdit, setResumeAfterEdit] = useState(false);
-  const [registrationSyncStatus, setRegistrationSyncStatus] = useState("");
   const [manualEntryOpen, setManualEntryOpen] = useState(false);
   const [manualQuery, setManualQuery] = useState("");
   const [manualFirstName, setManualFirstName] = useState("");
@@ -165,7 +163,6 @@ function App() {
     if (!selected) { setSettingsOpen(true); setStatus("Valitse ensin lukijan sarjaportti."); return; }
     setHistorySearch("");
     setActiveEvent(event);
-    await syncRegistrations(event.id);
     if (await startListening()) {
       await refreshHistory(event.id);
     } else {
@@ -226,20 +223,6 @@ function App() {
     await invoke("clear_setting_value", { key: "reader.device_name" }).catch(() => undefined);
     setDeviceToken(""); setDeviceName(""); setDeviceNameInput(""); setDeviceError("");
     setDeviceStatus("unregistered");
-  }
-
-  async function syncRegistrations(eventId: string) {
-    setRegistrationSyncStatus("Päivitetään ilmoittautuneita…");
-    try {
-      const response = await fetch(`${API_BASE}/public/events/${eventId}/reader-registrations`, { cache: "no-store", headers: authHeaders() });
-      if (response.status === 401) throw new Error("Lukijaa ei ole hyväksytty tai pääsy on peruutettu");
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const registrations = await response.json() as ApiRegistration[];
-      const count = await invoke<number>("sync_event_registrations", { eventId, registrations });
-      setRegistrationSyncStatus(`${count} ilmoittautunutta synkronoitu`);
-    } catch {
-      setRegistrationSyncStatus("Ei API-yhteyttä · käytetään paikallisia tietoja");
-    }
   }
 
   async function stopEvent() {
@@ -483,16 +466,6 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!activeEvent) return;
-    // Re-created whenever deviceToken changes too, so a token acquired after
-    // the event started (e.g. approved while running) is picked up on the
-    // very next sync instead of being stuck with the stale closure's token.
-    void syncRegistrations(activeEvent.id);
-    const interval = window.setInterval(() => void syncRegistrations(activeEvent.id), 30_000);
-    return () => window.clearInterval(interval);
-  }, [activeEvent?.id, deviceToken]);
-
-  useEffect(() => {
     if (deviceStatus === "unregistered") return;
     const interval = window.setInterval(() => void checkDeviceStatus(), 2 * 60 * 60 * 1000);
     return () => window.clearInterval(interval);
@@ -576,7 +549,7 @@ function App() {
       <p className="build-version">Build: {new Date(__BUILD_DATE__).toLocaleString("fi-FI")}</p>
 
       <section>
-        {activeEvent ? <><div className="event-running"><div><span className="eyebrow">Tapahtuma käynnissä</span><h2>{activeEvent.name}</h2><p>{new Date(activeEvent.startsAt).toLocaleString("fi-FI")} · {activeEvent.locationName || "Paikka ei tiedossa"}</p><small>{registrationSyncStatus}</small></div><div className={`reader-badge ${reading ? "ok" : "error"}`}><span />{pendingCard ? "Kuittaus odottaa" : reading ? "Lukija OK" : "Lukija ei yhteydessä"}</div><button onClick={() => void stopEvent()}>Lopeta tapahtuma</button></div><div className="course-list"><strong>Radat</strong>{activeEvent.courses.length ? activeEvent.courses.map((course) => <span key={course.id}>{course.name} · {(course.lengthMeters / 1000).toLocaleString("fi-FI", { maximumFractionDigits: 1 })} km</span>) : <span>Ei julkaistuja ratoja</span>}</div></> : <div className="event-start"><div><span className="eyebrow">Valitse tapahtuma</span></div>{calendarLoading ? <p>Haetaan tapahtumia…</p> : calendarError ? <div><p className="error">{calendarError}</p><button onClick={() => void loadCalendar()}>Yritä uudelleen</button></div> : <><select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}><option value="">Valitse tapahtuma</option>{events.map((event) => <option key={event.id} value={event.id}>{new Date(event.startsAt).toLocaleDateString("fi-FI")} · {event.name}</option>)}</select><button className="primary" onClick={() => void startEvent()} disabled={!selectedEventId}>Valitse tapahtuma</button></>}</div>}
+        {activeEvent ? <><div className="event-running"><div><span className="eyebrow">Tapahtuma käynnissä</span><h2>{activeEvent.name}</h2><p>{new Date(activeEvent.startsAt).toLocaleString("fi-FI")} · {activeEvent.locationName || "Paikka ei tiedossa"}</p></div><div className={`reader-badge ${reading ? "ok" : "error"}`}><span />{pendingCard ? "Kuittaus odottaa" : reading ? "Lukija OK" : "Lukija ei yhteydessä"}</div><button onClick={() => void stopEvent()}>Lopeta tapahtuma</button></div><div className="course-list"><strong>Radat</strong>{activeEvent.courses.length ? activeEvent.courses.map((course) => <span key={course.id}>{course.name} · {(course.lengthMeters / 1000).toLocaleString("fi-FI", { maximumFractionDigits: 1 })} km</span>) : <span>Ei julkaistuja ratoja</span>}</div></> : <div className="event-start"><div><span className="eyebrow">Valitse tapahtuma</span></div>{calendarLoading ? <p>Haetaan tapahtumia…</p> : calendarError ? <div><p className="error">{calendarError}</p><button onClick={() => void loadCalendar()}>Yritä uudelleen</button></div> : <><select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}><option value="">Valitse tapahtuma</option>{events.map((event) => <option key={event.id} value={event.id}>{new Date(event.startsAt).toLocaleDateString("fi-FI")} · {event.name}</option>)}</select><button className="primary" onClick={() => void startEvent()} disabled={!selectedEventId}>Valitse tapahtuma</button></>}</div>}
         {status && <p className="status">{status}</p>}
         <button className="settings-toggle" onClick={() => setSettingsOpen((value) => !value)} aria-expanded={settingsOpen}>{settingsOpen ? "⚙ Sulje" : "⚙ Asetukset"}</button>
         {settingsOpen && <div className="reader-settings"><select value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading}><option value="">Valitse sarjaportti</option>{devices.map((device) => <option key={device.portName} value={device.portName}>{device.portName} – {device.product || device.manufacturer || device.portType}</option>)}</select><input className="port-input" value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading} placeholder="Sarjaportin polku" aria-label="Sarjaportin polku" /><button onClick={() => void refresh()} disabled={reading}>Päivitä portit</button><div className="device-row">{deviceStatus === "unregistered" || deviceStatus === "revoked" ? <>{deviceStatus === "revoked" && <p className="error">Ylläpitäjä on peruuttanut tämän laitteen pääsyn. Rekisteröidy uudelleen.</p>}<input className="device-name-input" value={deviceNameInput} onChange={(e) => setDeviceNameInput(e.target.value)} placeholder="Laitteen nimi, esim. Kokkolan lukija #1" aria-label="Laitteen nimi" /><button onClick={() => void registerDevice()} disabled={!deviceNameInput.trim()}>Lähetä hyväksyntäpyyntö</button></> : deviceStatus === "pending" ? <><span>Odotetaan ylläpitäjän hyväksyntää (nimellä &quot;{deviceName}&quot;)…</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button></> : <><span className="device-approved">✓ Hyväksytty (nimellä &quot;{deviceName}&quot;)</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button><button type="button" onClick={() => void forgetDevice()}>Unohda laite</button></>}{deviceError && <p className="error">{deviceError}</p>}</div></div>}

@@ -391,33 +391,4 @@ export class PublicService {
     };
   }
 
-  async readerRegistrations(eventId: string) {
-    const event = await this.prisma.event.findFirst({
-      where: { id: eventId, status: { in: ["OPEN", "FINISHED", "PUBLISHED"] } },
-      select: { id: true },
-    });
-    if (!event) throw new NotFoundException("Tapahtumaa ei löytynyt.");
-    const registrations = await this.prisma.registration.findMany({
-      where: { eventId, status: "ACTIVE", punchCard: { system: "EMIT" } },
-      select: {
-        id: true,
-        registeredAt: true,
-        person: { select: { id: true, firstName: true, lastName: true, club: { select: { name: true } } } },
-        course: { select: { id: true, name: true } },
-        punchCard: { select: { cardNumber: true } },
-      },
-      orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }],
-    });
-    return registrations.flatMap((registration) => registration.punchCard ? [{
-      registrationId: registration.id,
-      personId: registration.person.id,
-      firstName: registration.person.firstName,
-      lastName: registration.person.lastName,
-      clubName: registration.person.club?.name ?? null,
-      cardNumber: registration.punchCard.cardNumber,
-      courseId: registration.course?.id ?? null,
-      courseName: registration.course?.name ?? null,
-      registeredAt: registration.registeredAt,
-    }] : []);
-  }
 }

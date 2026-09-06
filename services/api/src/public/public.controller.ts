@@ -72,11 +72,4 @@ export class PublicController {
   results(@Param("eventId", new ParseUUIDPipe()) eventId: string) {
     return this.publicService.results(eventId);
   }
-
-  @Get("events/:eventId/reader-registrations")
-  @UseGuards(ReaderDeviceAuthGuard)
-  @ApiSecurity("bearer")
-  readerRegistrations(@Param("eventId", new ParseUUIDPipe()) eventId: string) {
-    return this.publicService.readerRegistrations(eventId);
-  }
 }

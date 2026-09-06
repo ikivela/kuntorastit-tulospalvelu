@@ -1,5 +1,5 @@
 use rusqlite::{params, Connection};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -143,18 +143,6 @@ pub struct Participant {
     pub last_name: String,
     pub club: Option<String>,
     pub api_person_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiRegistration {
-    pub registration_id: String,
-    pub person_id: String,
-    pub first_name: String,
-    pub last_name: String,
-    pub club_name: Option<String>,
-    pub card_number: String,
-    pub course_id: Option<String>,
 }
 
 impl Database {
@@ -419,37 +407,6 @@ impl Database {
             }
         }
         Ok(matches)
-    }
-
-    pub fn replace_event_registrations(&self, event_id: &str, registrations: &[ApiRegistration]) -> Result<usize, String> {
-        let mut connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
-        let transaction = connection.transaction().map_err(|error| error.to_string())?;
-        let synced_at_ms = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_millis() as i64;
-        transaction.execute("DELETE FROM event_registrations WHERE event_id = ?1 AND api_registration_id IS NOT NULL", [event_id]).map_err(|error| error.to_string())?;
-        let mut imported = 0;
-        for registration in registrations {
-            let Ok(card_number) = registration.card_number.parse::<u32>() else { continue };
-            transaction.execute(
-                "INSERT INTO participants (card_number, first_name, last_name, club, api_person_id, created_at_ms)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                 ON CONFLICT(card_number) DO UPDATE SET first_name = excluded.first_name, last_name = excluded.last_name, club = excluded.club, api_person_id = excluded.api_person_id",
-                params![card_number, registration.first_name.trim(), registration.last_name.trim(), registration.club_name.as_deref(), registration.person_id, synced_at_ms],
-            ).map_err(|error| error.to_string())?;
-            let participant_id: i64 = transaction.query_row("SELECT id FROM participants WHERE card_number = ?1", [card_number], |row| row.get(0)).map_err(|error| error.to_string())?;
-            transaction.execute(
-                "INSERT INTO event_registrations (event_id, participant_id, api_registration_id, api_person_id, course_id, synced_at_ms)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                 ON CONFLICT(event_id, participant_id) DO UPDATE SET
-                   api_registration_id = excluded.api_registration_id,
-                   api_person_id = excluded.api_person_id,
-                   course_id = excluded.course_id,
-                   synced_at_ms = excluded.synced_at_ms",
-                params![event_id, participant_id, registration.registration_id, registration.person_id, registration.course_id, synced_at_ms],
-            ).map_err(|error| error.to_string())?;
-            imported += 1;
-        }
-        transaction.commit().map_err(|error| error.to_string())?;
-        Ok(imported)
     }
 
     pub fn link_participant_to_event(&self, event_id: &str, participant_id: i64, course_id: Option<&str>) -> Result<(), String> {
