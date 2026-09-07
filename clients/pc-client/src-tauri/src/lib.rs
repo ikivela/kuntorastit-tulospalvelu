@@ -366,6 +366,11 @@ fn participant_by_card_for_event(database: State<'_, Database>, event_id: String
 }
 
 #[tauri::command]
+fn list_participants(database: State<'_, Database>) -> Result<Vec<Participant>, String> {
+    database.list_participants()
+}
+
+#[tauri::command]
 fn search_participants(database: State<'_, Database>, query: String, limit: Option<usize>) -> Result<Vec<Participant>, String> {
     database.search_participants(&query, limit.unwrap_or(10))
 }
@@ -421,6 +426,21 @@ fn update_participant_details(
         return Err("Etunimi ja sukunimi ovat pakollisia.".into());
     }
     database.update_participant_details(participant_id, &first_name, &last_name, club.as_deref())
+}
+
+#[tauri::command]
+fn update_participant(
+    database: State<'_, Database>,
+    participant_id: i64,
+    card_number: u32,
+    first_name: String,
+    last_name: String,
+    club: Option<String>,
+) -> Result<(), String> {
+    if first_name.trim().is_empty() || last_name.trim().is_empty() {
+        return Err("Etunimi ja sukunimi ovat pakollisia.".into());
+    }
+    database.update_participant(participant_id, card_number, &first_name, &last_name, club.as_deref())
 }
 
 #[tauri::command]
@@ -500,13 +520,15 @@ pub fn run() {
             clear_setting_value,
             participant_by_card,
             participant_by_card_for_event,
+            list_participants,
             search_participants,
             register_participant,
             add_manual_result,
             confirm_latest_emit250_read,
             mark_card_read_sync,
             update_card_read_status,
-            update_participant_details
+            update_participant_details,
+            update_participant
         ])
         .run(tauri::generate_context!())
         .expect("error while running Tauri application");

@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from "@nestjs/swagger";
-import { IsArray, IsBoolean, IsDateString, IsEnum, IsOptional, IsString, IsUUID } from "class-validator";
+import { IsArray, IsBoolean, IsDateString, IsEnum, IsNumber, IsOptional, IsString, IsUUID, Max, Min } from "class-validator";
 import { EventStatus } from "../generated/prisma/enums.js";
 
 export class UpdateEventDto {
@@ -7,6 +7,11 @@ export class UpdateEventDto {
   @ApiPropertyOptional() @IsOptional() @IsString() name?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() locationName?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() address?: string;
+  @ApiPropertyOptional({ description: "Tarkempi kuvaus sijainnista, esim. kokoontumispaikka ja opastus." })
+  @IsOptional() @IsString()
+  locationDescription?: string;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() @Min(-90) @Max(90) latitude?: number;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() @Min(-180) @Max(180) longitude?: number;
   @ApiPropertyOptional({ format: "date-time" }) @IsOptional() @IsDateString() startsAt?: string;
   @ApiPropertyOptional({ format: "date-time" }) @IsOptional() @IsDateString() endsAt?: string;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() registrationOpen?: boolean;

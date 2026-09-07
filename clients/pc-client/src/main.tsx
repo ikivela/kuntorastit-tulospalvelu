@@ -78,6 +78,7 @@ function App() {
   const [calendarLoading, setCalendarLoading] = useState(true);
   const [calendarError, setCalendarError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [personDbOpen, setPersonDbOpen] = useState(false);
   const [deviceToken, setDeviceToken] = useState("");
   const [deviceName, setDeviceName] = useState("");
   const [deviceNameInput, setDeviceNameInput] = useState("");
@@ -97,6 +98,13 @@ function App() {
   const [manualError, setManualError] = useState("");
   const [manualPersonId, setManualPersonId] = useState<string | null>(null);
   const [manualSuggestions, setManualSuggestions] = useState<Participant[]>([]);
+  const [personDb, setPersonDb] = useState<Participant[]>([]);
+  const [personDbLoading, setPersonDbLoading] = useState(false);
+  const [personDbError, setPersonDbError] = useState("");
+  const [personDbQuery, setPersonDbQuery] = useState("");
+  const [editingParticipantId, setEditingParticipantId] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState<{ firstName: string; lastName: string; club: string; cardNumber: string } | null>(null);
+  const [savingPersonEdit, setSavingPersonEdit] = useState(false);
 
   useEffect(() => {
     let disposed = false;
@@ -488,6 +496,59 @@ function App() {
   }, [manualQuery, manualEntryOpen]);
 
   useEffect(() => {
+    if (!personDbOpen) return;
+    let disposed = false;
+    setPersonDbLoading(true); setPersonDbError("");
+    invoke<Participant[]>("list_participants")
+      .then((items) => { if (!disposed) setPersonDb(items); })
+      .catch((error) => { if (!disposed) setPersonDbError(String(error)); })
+      .finally(() => { if (!disposed) setPersonDbLoading(false); });
+    return () => { disposed = true; };
+  }, [personDbOpen]);
+
+  const filteredPersonDb = useMemo(() => {
+    const query = personDbQuery.trim().toLocaleLowerCase("fi-FI");
+    if (!query) return personDb;
+    const words = query.split(/\s+/);
+    return personDb.filter((person) => {
+      const first = person.firstName.toLocaleLowerCase("fi-FI");
+      const last = person.lastName.toLocaleLowerCase("fi-FI");
+      const club = (person.club ?? "").toLocaleLowerCase("fi-FI");
+      return words.every((word) => first.includes(word) || last.includes(word) || club.includes(word) || String(person.cardNumber).includes(word));
+    });
+  }, [personDb, personDbQuery]);
+
+  function startPersonEdit(person: Participant) {
+    setPersonDbError("");
+    setEditingParticipantId(person.id);
+    setEditDraft({ firstName: person.firstName, lastName: person.lastName, club: person.club ?? "", cardNumber: String(person.cardNumber) });
+  }
+
+  function cancelPersonEdit() {
+    setEditingParticipantId(null);
+    setEditDraft(null);
+  }
+
+  async function savePersonEdit() {
+    if (editingParticipantId == null || !editDraft) return;
+    const firstName = editDraft.firstName.trim();
+    const lastName = editDraft.lastName.trim();
+    const cardNumber = Number(editDraft.cardNumber);
+    if (!firstName || !lastName) { setPersonDbError("Etunimi ja sukunimi ovat pakollisia."); return; }
+    if (!Number.isInteger(cardNumber) || cardNumber <= 0) { setPersonDbError("Anna kelvollinen kortin numero."); return; }
+    setSavingPersonEdit(true); setPersonDbError("");
+    try {
+      await invoke("update_participant", { participantId: editingParticipantId, cardNumber, firstName, lastName, club: editDraft.club.trim() || null });
+      setPersonDb((current) => current.map((person) => person.id === editingParticipantId ? { ...person, firstName, lastName, club: editDraft.club.trim() || undefined, cardNumber } : person));
+      cancelPersonEdit();
+    } catch (error) {
+      setPersonDbError(String(error));
+    } finally {
+      setSavingPersonEdit(false);
+    }
+  }
+
+  useEffect(() => {
     if (!reading || !activeEvent) return;
     let disposed = false;
     const poll = async () => {
@@ -549,11 +610,32 @@ function App() {
       <p className="build-version">Build: {new Date(__BUILD_DATE__).toLocaleString("fi-FI")}</p>
 
       <section>
-        {activeEvent ? <><div className="event-running"><div><span className="eyebrow">Tapahtuma käynnissä</span><h2>{activeEvent.name}</h2><p>{new Date(activeEvent.startsAt).toLocaleString("fi-FI")} · {activeEvent.locationName || "Paikka ei tiedossa"}</p></div><div className={`reader-badge ${reading ? "ok" : "error"}`}><span />{pendingCard ? "Kuittaus odottaa" : reading ? "Lukija OK" : "Lukija ei yhteydessä"}</div><button onClick={() => void stopEvent()}>Lopeta tapahtuma</button></div><div className="course-list"><strong>Radat</strong>{activeEvent.courses.length ? activeEvent.courses.map((course) => <span key={course.id}>{course.name} · {(course.lengthMeters / 1000).toLocaleString("fi-FI", { maximumFractionDigits: 1 })} km</span>) : <span>Ei julkaistuja ratoja</span>}</div></> : <div className="event-start"><div><span className="eyebrow">Valitse tapahtuma</span></div>{calendarLoading ? <p>Haetaan tapahtumia…</p> : calendarError ? <div><p className="error">{calendarError}</p><button onClick={() => void loadCalendar()}>Yritä uudelleen</button></div> : <><select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}><option value="">Valitse tapahtuma</option>{events.map((event) => <option key={event.id} value={event.id}>{new Date(event.startsAt).toLocaleDateString("fi-FI")} · {event.name}</option>)}</select><button className="primary" onClick={() => void startEvent()} disabled={!selectedEventId}>Valitse tapahtuma</button></>}</div>}
+        {activeEvent ? <><div className="event-running"><div><span className="eyebrow">Tapahtuma käynnissä</span><h2>{activeEvent.name}</h2><p>{new Date(activeEvent.startsAt).toLocaleString("fi-FI")} · {activeEvent.locationName || "Paikka ei tiedossa"}</p></div><div className={`reader-badge ${reading ? "ok" : "error"}`}><span />{pendingCard ? "Kuittaus odottaa" : reading ? "Lukija OK" : "Lukija ei yhteydessä"}</div><button onClick={() => void stopEvent()}>Lopeta tapahtuma</button><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div><div className="course-list"><strong>Radat</strong>{activeEvent.courses.length ? activeEvent.courses.map((course) => <span key={course.id}>{course.name} · {(course.lengthMeters / 1000).toLocaleString("fi-FI", { maximumFractionDigits: 1 })} km</span>) : <span>Ei julkaistuja ratoja</span>}</div></> : <div className="event-start">{calendarLoading ? <p>Haetaan tapahtumia…</p> : calendarError ? <div><p className="error">{calendarError}</p><button onClick={() => void loadCalendar()}>Yritä uudelleen</button></div> : <><label className="event-select-field"><span className="eyebrow">Valitse tapahtuma</span><select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}><option value="">Valitse tapahtuma</option>{events.map((event) => <option key={event.id} value={event.id}>{new Date(event.startsAt).toLocaleDateString("fi-FI")} · {event.name}</option>)}</select></label><button className="primary" onClick={() => void startEvent()} disabled={!selectedEventId}>Valitse tapahtuma</button><div className="event-start-actions"><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div></>}</div>}
         {status && <p className="status">{status}</p>}
-        <button className="settings-toggle" onClick={() => setSettingsOpen((value) => !value)} aria-expanded={settingsOpen}>{settingsOpen ? "⚙ Sulje" : "⚙ Asetukset"}</button>
-        {settingsOpen && <div className="reader-settings"><select value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading}><option value="">Valitse sarjaportti</option>{devices.map((device) => <option key={device.portName} value={device.portName}>{device.portName} – {device.product || device.manufacturer || device.portType}</option>)}</select><input className="port-input" value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading} placeholder="Sarjaportin polku" aria-label="Sarjaportin polku" /><button onClick={() => void refresh()} disabled={reading}>Päivitä portit</button><div className="device-row">{deviceStatus === "unregistered" || deviceStatus === "revoked" ? <>{deviceStatus === "revoked" && <p className="error">Ylläpitäjä on peruuttanut tämän laitteen pääsyn. Rekisteröidy uudelleen.</p>}<input className="device-name-input" value={deviceNameInput} onChange={(e) => setDeviceNameInput(e.target.value)} placeholder="Laitteen nimi, esim. Kokkolan lukija #1" aria-label="Laitteen nimi" /><button onClick={() => void registerDevice()} disabled={!deviceNameInput.trim()}>Lähetä hyväksyntäpyyntö</button></> : deviceStatus === "pending" ? <><span>Odotetaan ylläpitäjän hyväksyntää (nimellä &quot;{deviceName}&quot;)…</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button></> : <><span className="device-approved">✓ Hyväksytty (nimellä &quot;{deviceName}&quot;)</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button><button type="button" onClick={() => void forgetDevice()}>Unohda laite</button></>}{deviceError && <p className="error">{deviceError}</p>}</div></div>}
       </section>
+
+      {settingsOpen && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+            <h2 id="settings-title">Asetukset</h2>
+            <div className="reader-settings"><select value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading}><option value="">Valitse sarjaportti</option>{devices.map((device) => <option key={device.portName} value={device.portName}>{device.portName} – {device.product || device.manufacturer || device.portType}</option>)}</select><input className="port-input" value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading} placeholder="Sarjaportin polku" aria-label="Sarjaportin polku" /><button type="button" onClick={() => void refresh()} disabled={reading}>Päivitä portit</button><div className="device-row">{deviceStatus === "unregistered" || deviceStatus === "revoked" ? <>{deviceStatus === "revoked" && <p className="error">Ylläpitäjä on peruuttanut tämän laitteen pääsyn. Rekisteröidy uudelleen.</p>}<input className="device-name-input" value={deviceNameInput} onChange={(e) => setDeviceNameInput(e.target.value)} placeholder="Laitteen nimi, esim. Kokkolan lukija #1" aria-label="Laitteen nimi" /><button type="button" onClick={() => void registerDevice()} disabled={!deviceNameInput.trim()}>Lähetä hyväksyntäpyyntö</button></> : deviceStatus === "pending" ? <><span>Odotetaan ylläpitäjän hyväksyntää (nimellä &quot;{deviceName}&quot;)…</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button></> : <><span className="device-approved">✓ Hyväksytty (nimellä &quot;{deviceName}&quot;)</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button><button type="button" onClick={() => void forgetDevice()}>Unohda laite</button></>}{deviceError && <p className="error">{deviceError}</p>}</div></div>
+            <div className="confirm-actions"><button type="button" className="primary" onClick={() => setSettingsOpen(false)}>Sulje</button></div>
+          </section>
+        </div>
+      )}
+
+      {personDbOpen && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal person-db-modal" role="dialog" aria-modal="true" aria-labelledby="person-db-title">
+            <h2 id="person-db-title">HenkilöDB</h2>
+            <p className="status">{personDbLoading ? "Ladataan…" : `${filteredPersonDb.length} / ${personDb.length} henkilöä`}</p>
+            <label className="log-search"><span className="sr-only">Hae henkilöä</span><input type="search" autoFocus value={personDbQuery} onChange={(event) => setPersonDbQuery(event.target.value)} placeholder="Hae nimellä, seuralla tai kortin numerolla…" /></label>
+            {personDbError && <p className="error">{personDbError}</p>}
+            <div className="log-table-wrap"><table className="log-table"><thead><tr><th>Sukunimi</th><th>Etunimi</th><th>Seura</th><th>Kortti</th><th></th></tr></thead><tbody>{filteredPersonDb.map((person) => person.id === editingParticipantId && editDraft ? <tr key={person.id} className="editing-row"><td><input value={editDraft.lastName} onChange={(event) => { const value = event.target.value; setEditDraft((draft) => draft ? { ...draft, lastName: value } : draft); }} /></td><td><input value={editDraft.firstName} onChange={(event) => { const value = event.target.value; setEditDraft((draft) => draft ? { ...draft, firstName: value } : draft); }} /></td><td><input value={editDraft.club} onChange={(event) => { const value = event.target.value; setEditDraft((draft) => draft ? { ...draft, club: value } : draft); }} placeholder="Ei seuraa" /></td><td><input value={editDraft.cardNumber} onChange={(event) => { const value = event.target.value; setEditDraft((draft) => draft ? { ...draft, cardNumber: value } : draft); }} inputMode="numeric" pattern="[0-9]*" className="card-number-input" /></td><td className="person-db-actions"><button type="button" className="primary" disabled={savingPersonEdit} onClick={() => void savePersonEdit()}>Tallenna</button><button type="button" disabled={savingPersonEdit} onClick={cancelPersonEdit}>Peruuta</button></td></tr> : <tr key={person.id}><td title={person.lastName}>{person.lastName}</td><td title={person.firstName}>{person.firstName}</td><td className="log-club" title={person.club || undefined}>{person.club || "–"}</td><td className="log-time">{person.cardNumber}</td><td className="person-db-actions"><button type="button" onClick={() => startPersonEdit(person)}>Muokkaa</button></td></tr>)}</tbody></table></div>
+            <div className="confirm-actions"><button type="button" className="primary" onClick={() => { setPersonDbOpen(false); cancelPersonEdit(); }}>Sulje</button></div>
+          </section>
+        </div>
+      )}
 
       {result && (
         <section>
@@ -572,7 +654,7 @@ function App() {
 
       <section>
         <div className="log-heading"><div><h2>Tulokset</h2><p>{history.length} viimeisintä tulosta</p></div><div className="log-heading-actions"><label className="log-search"><span className="sr-only">Hae tuloksista</span><input type="search" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Hae nimellä, seuralla tai kortilla…" /></label><button onClick={openManualEntry} disabled={!activeEvent}>+ Syötä osanottoja</button></div></div>
-        {history.length === 0 ? <p>Ei tallennettuja tuloksia.</p> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Seura</th><th>Kortti</th><th>Tulos</th><th>Aika</th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td><time>{new Date(item.readAtMs).toLocaleString("fi-FI")}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="log-club">{item.club || "–"}</td><td className="card-number">{item.source === "MANUAL" ? "–" : item.cardNumber ?? "–"}</td><td><span className={`log-status ${item.resultStatus.toLowerCase()}`} title={item.syncStatus === "SYNCED" ? "Synkronoitu API:in" : item.syncError || "Odottaa synkronointia"}>{item.resultStatus === "OK" ? <><span aria-hidden="true">✓</span><span className="sr-only">OK</span></> : resultStatusLabel(item.resultStatus)} {item.syncStatus === "SYNCED" ? "☁" : "↻"}</span></td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : formatDuration(item.source === "MANUAL" ? item.manualDurationSeconds : totalTime(item.punches))}</td></tr>)}</tbody></table></div></>}
+        {history.length === 0 ? <p>Ei tallennettuja tuloksia.</p> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Seura</th><th>Rata</th><th>Aika</th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td className="log-read-at"><time>{new Date(item.readAtMs).toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="log-club">{item.club || "–"}</td><td className="log-course">{activeEvent?.courses.find((course) => course.id === item.courseId)?.name ?? "–"}</td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : formatDuration(item.source === "MANUAL" ? item.manualDurationSeconds : totalTime(item.punches))}</td></tr>)}</tbody></table></div></>}
       </section>
 
       {pendingCard && (

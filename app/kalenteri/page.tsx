@@ -1,18 +1,14 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, ArrowLeft, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock3, ListOrdered, Loader2, MapPin, Route, RotateCcw, UserPlus, Users } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertCircle, ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, Clock3, ListOrdered, MapPin, Route, RotateCcw, UserPlus, Users } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
+import { RegistrationDialog } from "@/components/registration-dialog";
 import { SITE_NAME } from "@/lib/site";
 
 const apiBase = "http://localhost:3001/api/v1";
@@ -57,32 +53,6 @@ function EventCard({ event }: { event: CalendarEvent }) {
   const timing = getTiming(event);
   const [registrationOpen, setRegistrationOpen] = useState(false);
   return <><Card className="overflow-hidden rounded-3xl shadow-[0_18px_50px_-42px_rgba(21,70,43,.5)]"><CardContent className="p-0"><div className="grid md:grid-cols-[170px_minmax(0,1fr)]"><div className="flex flex-row items-center justify-between gap-4 bg-primary px-5 py-5 text-primary-foreground md:flex-col md:items-start md:justify-start md:px-6 md:py-7"><div><p className="text-xs font-bold uppercase tracking-widest text-white/65">{formatWeekday(event.startsAt)}</p><p className="mt-1 text-2xl font-black">{formatDateRange(event.startsAt, event.endsAt)}</p></div><Badge className="bg-white/12 text-white hover:bg-white/12"><span className={`size-2 rounded-full ${timing.dot}`} />{timing.label}</Badge></div><div className="p-5 md:p-7"><div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between"><div><h3 className="text-xl font-extrabold tracking-tight">{event.name}</h3><div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground"><span className="flex items-center gap-2"><Clock3 className="size-4 text-primary" />{formatTimeRange(event.startsAt, event.endsAt)}</span><span className="flex items-center gap-2"><MapPin className="size-4 text-primary" />{event.address || event.locationName || "Paikka ilmoitetaan myöhemmin"}</span></div></div><div className="flex flex-wrap gap-2">{event.registrationOpen && <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Ilmoittautuminen avoinna</Badge>}{event.registrationCount > 0 && <Badge variant="outline"><UserPlus className="mr-1 size-3" />{event.registrationCount} ilmoittautunut</Badge>}{event.attendanceCount > 0 && <Badge variant="outline"><Users className="mr-1 size-3" />{event.attendanceCount} osallistunut</Badge>}</div></div>{event.courses.length > 0 ? <div className="mt-6 border-t pt-5"><div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground"><Route className="size-4" />Radat</div><div className="flex flex-wrap gap-2">{event.courses.map((course) => <span key={course.id} className="rounded-full bg-secondary px-3 py-1.5 text-sm font-semibold text-secondary-foreground">{course.name} <span className="font-normal text-muted-foreground">{formatDistance(course.lengthMeters)}</span></span>)}</div><div className="mt-5 flex flex-wrap gap-2"><Button asChild variant="outline" className="rounded-full"><a href={`/tulokset/${event.id}`}><ListOrdered className="mr-2 size-4" />Tulokset</a></Button>{event.registrationOpen && <Button className="rounded-full" onClick={() => setRegistrationOpen(true)}><UserPlus className="mr-2 size-4" />Ilmoittaudu tapahtumaan</Button>}</div></div> : <p className="mt-6 border-t pt-5 text-sm text-muted-foreground">Ratavalikoima julkaistaan myöhemmin.</p>}</div></div></CardContent></Card><RegistrationDialog event={event} open={registrationOpen} onOpenChange={setRegistrationOpen} /></>;
-}
-
-function RegistrationDialog({ event, open, onOpenChange }: { event: CalendarEvent; open: boolean; onOpenChange: (open: boolean) => void }) {
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-  async function submit(formEvent: FormEvent<HTMLFormElement>) {
-    formEvent.preventDefault(); setSaving(true); setError("");
-    const form = formEvent.currentTarget;
-    const data = new FormData(form);
-    const cardNumber = String(data.get("cardNumber") ?? "").trim();
-    try {
-      const payload = { firstName: data.get("firstName"), lastName: data.get("lastName"), clubName: data.get("clubName") || undefined, courseId: data.get("courseId"), punchingSystem: cardNumber ? data.get("punchingSystem") : undefined, cardNumber: cardNumber || undefined, paymentMethod: data.get("paymentMethod"), notes: data.get("notes") || undefined };
-      const response = await fetch(`${apiBase}/public/events/${event.id}/registrations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      const result = await response.json().catch(() => null) as { message?: string | string[]; participant?: string } | null;
-      if (!response.ok) { const message = Array.isArray(result?.message) ? result.message.join(" ") : result?.message; throw new Error(message || "Ilmoittautuminen epäonnistui."); }
-      setSuccess(`${result?.participant ?? "Osallistuja"} on ilmoitettu tapahtumaan.`); form.reset();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Ilmoittautuminen epäonnistui."); }
-    finally { setSaving(false); }
-  }
-  function changeOpen(value: boolean) { if (!value) { setError(""); setSuccess(""); } onOpenChange(value); }
-  return <Dialog open={open} onOpenChange={changeOpen}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-xl"><DialogHeader><DialogTitle>Ilmoittaudu · {event.name}</DialogTitle><DialogDescription>Valitse rata ja anna osallistujan tiedot. Seura, leimauskortti ja lisätiedot ovat vapaaehtoisia.</DialogDescription></DialogHeader>{success ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-center"><CheckCircle2 className="mx-auto size-9 text-emerald-700" /><p className="mt-3 font-bold text-emerald-900">Ilmoittautuminen vastaanotettu</p><p className="mt-1 text-sm text-emerald-800">{success}</p><Button className="mt-5 rounded-full" onClick={() => changeOpen(false)}>Valmis</Button></div> : <form className="grid gap-4" onSubmit={submit}><div className="grid gap-4 sm:grid-cols-2"><RegistrationField label="Etunimi" name="firstName" autoComplete="given-name" /><RegistrationField label="Sukunimi" name="lastName" autoComplete="family-name" /></div><RegistrationField label="Seura (vapaaehtoinen)" name="clubName" autoComplete="organization" required={false} /><div><Label htmlFor={`course-${event.id}`}>Sarja (rata)</Label><NativeSelect id={`course-${event.id}`} name="courseId" className="mt-2 w-full" required defaultValue=""><NativeSelectOption value="" disabled>Valitse rata</NativeSelectOption>{event.courses.map((course) => <NativeSelectOption key={course.id} value={course.id}>{course.name} · {formatDistance(course.lengthMeters)}</NativeSelectOption>)}</NativeSelect></div><div className="grid gap-4 sm:grid-cols-2"><div><Label htmlFor={`system-${event.id}`}>Leimausjärjestelmä</Label><NativeSelect id={`system-${event.id}`} name="punchingSystem" className="mt-2 w-full" defaultValue="EMIT"><NativeSelectOption value="EMIT">Emit</NativeSelectOption><NativeSelectOption value="SPORT_IDENT">SportIdent</NativeSelectOption></NativeSelect></div><RegistrationField label="Kortin numero" name="cardNumber" inputMode="numeric" pattern="[0-9]*" required={false} /></div><div><p className="mb-2 text-sm text-muted-foreground">Valitse haluamasi maksutapa. Jos olet oikeutettu ilmaiseen karttaan, syötä lisätietoihin lisätiedot (Ilmainen kartta (alle 16-vuotiaat ja alle 20v KoS jäsenet) / syntymävuosi).</p><Label htmlFor={`payment-${event.id}`}>Maksutapa</Label><NativeSelect id={`payment-${event.id}`} name="paymentMethod" className="mt-2 w-full" required defaultValue=""><NativeSelectOption value="" disabled>Valitse maksutapa</NativeSelectOption>{event.paymentMethods.map((method) => <NativeSelectOption key={method} value={method}>{method}</NativeSelectOption>)}</NativeSelect></div><div><Label htmlFor={`notes-${event.id}`}>Lisätiedot (vapaaehtoinen)</Label><Textarea id={`notes-${event.id}`} name="notes" className="mt-2" maxLength={2000} rows={3} /></div>{error && <p role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}<Button type="submit" className="mt-2 rounded-full" disabled={saving}>{saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : <UserPlus className="mr-2 size-4" />}{saving ? "Tallennetaan…" : "Vahvista ilmoittautuminen"}</Button></form>}</DialogContent></Dialog>;
-}
-
-function RegistrationField({ label, name, required = true, ...props }: { label: string; name: string; required?: boolean } & React.ComponentProps<typeof Input>) {
-  return <div><Label htmlFor={name}>{label}</Label><Input id={name} name={name} className="mt-2" required={required} maxLength={120} {...props} /></div>;
 }
 
 function Stat({ value, label, icon: Icon }: { value: string; label: string; icon: typeof Users }) { return <div className="min-w-28 rounded-2xl border border-white/80 bg-white/75 p-4 shadow-sm backdrop-blur"><Icon className="size-4 text-primary" /><p className="mt-3 text-2xl font-black tabular-nums">{value}</p><p className="text-xs font-semibold text-muted-foreground">{label}</p></div>; }

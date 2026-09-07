@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Award, Copy, Loader2, UserRound, Users } from "lucide-react";
+import { ArrowLeft, Award, Copy, Download, Loader2, UserRound, Users } from "lucide-react";
+import * as XLSX from "xlsx";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,7 +21,8 @@ type AttendanceSummary = { seasonId: string; seasonName: string; year: number; e
 type DuplicateCandidate = { id: string; firstName: string; lastName: string; clubName: string | null; registrationCount: number; attendanceCount: number };
 type DuplicateGroup = { confidence: "exact" | "similar"; persons: DuplicateCandidate[] };
 type PerformanceStatus = "PENDING" | "ACCEPTED" | "DISQUALIFIED" | "NO_TIME" | "DID_NOT_FINISH";
-type PersonPerformanceRow = { eventId: string; eventName: string; eventStartsAt: string; courseName: string | null; status: PerformanceStatus | null; durationMs: number | null; rank: number | null };
+type PersonPerformanceRow = { eventId: string; eventName: string; eventStartsAt: string; courseName: string | null; status: PerformanceStatus | null; durationMs: number | null; rank: number | null; participationType: "ATTENDED" | "REGISTERED_ONLY" };
+type AttendanceExportRow = { eventName: string; eventStartsAt: string; participatedAt: string | null; firstName: string; lastName: string; clubName: string | null; paymentMethod: string | null; courseName: string | null; durationMs: number | null };
 
 export default function AttendanceSummaryPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -59,6 +61,8 @@ function AttendanceSummaryTable({ token, onSessionExpired }: { token: string; on
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedPerson, setSelectedPerson] = useState<{ id: string; name: string } | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
   const headers = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
   useEffect(() => {
     fetch(`${apiBase}/events/seasons`, { headers: headers() })
@@ -75,8 +79,36 @@ function AttendanceSummaryTable({ token, onSessionExpired }: { token: string; on
       .catch((cause) => setError(cause instanceof Error ? cause.message : "Osallistumiskertojen lataaminen epäonnistui."))
       .finally(() => setLoading(false));
   }, [seasonId, headers, onSessionExpired]);
+
+  async function exportExcel() {
+    if (!seasonId || !summary) return;
+    setExporting(true); setExportError("");
+    try {
+      const response = await fetch(`${apiBase}/events/seasons/${seasonId}/attendance-export`, { headers: headers() });
+      if (response.status === 401) { onSessionExpired(); throw new Error("Istunto on vanhentunut. Kirjaudu uudelleen."); }
+      if (!response.ok) throw new Error("Vientitietojen lataaminen epäonnistui.");
+      const rows = await response.json() as AttendanceExportRow[];
+      const sheetRows = rows.map((row) => ({
+        Tapahtuma: row.eventName,
+        Ilmoittautumisaika: row.participatedAt ? formatEventDateTime(row.participatedAt) : "",
+        Nimi: `${row.lastName}, ${row.firstName}`,
+        Seura: row.clubName ?? "",
+        Maksutapa: row.paymentMethod ?? "",
+        Rata: row.courseName ?? "",
+        Aika: row.durationMs != null ? formatPerformanceDuration(row.durationMs) : "",
+      }));
+      const worksheet = XLSX.utils.json_to_sheet(sheetRows);
+      worksheet["!cols"] = [{ wch: 22 }, { wch: 18 }, { wch: 24 }, { wch: 20 }, { wch: 28 }, { wch: 14 }, { wch: 10 }];
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Osallistumiset");
+      XLSX.writeFile(workbook, `osallistumiskerrat-${summary.year}.xlsx`);
+    } catch (cause) { setExportError(cause instanceof Error ? cause.message : "Vientitietojen lataaminen epäonnistui."); }
+    finally { setExporting(false); }
+  }
+
   return <>
-    <div className="mb-5 flex items-center gap-3"><Label className="shrink-0">Kausi</Label><NativeSelect value={seasonId} onChange={(event) => setSeasonId(event.target.value)}>{seasons.map((season) => <NativeSelectOption key={season.id} value={season.id}>{season.name} ({season.year})</NativeSelectOption>)}</NativeSelect></div>
+    <div className="mb-5 flex flex-wrap items-center gap-3"><Label className="shrink-0">Kausi</Label><NativeSelect value={seasonId} onChange={(event) => setSeasonId(event.target.value)}>{seasons.map((season) => <NativeSelectOption key={season.id} value={season.id}>{season.name} ({season.year})</NativeSelectOption>)}</NativeSelect><Button type="button" variant="outline" className="ml-auto rounded-full" disabled={exporting || !summary || summary.rows.length === 0} onClick={() => void exportExcel()}>{exporting ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Download className="mr-2 size-4" />}Lataa Excel</Button></div>
+    {exportError && <p role="alert" className="mb-5 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{exportError}</p>}
     {summary && summary.rewardThresholds.length > 0 && <p className="mb-5 text-sm text-muted-foreground">Tavoitepalkinto: {summary.rewardThresholds.map((threshold) => `${threshold.name} (${threshold.requiredAttendances} kertaa)`).join(", ")}</p>}
     {error && <p role="alert" className="mb-5 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}
     {loading ? <div className="grid min-h-40 place-items-center"><Loader2 className="size-6 animate-spin text-primary" /></div> : !summary || summary.rows.length === 0 ? <Card className="rounded-3xl border-dashed"><CardContent className="grid place-items-center py-16 text-center"><Users className="mb-4 size-9 text-muted-foreground" /><p className="font-bold">Ei osallistumisia</p><p className="mt-1 text-sm text-muted-foreground">Tällä kaudella ei ole vielä kirjattuja osallistumisia.</p></CardContent></Card> : <div className="overflow-hidden rounded-2xl border bg-background"><Table><TableHeader><TableRow><TableHead>Nimi</TableHead><TableHead>Seura</TableHead><TableHead className="text-right">Osallistumiskertoja</TableHead></TableRow></TableHeader><TableBody>{summary.rows.map((row) => <TableRow key={row.personId}><TableCell className="font-semibold"><button type="button" className="underline-offset-4 hover:underline" onClick={() => setSelectedPerson({ id: row.personId, name: `${row.lastName}, ${row.firstName}` })}>{row.lastName}, {row.firstName}</button></TableCell><TableCell>{row.clubName ?? "—"}</TableCell><TableCell className="text-right"><span className="inline-flex items-center gap-2">{row.attendanceCount}{summary.rewardThresholds.some((threshold) => row.attendanceCount >= threshold.requiredAttendances) && <Award className="size-4 text-primary" aria-label="Tavoitepalkinto saavutettu" />}</span></TableCell></TableRow>)}</TableBody></Table></div>}
@@ -98,11 +130,15 @@ function PersonHistory({ personId, personName, token, onSessionExpired }: { pers
   }, [personId, token, onSessionExpired]);
   return <><DialogHeader><DialogTitle>{personName}</DialogTitle><DialogDescription>Osallistumishistoria tapahtumittain.</DialogDescription></DialogHeader>
     {error && <p role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}
-    {loading ? <div className="grid min-h-40 place-items-center"><Loader2 className="size-6 animate-spin text-primary" /></div> : rows.length === 0 ? <p className="text-sm text-muted-foreground">Ei osallistumisia.</p> : <div className="overflow-hidden rounded-2xl border"><Table><TableHeader><TableRow><TableHead>Tapahtuma</TableHead><TableHead>Rata</TableHead><TableHead className="text-right">Sija</TableHead><TableHead className="text-right">Aika</TableHead></TableRow></TableHeader><TableBody>{rows.map((row) => <TableRow key={row.eventId}><TableCell className="font-semibold">{row.eventName}<div className="text-xs font-normal text-muted-foreground">{formatEventDate(row.eventStartsAt)}</div></TableCell><TableCell>{row.courseName ?? "—"}</TableCell><TableCell className="text-right">{row.rank ?? (row.status ? performanceStatusLabel(row.status) : "—")}</TableCell><TableCell className="text-right">{formatPerformanceDuration(row.durationMs)}</TableCell></TableRow>)}</TableBody></Table></div>}</>;
+    {loading ? <div className="grid min-h-40 place-items-center"><Loader2 className="size-6 animate-spin text-primary" /></div> : rows.length === 0 ? <p className="text-sm text-muted-foreground">Ei osallistumisia.</p> : <div className="overflow-hidden rounded-2xl border"><Table><TableHeader><TableRow><TableHead>Tapahtuma</TableHead><TableHead>Rata</TableHead><TableHead className="text-right">Sija</TableHead><TableHead className="text-right">Aika</TableHead></TableRow></TableHeader><TableBody>{rows.map((row) => <TableRow key={row.eventId}><TableCell className="font-semibold">{row.eventName}<div className="text-xs font-normal text-muted-foreground">{formatEventDate(row.eventStartsAt)}</div></TableCell><TableCell>{row.courseName ?? "—"}</TableCell>{row.participationType === "REGISTERED_ONLY" ? <TableCell className="text-right text-muted-foreground" colSpan={2}>Ilmoittautunut (omatoimi)</TableCell> : <><TableCell className="text-right">{row.rank ?? (row.status ? performanceStatusLabel(row.status) : "—")}</TableCell><TableCell className="text-right">{formatPerformanceDuration(row.durationMs)}</TableCell></>}</TableRow>)}</TableBody></Table></div>}</>;
 }
 
 function formatEventDate(value: string) {
   return new Intl.DateTimeFormat("fi-FI", { day: "numeric", month: "numeric", year: "numeric" }).format(new Date(value));
+}
+
+function formatEventDateTime(value: string) {
+  return new Intl.DateTimeFormat("fi-FI", { day: "numeric", month: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }
 
 function performanceStatusLabel(status: PerformanceStatus) {

@@ -16,6 +16,7 @@ export class EventsController {
   @Get() list() { return this.events.list(); }
   @Get("seasons") seasons() { return this.events.seasons(); }
   @Get("seasons/:seasonId/attendance-summary") attendanceSummary(@Param("seasonId") seasonId: string) { return this.events.seasonAttendanceSummary(seasonId); }
+  @Get("seasons/:seasonId/attendance-export") attendanceExport(@Param("seasonId") seasonId: string) { return this.events.seasonAttendanceExport(seasonId); }
   @Get(":id") get(@Param("id") id: string) { return this.events.get(id); }
   @Get(":id/registrations") registrations(@Param("id") id: string) { return this.events.registrations(id); }
   @Post() create(@Body() input: CreateEventDto) { return this.events.create(input); }

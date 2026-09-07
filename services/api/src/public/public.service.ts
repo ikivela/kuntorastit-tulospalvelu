@@ -333,13 +333,22 @@ export class PublicService {
     const personIds = new Set<string>();
     for (const course of event.courses) for (const performance of course.performances) personIds.add(performance.attendance.personId);
     const seasonEvents = await this.prisma.event.findMany({ where: { seasonId: event.seasonId }, select: { id: true } });
-    const attendanceCounts = personIds.size === 0
-      ? new Map<string, number>()
-      : await this.prisma.attendance.groupBy({
-          by: ["personId"],
-          where: { personId: { in: [...personIds] }, eventId: { in: seasonEvents.map((seasonEvent) => seasonEvent.id) } },
-          _count: { _all: true },
-        }).then((rows) => new Map(rows.map((row) => [row.personId, row._count._all])));
+    const seasonEventIds = seasonEvents.map((seasonEvent) => seasonEvent.id);
+    // Counts both attended (has a result) and registered (may have taken
+    // part "omatoimi", on their own time, with no recorded result) events —
+    // a person can show up here with a result for this event while their
+    // count also reflects a registration-only event elsewhere.
+    const [attendanceRows, registrationRows] = personIds.size === 0 ? [[], []] : await Promise.all([
+      this.prisma.attendance.findMany({ where: { personId: { in: [...personIds] }, eventId: { in: seasonEventIds } }, select: { personId: true, eventId: true } }),
+      this.prisma.registration.findMany({ where: { personId: { in: [...personIds] }, eventId: { in: seasonEventIds }, status: "ACTIVE" }, select: { personId: true, eventId: true } }),
+    ]);
+    const eventsByPerson = new Map<string, Set<string>>();
+    for (const record of [...attendanceRows, ...registrationRows]) {
+      const eventSet = eventsByPerson.get(record.personId) ?? new Set<string>();
+      eventSet.add(record.eventId);
+      eventsByPerson.set(record.personId, eventSet);
+    }
+    const attendanceCounts = new Map([...eventsByPerson.entries()].map(([personId, eventSet]) => [personId, eventSet.size]));
 
     return {
       id: event.id,

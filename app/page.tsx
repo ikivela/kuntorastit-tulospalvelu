@@ -8,11 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
+import { RegistrationDialog } from "@/components/registration-dialog";
 import { SITE_NAME } from "@/lib/site";
 
 const apiBase = "http://localhost:3001/api/v1";
-type Course = { id: string; name: string };
-type CalendarEvent = { id: string; name: string; locationName: string | null; address: string | null; startsAt: string; endsAt: string; registrationOpen: boolean; courses: Course[] };
+type Course = { id: string; name: string; lengthMeters: number };
+type CalendarEvent = { id: string; name: string; locationName: string | null; address: string | null; startsAt: string; endsAt: string; registrationOpen: boolean; paymentMethods: string[]; courses: Course[] };
 type Season = { events: CalendarEvent[] };
 
 export default function Home() {
@@ -64,7 +65,8 @@ export default function Home() {
 }
 
 function EventRow({ event }: { event: CalendarEvent }) {
-  return <Card className="overflow-hidden rounded-3xl transition hover:-translate-y-0.5 hover:shadow-md">
+  const [registrationOpen, setRegistrationOpen] = useState(false);
+  return <><Card className="overflow-hidden rounded-3xl transition hover:-translate-y-0.5 hover:shadow-md">
     <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-start gap-4">
         <div className="grid size-14 shrink-0 place-items-center rounded-2xl bg-secondary text-center leading-tight text-primary"><span><span className="block text-[10px] font-bold uppercase tracking-wider">{formatMonth(event.startsAt)}</span><span className="block text-xl font-black">{formatDay(event.startsAt)}</span></span></div>
@@ -73,9 +75,9 @@ function EventRow({ event }: { event: CalendarEvent }) {
           <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground"><span className="flex items-center gap-1.5"><Clock3 className="size-3.5" />{formatTimeRange(event.startsAt, event.endsAt)}</span><span className="flex items-center gap-1.5"><MapPin className="size-3.5" />{event.address || event.locationName || "Paikka ilmoitetaan myöhemmin"}</span></div>
         </div>
       </div>
-      <div className="flex shrink-0 gap-2 sm:pl-4"><Button asChild variant="outline" className="rounded-full"><a href={`/tulokset/${event.id}`}><ListOrdered className="mr-2 size-4" />Tulokset</a></Button>{event.registrationOpen && <Button asChild className="rounded-full"><a href="/kalenteri"><UserPlus className="mr-2 size-4" />Ilmoittaudu</a></Button>}</div>
+      <div className="flex shrink-0 gap-2 sm:pl-4"><Button asChild variant="outline" className="rounded-full"><a href={`/tulokset/${event.id}`}><ListOrdered className="mr-2 size-4" />Tulokset</a></Button>{event.registrationOpen && <Button className="rounded-full" onClick={() => setRegistrationOpen(true)}><UserPlus className="mr-2 size-4" />Ilmoittaudu</Button>}</div>
     </CardContent>
-  </Card>;
+  </Card><RegistrationDialog event={event} open={registrationOpen} onOpenChange={setRegistrationOpen} /></>;
 }
 function formatMonth(value: string) { return new Intl.DateTimeFormat("fi-FI", { month: "short" }).format(new Date(value)).replace(".", ""); }
 function formatDay(value: string) { return new Intl.DateTimeFormat("fi-FI", { day: "numeric" }).format(new Date(value)); }

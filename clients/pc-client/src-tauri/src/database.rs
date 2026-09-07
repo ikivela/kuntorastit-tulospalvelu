@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -361,6 +361,29 @@ impl Database {
         }))
     }
 
+    /// All locally known participants, for the "HenkilöDB" browse window —
+    /// filtering there happens client-side since the whole list is small
+    /// enough to fetch once and search in memory.
+    pub fn list_participants(&self) -> Result<Vec<Participant>, String> {
+        let connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
+        let mut statement = connection
+            .prepare("SELECT id, card_number, first_name, last_name, club, api_person_id FROM participants ORDER BY last_name, first_name")
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(Participant {
+                    id: row.get(0)?,
+                    card_number: row.get(1)?,
+                    first_name: row.get(2)?,
+                    last_name: row.get(3)?,
+                    club: row.get(4)?,
+                    api_person_id: row.get(5)?,
+                })
+            })
+            .map_err(|error| error.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
+    }
+
     /// Finds locally known participants (from EMIT registration sync, prior
     /// card reads, or earlier manual entries) whose name contains `query`.
     /// Used for the "Hae henkilöä" find-as-you-type box, kept local so it
@@ -440,6 +463,24 @@ impl Database {
         connection.execute(
             "UPDATE participants SET first_name = ?1, last_name = ?2, club = ?3 WHERE id = ?4",
             params![first_name.trim(), last_name.trim(), club.filter(|value| !value.trim().is_empty()).map(str::trim), participant_id],
+        ).map_err(|error| error.to_string())?;
+        Ok(())
+    }
+
+    /// Full edit from the "HenkilöDB" browse window — also allows correcting
+    /// the card number itself, unlike update_participant_details.
+    pub fn update_participant(&self, participant_id: i64, card_number: u32, first_name: &str, last_name: &str, club: Option<&str>) -> Result<(), String> {
+        let connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
+        let conflict: Option<i64> = connection
+            .query_row("SELECT id FROM participants WHERE card_number = ?1 AND id != ?2", params![card_number, participant_id], |row| row.get(0))
+            .optional()
+            .map_err(|error| error.to_string())?;
+        if conflict.is_some() {
+            return Err(format!("Kortin numero {card_number} on jo käytössä toisella henkilöllä."));
+        }
+        connection.execute(
+            "UPDATE participants SET card_number = ?1, first_name = ?2, last_name = ?3, club = ?4 WHERE id = ?5",
+            params![card_number, first_name.trim(), last_name.trim(), club.filter(|value| !value.trim().is_empty()).map(str::trim), participant_id],
         ).map_err(|error| error.to_string())?;
         Ok(())
     }

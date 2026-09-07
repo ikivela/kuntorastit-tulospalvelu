@@ -117,10 +117,13 @@ export class PersonsService {
     return { keptPersonId: keepPersonId, mergedCount: sourceIds.length };
   }
 
-  /** A person's own result history: one row per event they have an
-   * attendance for, with their latest performance's course, status,
-   * duration and rank within that course (same ranking rule as the public
-   * results view — latest performance per person, ACCEPTED sorted by time). */
+  /** A person's own participation history: one row per event they either
+   * have an attendance for, or are actively registered for without ever
+   * getting a recorded result (an "omatoimi" — self-guided, on their own
+   * time — participation leaves no card read or manual entry). Attended
+   * rows carry their latest performance's course, status, duration and rank
+   * within that course (same ranking rule as the public results view —
+   * latest performance per person, ACCEPTED sorted by time). */
   async performances(personId: string) {
     const person = await this.prisma.person.findUnique({ where: { id: personId }, select: { id: true } });
     if (!person) throw new NotFoundException("Henkilöä ei löytynyt.");
@@ -136,13 +139,20 @@ export class PersonsService {
       },
       orderBy: { event: { startsAt: "desc" } },
     });
+    const attendedEventIds = attendances.map((attendance) => attendance.event.id);
+
+    const registrations = await this.prisma.registration.findMany({
+      where: { personId, status: "ACTIVE", eventId: { notIn: attendedEventIds } },
+      select: { event: { select: { id: true, name: true, startsAt: true } }, course: { select: { name: true } } },
+      orderBy: { event: { startsAt: "desc" } },
+    });
 
     const rankCache = new Map<string, Map<string, number | null>>();
     const rows = [];
     for (const attendance of attendances) {
       const latest = attendance.performances[0];
       if (!latest) {
-        rows.push({ eventId: attendance.event.id, eventName: attendance.event.name, eventStartsAt: attendance.event.startsAt, courseName: null, status: null, durationMs: null, rank: null });
+        rows.push({ eventId: attendance.event.id, eventName: attendance.event.name, eventStartsAt: attendance.event.startsAt, courseName: null, status: null, durationMs: null, rank: null, participationType: "ATTENDED" as const });
         continue;
       }
       if (!rankCache.has(latest.courseId)) rankCache.set(latest.courseId, await this.rankByPersonInCourse(latest.courseId));
@@ -154,8 +164,22 @@ export class PersonsService {
         status: latest.status,
         durationMs: latest.durationMs == null ? null : Number(latest.durationMs),
         rank: rankCache.get(latest.courseId)!.get(personId) ?? null,
+        participationType: "ATTENDED" as const,
       });
     }
+    for (const registration of registrations) {
+      rows.push({
+        eventId: registration.event.id,
+        eventName: registration.event.name,
+        eventStartsAt: registration.event.startsAt,
+        courseName: registration.course?.name ?? null,
+        status: null,
+        durationMs: null,
+        rank: null,
+        participationType: "REGISTERED_ONLY" as const,
+      });
+    }
+    rows.sort((left, right) => new Date(right.eventStartsAt).getTime() - new Date(left.eventStartsAt).getTime());
     return rows;
   }
 

@@ -8,7 +8,7 @@ import { CreateCourseDto, UpdateCourseDto } from "./course.dto.js";
 @Injectable()
 export class EventsService {
   constructor(private readonly prisma: PrismaService) {}
-  list() { return this.prisma.event.findMany({ include: { courses: { orderBy: { sortOrder: "asc" } }, season: { select: { name: true, year: true } }, _count: { select: { registrations: { where: { status: "ACTIVE" } } } } }, orderBy: { startsAt: "asc" } }).then((events) => events.map(({ _count, ...event }) => ({ ...event, registrationCount: _count.registrations }))); }
+  list() { return this.prisma.event.findMany({ include: { courses: { orderBy: { sortOrder: "asc" } }, season: { select: { name: true, year: true } }, _count: { select: { registrations: { where: { status: "ACTIVE" } }, attendances: true } } }, orderBy: { startsAt: "asc" } }).then((events) => events.map(({ _count, ...event }) => ({ ...event, registrationCount: _count.registrations, attendanceCount: _count.attendances }))); }
   seasons() { return this.prisma.season.findMany({ select: { id: true, name: true, year: true }, orderBy: { year: "desc" } }); }
   async seasonAttendanceSummary(seasonId: string) {
     const season = await this.prisma.season.findUnique({
@@ -23,20 +23,106 @@ export class EventsService {
     });
     if (!season) throw new NotFoundException("Kautta ei löytynyt");
     const eventIds = season.events.map((event) => event.id);
-    const attendances = eventIds.length === 0 ? [] : await this.prisma.attendance.findMany({
-      where: { eventId: { in: eventIds } },
-      select: { eventId: true, person: { select: { id: true, firstName: true, lastName: true, club: { select: { name: true } } } } },
-    });
+    // Attended (has a recorded result) and registered (may have taken part
+    // "omatoimi", on their own time, with no card read or manual entry) both
+    // count as a participation — a registration-only event just won't show a
+    // name in that event's own results list.
+    const personSelect = { select: { id: true, firstName: true, lastName: true, club: { select: { name: true } } } } as const;
+    const [attendances, registrations] = eventIds.length === 0 ? [[], []] : await Promise.all([
+      this.prisma.attendance.findMany({ where: { eventId: { in: eventIds } }, select: { eventId: true, person: personSelect } }),
+      this.prisma.registration.findMany({ where: { eventId: { in: eventIds }, status: "ACTIVE" }, select: { eventId: true, person: personSelect } }),
+    ]);
     const byPerson = new Map<string, { firstName: string; lastName: string; clubName: string | null; eventIds: Set<string> }>();
-    for (const attendance of attendances) {
-      const entry = byPerson.get(attendance.person.id) ?? { firstName: attendance.person.firstName, lastName: attendance.person.lastName, clubName: attendance.person.club?.name ?? null, eventIds: new Set<string>() };
-      entry.eventIds.add(attendance.eventId);
-      byPerson.set(attendance.person.id, entry);
+    for (const record of [...attendances, ...registrations]) {
+      const entry = byPerson.get(record.person.id) ?? { firstName: record.person.firstName, lastName: record.person.lastName, clubName: record.person.club?.name ?? null, eventIds: new Set<string>() };
+      entry.eventIds.add(record.eventId);
+      byPerson.set(record.person.id, entry);
     }
     const rows = [...byPerson.entries()]
       .map(([personId, entry]) => ({ personId, firstName: entry.firstName, lastName: entry.lastName, clubName: entry.clubName, attendanceCount: entry.eventIds.size }))
       .sort((a, b) => b.attendanceCount - a.attendanceCount || a.lastName.localeCompare(b.lastName, "fi") || a.firstName.localeCompare(b.firstName, "fi"));
     return { seasonId: season.id, seasonName: season.name, year: season.year, eventCount: eventIds.length, rewardThresholds: season.rewards, rows };
+  }
+
+  /** One row per person-per-event participation in a season (for the
+   * "lataa Excel" export) — attended and registration-only ("omatoimi")
+   * rows both included, matching seasonAttendanceSummary's counting rule. */
+  async seasonAttendanceExport(seasonId: string) {
+    const season = await this.prisma.season.findUnique({ where: { id: seasonId }, select: { events: { select: { id: true } } } });
+    if (!season) throw new NotFoundException("Kautta ei löytynyt");
+    const eventIds = season.events.map((event) => event.id);
+    if (eventIds.length === 0) return [];
+
+    const personSelect = { select: { firstName: true, lastName: true, club: { select: { name: true } } } } as const;
+    const [attendances, registrations] = await Promise.all([
+      this.prisma.attendance.findMany({
+        where: { eventId: { in: eventIds } },
+        select: {
+          eventId: true,
+          personId: true,
+          event: { select: { name: true, startsAt: true } },
+          person: personSelect,
+          performances: { orderBy: { updatedAt: "desc" }, take: 1, select: { status: true, durationMs: true, readAt: true, course: { select: { name: true } } } },
+        },
+      }),
+      this.prisma.registration.findMany({
+        where: { eventId: { in: eventIds }, status: "ACTIVE" },
+        select: {
+          eventId: true,
+          personId: true,
+          paymentMethod: true,
+          registeredAt: true,
+          event: { select: { name: true, startsAt: true } },
+          person: personSelect,
+          course: { select: { name: true } },
+        },
+      }),
+    ]);
+    const registrationByKey = new Map(registrations.map((registration) => [`${registration.eventId}:${registration.personId}`, registration]));
+
+    type ExportRow = {
+      eventName: string;
+      eventStartsAt: Date;
+      participatedAt: Date | null;
+      firstName: string;
+      lastName: string;
+      clubName: string | null;
+      paymentMethod: string | null;
+      courseName: string | null;
+      durationMs: number | null;
+    };
+    const rows: ExportRow[] = attendances.map((attendance) => {
+      const registration = registrationByKey.get(`${attendance.eventId}:${attendance.personId}`);
+      const latest = attendance.performances[0];
+      const courseName: string | null = latest?.course.name ?? registration?.course?.name ?? null;
+      return {
+        eventName: attendance.event.name,
+        eventStartsAt: attendance.event.startsAt,
+        participatedAt: registration?.registeredAt ?? latest?.readAt ?? null,
+        firstName: attendance.person.firstName,
+        lastName: attendance.person.lastName,
+        clubName: attendance.person.club?.name ?? null,
+        paymentMethod: registration?.paymentMethod ?? null,
+        courseName,
+        durationMs: latest && latest.status === "ACCEPTED" ? Number(latest.durationMs) : null,
+      };
+    });
+    const attendedKeys = new Set(attendances.map((attendance) => `${attendance.eventId}:${attendance.personId}`));
+    for (const registration of registrations) {
+      if (attendedKeys.has(`${registration.eventId}:${registration.personId}`)) continue;
+      rows.push({
+        eventName: registration.event.name,
+        eventStartsAt: registration.event.startsAt,
+        participatedAt: registration.registeredAt,
+        firstName: registration.person.firstName,
+        lastName: registration.person.lastName,
+        clubName: registration.person.club?.name ?? null,
+        paymentMethod: registration.paymentMethod,
+        courseName: registration.course?.name ?? null,
+        durationMs: null,
+      });
+    }
+    return rows.sort((left, right) => left.eventStartsAt.getTime() - right.eventStartsAt.getTime() || left.lastName.localeCompare(right.lastName, "fi") || left.firstName.localeCompare(right.firstName, "fi"));
   }
   async get(id: string) {
     const event = await this.prisma.event.findUnique({ where: { id }, include: { courses: { orderBy: { sortOrder: "asc" }, include: { controls: { orderBy: { sequenceNumber: "asc" }, include: { control: true } } } } } });

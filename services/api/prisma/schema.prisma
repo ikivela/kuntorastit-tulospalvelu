@@ -131,6 +131,7 @@ model Event {
   name             String
   locationName     String?        @map("location_name")
   address          String?
+  locationDescription String?     @map("location_description")
   latitude         Decimal?       @db.Decimal(9, 6)
   longitude        Decimal?       @db.Decimal(9, 6)
   startsAt         DateTime       @map("starts_at")
