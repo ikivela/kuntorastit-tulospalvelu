@@ -13,7 +13,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SITE_NAME } from "@/lib/site";
 
-const apiBase = "http://localhost:3001/api/v1";
+const apiBase = "/api/v1";
 type Season = { id: string; name: string; year: number };
 type RewardThreshold = { id: string; name: string; requiredAttendances: number };
 type AttendanceSummaryRow = { personId: string; firstName: string; lastName: string; clubName: string | null; attendanceCount: number };

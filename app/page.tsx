@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { RegistrationDialog } from "@/components/registration-dialog";
 import { SITE_NAME } from "@/lib/site";
 
-const apiBase = "http://localhost:3001/api/v1";
+const apiBase = "/api/v1";
 type Course = { id: string; name: string; lengthMeters: number };
 type CalendarEvent = { id: string; name: string; locationName: string | null; address: string | null; startsAt: string; endsAt: string; registrationOpen: boolean; paymentMethods: string[]; courses: Course[] };
 type Season = { events: CalendarEvent[] };

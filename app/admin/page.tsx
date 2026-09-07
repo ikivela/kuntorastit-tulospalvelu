@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { LocationMapPicker } from "@/components/location-map-picker";
 import { SITE_NAME } from "@/lib/site";
 
-const apiBase = "http://localhost:3001/api/v1";
+const apiBase = "/api/v1";
 type EventStatus = "DRAFT" | "OPEN" | "FINISHED" | "PUBLISHED";
 type CourseControl = { id: string; sequenceNumber: number; type: "START" | "NORMAL" | "FINISH" | "CROSSING_POINT" | "END_OF_MARKED_ROUTE"; controlCodes: string[]; control: { code: string } };
 type Course = { id: string; name: string; lengthMeters: number; climbMeters: number | null; sortOrder: number; controls?: CourseControl[] };

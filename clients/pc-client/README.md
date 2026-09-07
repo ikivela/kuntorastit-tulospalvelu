@@ -10,11 +10,16 @@ macOS:ssa, ja synkronoi tulokset Kuntorastien REST API:in.
   -asetuksilla (9600 baud, 8 data bits, no parity, 2 stop bits)
 - purkaa EMITin XOR-koodatun (0xDF) 217 tavun kehyksen: kortin numero,
   valmistuspäivä ja rastileimat ajoista
-- hakee tapahtumakalenterin ja ilmoittautuneet API:sta tapahtuman
-  käynnistyessä, ja tallentaa ne paikalliseen SQLite-tietokantaan
-  (`reader.sqlite3`, käyttöjärjestelmän sovellusdatahakemistossa)
-- validoi luetun kortin radan rasteja vasten (hyväksytty / hylätty / rasti
-  puuttuu) ja synkronoi tuloksen API:in heti kuittauksen jälkeen
+- hakee tapahtumakalenterin API:sta tapahtuman käynnistyessä; osallistujat
+  luetaan paikallisesta SQLite-henkilörekisteristä (`reader.sqlite3`,
+  käyttöjärjestelmän sovellusdatahakemistossa) — clientti ei enää hae
+  ilmoittautuneita API:sta, koska tapahtumaan voi osallistua myös
+  omatoimisesti ilman ennakkoilmoittautumista
+- validoi luetun kortin radan rasteja vasten (hyväksytty / leima puuttuu /
+  rasti puuttuu) ja synkronoi tuloksen API:in heti kuittauksen jälkeen
+- **HenkilöDB**: paikallisen henkilörekisterin selailu ja muokkaus (nimi,
+  seura, kortin numero) suoraan clientistä, kortin numeron
+  päällekkäisyystarkistuksella
 - **Syötä osanottoja**: manuaalinen tuloslisäys niille, joilla ei ole
   EMIT-korttia tai lukema epäonnistui — hakuboxi (`Hae henkilöä`) etsii jo
   tunnetuista osallistujista, ja tulokselle voi valinnaisesti syöttää ajan

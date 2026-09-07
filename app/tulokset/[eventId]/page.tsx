@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SITE_NAME } from "@/lib/site";
 
-const apiBase = "http://localhost:3001/api/v1";
+const apiBase = "/api/v1";
 type ResultStatus = "PENDING" | "ACCEPTED" | "DISQUALIFIED" | "NO_TIME" | "DID_NOT_FINISH";
 type EventResult = { id: string; rank: number | null; firstName: string; lastName: string; clubName: string | null; attendanceCount: number; status: ResultStatus; durationMs: number | null };
 type ResultCourse = { id: string; name: string; lengthMeters: number; results: EventResult[] };

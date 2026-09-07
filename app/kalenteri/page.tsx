@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { RegistrationDialog } from "@/components/registration-dialog";
 import { SITE_NAME } from "@/lib/site";
 
-const apiBase = "http://localhost:3001/api/v1";
+const apiBase = "/api/v1";
 type Course = { id: string; name: string; lengthMeters: number; climbMeters: number | null };
 type CalendarEvent = { id: string; name: string; locationName: string | null; address: string | null; startsAt: string; endsAt: string; status: "OPEN" | "FINISHED" | "PUBLISHED"; registrationOpen: boolean; paymentMethods: string[]; attendanceCount: number; registrationCount: number; courses: Course[] };
 type Season = { id: string; name: string; year: number; eventSeries: string; rewardThresholds: { id: string; name: string; requiredAttendances: number }[]; events: CalendarEvent[] };
