@@ -82,6 +82,10 @@ pre { overflow: auto; white-space: pre-wrap; word-break: break-all; background: 
 .modal.person-db-modal { width: min(760px, 100%); max-height: calc(100vh - 40px); overflow: hidden; display: flex; flex-direction: column; }
 .modal.person-db-modal .log-table-wrap { max-height: none; flex: 1; min-height: 0; }
 .modal.person-db-modal .log-search { flex-basis: auto; width: 100%; margin: 10px 0; }
+.person-db-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.person-db-toolbar .status { margin: 0; }
+.person-db-io { display: flex; gap: 8px; }
+.person-db-io-status { color: #116329; }
 .person-db-modal .log-table { table-layout: fixed; }
 .person-db-modal .log-table th:nth-child(1), .person-db-modal .log-table td:nth-child(1) { width: 150px; }
 .person-db-modal .log-table th:nth-child(2), .person-db-modal .log-table td:nth-child(2) { width: 120px; }

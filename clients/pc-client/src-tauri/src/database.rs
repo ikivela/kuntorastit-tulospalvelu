@@ -1,5 +1,5 @@
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -81,6 +81,61 @@ mod tests {
     }
 
     #[test]
+    fn imports_participants_upserting_by_card_number_and_skipping_invalid_rows() {
+        let path = std::env::temp_dir().join(format!(
+            "kuntorastit-reader-import-{}-{}.sqlite3",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let database = Database::open(path.clone()).unwrap();
+        database.create_participant(111111, "Vanha", "Nimi", None).unwrap();
+
+        let summary = database
+            .import_participants(&[
+                ImportParticipantRow { card_number: 111111, first_name: "Maija".into(), last_name: "Meikäläinen".into(), club: Some("KoS".into()) },
+                ImportParticipantRow { card_number: 222222, first_name: "Pekka".into(), last_name: "Peloton".into(), club: None },
+                ImportParticipantRow { card_number: 0, first_name: "Virheellinen".into(), last_name: "Kortti".into(), club: None },
+                ImportParticipantRow { card_number: 333333, first_name: "".into(), last_name: "Puuttuu".into(), club: None },
+            ])
+            .unwrap();
+        assert_eq!(summary.imported, 2);
+        assert_eq!(summary.skipped, 2);
+
+        let all = database.list_participants().unwrap();
+        assert_eq!(all.len(), 2);
+        let updated = all.iter().find(|p| p.card_number == 111111).unwrap();
+        assert_eq!(updated.first_name, "Maija");
+        assert_eq!(updated.club.as_deref(), Some("KoS"));
+
+        drop(database);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn exports_participants_as_csv() {
+        let db_path = std::env::temp_dir().join(format!(
+            "kuntorastit-reader-export-{}-{}.sqlite3",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let database = Database::open(db_path.clone()).unwrap();
+        database.create_participant(111111, "Maija", "Meikäläinen", Some("KoS")).unwrap();
+        database.create_participant(222222, "Pekka", "Peloton", None).unwrap();
+
+        let csv_path = std::env::temp_dir().join(format!("kuntorastit-export-{}.csv", std::process::id()));
+        let count = database.export_participants_csv(&csv_path).unwrap();
+        assert_eq!(count, 2);
+        let contents = std::fs::read_to_string(&csv_path).unwrap();
+        assert!(contents.starts_with("\u{FEFF}Sukunimi;Etunimi;Seura;Kortti\r\n"));
+        assert!(contents.contains("Meikäläinen;Maija;KoS;111111\r\n"));
+        assert!(contents.contains("Peloton;Pekka;;222222\r\n"));
+
+        drop(database);
+        let _ = std::fs::remove_file(db_path);
+        let _ = std::fs::remove_file(csv_path);
+    }
+
+    #[test]
     fn adds_manual_result_without_card() {
         let path = std::env::temp_dir().join(format!(
             "kuntorastit-reader-manual-{}-{}.sqlite3",
@@ -143,6 +198,36 @@ pub struct Participant {
     pub last_name: String,
     pub club: Option<String>,
     pub api_person_id: Option<String>,
+}
+
+/// One row of a "HenkilöDB" CSV import, already parsed and column-mapped by
+/// the frontend (which reads the file's own header row so it accepts either
+/// column order).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportParticipantRow {
+    pub card_number: u32,
+    pub first_name: String,
+    pub last_name: String,
+    pub club: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportSummary {
+    pub imported: u32,
+    pub skipped: u32,
+}
+
+/// Quotes a CSV field per RFC 4180 only if it actually needs it — names and
+/// club values are almost always plain, and quoting everything would make
+/// hand-edited import files needlessly noisy.
+fn csv_field(value: &str) -> String {
+    if value.contains(';') || value.contains('"') || value.contains('\n') || value.contains('\r') {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
 }
 
 impl Database {
@@ -382,6 +467,55 @@ impl Database {
             })
             .map_err(|error| error.to_string())?;
         rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
+    }
+
+    /// Bulk-upserts participants from a "HenkilöDB" CSV import, matched by
+    /// card number (same rule as a single manual edit/create) — importing the
+    /// same file twice is safe and just refreshes names/clubs. Runs as one
+    /// transaction so a large file (hundreds of rows) doesn't leave the
+    /// database half-imported if something fails partway through.
+    pub fn import_participants(&self, rows: &[ImportParticipantRow]) -> Result<ImportSummary, String> {
+        let mut connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
+        let transaction = connection.transaction().map_err(|error| error.to_string())?;
+        let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_millis() as i64;
+        let mut imported = 0u32;
+        let mut skipped = 0u32;
+        for row in rows {
+            let first_name = row.first_name.trim();
+            let last_name = row.last_name.trim();
+            if first_name.is_empty() || last_name.is_empty() || row.card_number == 0 {
+                skipped += 1;
+                continue;
+            }
+            let club = row.club.as_deref().map(str::trim).filter(|value| !value.is_empty());
+            transaction.execute(
+                "INSERT INTO participants (card_number, first_name, last_name, club, created_at_ms) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(card_number) DO UPDATE SET first_name = excluded.first_name, last_name = excluded.last_name, club = excluded.club",
+                params![row.card_number, first_name, last_name, club, now_ms],
+            ).map_err(|error| error.to_string())?;
+            imported += 1;
+        }
+        transaction.commit().map_err(|error| error.to_string())?;
+        Ok(ImportSummary { imported, skipped })
+    }
+
+    /// Writes every locally known participant to `path` as a semicolon-
+    /// separated CSV (UTF-8 with a BOM so Excel opens Finnish characters
+    /// correctly), in the same column order the HenkilöDB table shows.
+    pub fn export_participants_csv(&self, path: &Path) -> Result<u32, String> {
+        let participants = self.list_participants()?;
+        let mut csv = String::from("\u{FEFF}Sukunimi;Etunimi;Seura;Kortti\r\n");
+        for participant in &participants {
+            csv.push_str(&format!(
+                "{};{};{};{}\r\n",
+                csv_field(&participant.last_name),
+                csv_field(&participant.first_name),
+                csv_field(participant.club.as_deref().unwrap_or("")),
+                participant.card_number,
+            ));
+        }
+        std::fs::write(path, csv).map_err(|error| error.to_string())?;
+        Ok(participants.len() as u32)
     }
 
     /// Finds locally known participants (from EMIT registration sync, prior

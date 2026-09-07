@@ -19,7 +19,11 @@ macOS:ssa, ja synkronoi tulokset Kuntorastien REST API:in.
   rasti puuttuu) ja synkronoi tuloksen API:in heti kuittauksen jälkeen
 - **HenkilöDB**: paikallisen henkilörekisterin selailu ja muokkaus (nimi,
   seura, kortin numero) suoraan clientistä, kortin numeron
-  päällekkäisyystarkistuksella
+  päällekkäisyystarkistuksella. **Tuo/Vie CSV**-napit tuovat henkilöitä
+  puolisen-erotetusta CSV-tiedostosta (sarakkeet `Sukunimi;Etunimi;Seura;Kortti`
+  missä tahansa järjestyksessä — tunnistetaan otsikkoriviltä) tai vievät koko
+  rekisterin samaan muotoon; tuonti täsmää olemassa oleviin henkilöihin kortin
+  numeron perusteella (sama henkilö kahdesti tuotuna päivittää vain nimen/seuran)
 - **Syötä osanottoja**: manuaalinen tuloslisäys niille, joilla ei ole
   EMIT-korttia tai lukema epäonnistui — hakuboxi (`Hae henkilöä`) etsii jo
   tunnetuista osallistujista, ja tulokselle voi valinnaisesti syöttää ajan

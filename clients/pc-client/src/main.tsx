@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { save } from "@tauri-apps/plugin-dialog";
 import "./style.css";
 
 declare const __BUILD_DATE__: string;
@@ -105,6 +106,9 @@ function App() {
   const [editingParticipantId, setEditingParticipantId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState<{ firstName: string; lastName: string; club: string; cardNumber: string } | null>(null);
   const [savingPersonEdit, setSavingPersonEdit] = useState(false);
+  const [personDbBusy, setPersonDbBusy] = useState(false);
+  const [personDbStatus, setPersonDbStatus] = useState("");
+  const personDbFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -498,7 +502,7 @@ function App() {
   useEffect(() => {
     if (!personDbOpen) return;
     let disposed = false;
-    setPersonDbLoading(true); setPersonDbError("");
+    setPersonDbLoading(true); setPersonDbError(""); setPersonDbStatus("");
     invoke<Participant[]>("list_participants")
       .then((items) => { if (!disposed) setPersonDb(items); })
       .catch((error) => { if (!disposed) setPersonDbError(String(error)); })
@@ -517,6 +521,44 @@ function App() {
       return words.every((word) => first.includes(word) || last.includes(word) || club.includes(word) || String(person.cardNumber).includes(word));
     });
   }, [personDb, personDbQuery]);
+
+  async function importPersonDbFile(file: File) {
+    setPersonDbBusy(true); setPersonDbError(""); setPersonDbStatus("");
+    try {
+      const rows = parsePersonCsv(await file.text());
+      const summary = await invoke<{ imported: number; skipped: number }>("import_participants", { rows });
+      const items = await invoke<Participant[]>("list_participants");
+      setPersonDb(items);
+      setPersonDbStatus(`Tuotu ${summary.imported} henkilöä${summary.skipped ? `, ohitettu ${summary.skipped} virheellistä riviä` : ""}.`);
+    } catch (error) {
+      setPersonDbError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPersonDbBusy(false);
+    }
+  }
+
+  function handlePersonDbFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) void importPersonDbFile(file);
+  }
+
+  async function exportPersonDb() {
+    setPersonDbBusy(true); setPersonDbError(""); setPersonDbStatus("");
+    try {
+      const path = await save({
+        defaultPath: `henkilodb-${new Date().toISOString().slice(0, 10)}.csv`,
+        filters: [{ name: "CSV", extensions: ["csv"] }],
+      });
+      if (!path) return;
+      const count = await invoke<number>("export_participants_csv", { path });
+      setPersonDbStatus(`Vietiin ${count} henkilöä tiedostoon ${path}.`);
+    } catch (error) {
+      setPersonDbError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPersonDbBusy(false);
+    }
+  }
 
   function startPersonEdit(person: Participant) {
     setPersonDbError("");
@@ -628,8 +670,16 @@ function App() {
         <div className="modal-backdrop" role="presentation">
           <section className="modal person-db-modal" role="dialog" aria-modal="true" aria-labelledby="person-db-title">
             <h2 id="person-db-title">HenkilöDB</h2>
-            <p className="status">{personDbLoading ? "Ladataan…" : `${filteredPersonDb.length} / ${personDb.length} henkilöä`}</p>
+            <div className="person-db-toolbar">
+              <p className="status">{personDbLoading ? "Ladataan…" : `${filteredPersonDb.length} / ${personDb.length} henkilöä`}</p>
+              <div className="person-db-io">
+                <button type="button" disabled={personDbBusy} onClick={() => personDbFileInputRef.current?.click()}>⬆ Tuo CSV</button>
+                <button type="button" disabled={personDbBusy || personDb.length === 0} onClick={() => void exportPersonDb()}>⬇ Vie CSV</button>
+                <input ref={personDbFileInputRef} type="file" accept=".csv,text/csv" style={{ display: "none" }} onChange={handlePersonDbFileChange} />
+              </div>
+            </div>
             <label className="log-search"><span className="sr-only">Hae henkilöä</span><input type="search" autoFocus value={personDbQuery} onChange={(event) => setPersonDbQuery(event.target.value)} placeholder="Hae nimellä, seuralla tai kortin numerolla…" /></label>
+            {personDbStatus && <p className="status person-db-io-status">{personDbStatus}</p>}
             {personDbError && <p className="error">{personDbError}</p>}
             <div className="log-table-wrap"><table className="log-table"><thead><tr><th>Sukunimi</th><th>Etunimi</th><th>Seura</th><th>Kortti</th><th></th></tr></thead><tbody>{filteredPersonDb.map((person) => person.id === editingParticipantId && editDraft ? <tr key={person.id} className="editing-row"><td><input value={editDraft.lastName} onChange={(event) => { const value = event.target.value; setEditDraft((draft) => draft ? { ...draft, lastName: value } : draft); }} /></td><td><input value={editDraft.firstName} onChange={(event) => { const value = event.target.value; setEditDraft((draft) => draft ? { ...draft, firstName: value } : draft); }} /></td><td><input value={editDraft.club} onChange={(event) => { const value = event.target.value; setEditDraft((draft) => draft ? { ...draft, club: value } : draft); }} placeholder="Ei seuraa" /></td><td><input value={editDraft.cardNumber} onChange={(event) => { const value = event.target.value; setEditDraft((draft) => draft ? { ...draft, cardNumber: value } : draft); }} inputMode="numeric" pattern="[0-9]*" className="card-number-input" /></td><td className="person-db-actions"><button type="button" className="primary" disabled={savingPersonEdit} onClick={() => void savePersonEdit()}>Tallenna</button><button type="button" disabled={savingPersonEdit} onClick={cancelPersonEdit}>Peruuta</button></td></tr> : <tr key={person.id}><td title={person.lastName}>{person.lastName}</td><td title={person.firstName}>{person.firstName}</td><td className="log-club" title={person.club || undefined}>{person.club || "–"}</td><td className="log-time">{person.cardNumber}</td><td className="person-db-actions"><button type="button" onClick={() => startPersonEdit(person)}>Muokkaa</button></td></tr>)}</tbody></table></div>
             <div className="confirm-actions"><button type="button" className="primary" onClick={() => { setPersonDbOpen(false); cancelPersonEdit(); }}>Sulje</button></div>
@@ -712,6 +762,68 @@ function App() {
 // Tauri event listeners are asynchronous; StrictMode's development-only
 // double effect invocation can leave the first listener set in a race.
 createRoot(document.getElementById("root")!).render(<App />);
+
+/// Parses semicolon-separated CSV text (RFC 4180 quoting supported) into rows
+/// of raw string cells — used for the HenkilöDB import, which otherwise has
+/// no CSV library available in this small frontend bundle.
+function parseCsvRows(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  const pushField = () => { row.push(field); field = ""; };
+  const pushRow = () => { pushField(); rows.push(row); row = []; };
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (inQuotes) {
+      if (char === "\"") {
+        if (text[index + 1] === "\"") { field += "\""; index += 1; } else { inQuotes = false; }
+      } else {
+        field += char;
+      }
+    } else if (char === "\"") {
+      inQuotes = true;
+    } else if (char === ";") {
+      pushField();
+    } else if (char === "\r") {
+      // ignored; the following \n (or end of row content) closes the row
+    } else if (char === "\n") {
+      pushRow();
+    } else {
+      field += char;
+    }
+  }
+  if (field.length > 0 || row.length > 0) pushRow();
+  return rows.filter((cells) => cells.some((cell) => cell.trim() !== ""));
+}
+
+type PersonImportRow = { firstName: string; lastName: string; club: string | null; cardNumber: number };
+
+/// Maps the import CSV by its header names (Sukunimi/Etunimi/Seura/Kortti, in
+/// any order) rather than fixed column positions, so both this app's own
+/// export and hand-built spreadsheets import correctly.
+function parsePersonCsv(text: string): PersonImportRow[] {
+  const withoutBom = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  const rows = parseCsvRows(withoutBom);
+  if (rows.length === 0) throw new Error("Tiedosto on tyhjä.");
+  const header = rows[0].map((cell) => cell.trim().toLocaleUpperCase("fi-FI"));
+  const lastNameIndex = header.indexOf("SUKUNIMI");
+  const firstNameIndex = header.indexOf("ETUNIMI");
+  const clubIndex = header.indexOf("SEURA");
+  const cardIndex = header.indexOf("KORTTI");
+  if (lastNameIndex === -1 || firstNameIndex === -1 || cardIndex === -1) {
+    throw new Error("CSV-tiedostosta puuttuu vaadittu sarake (Sukunimi, Etunimi tai Kortti).");
+  }
+  return rows.slice(1).map((row) => {
+    const cardNumber = Number.parseInt((row[cardIndex] ?? "").trim(), 10);
+    return {
+      lastName: (row[lastNameIndex] ?? "").trim(),
+      firstName: (row[firstNameIndex] ?? "").trim(),
+      club: clubIndex === -1 ? null : (row[clubIndex] ?? "").trim() || null,
+      cardNumber: Number.isFinite(cardNumber) && cardNumber > 0 ? cardNumber : 0,
+    };
+  });
+}
 
 function formatDuration(seconds?: number) {
   if (seconds == null) return "–";

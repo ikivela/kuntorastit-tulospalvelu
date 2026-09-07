@@ -1,6 +1,6 @@
 mod database;
 
-use database::{Database, Participant, StoredCardRead};
+use database::{Database, ImportParticipantRow, ImportSummary, Participant, StoredCardRead};
 use serde::Serialize;
 use serialport::{DataBits, Parity, SerialPort, SerialPortType, StopBits};
 use std::io::Read;
@@ -444,6 +444,16 @@ fn update_participant(
 }
 
 #[tauri::command]
+fn import_participants(database: State<'_, Database>, rows: Vec<ImportParticipantRow>) -> Result<ImportSummary, String> {
+    database.import_participants(&rows)
+}
+
+#[tauri::command]
+fn export_participants_csv(database: State<'_, Database>, path: String) -> Result<u32, String> {
+    database.export_participants_csv(std::path::Path::new(&path))
+}
+
+#[tauri::command]
 fn confirm_latest_emit250_read(
     reader: State<'_, ReaderState>,
     database: State<'_, Database>,
@@ -483,6 +493,7 @@ fn update_card_read_status(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let database_file = app.path().app_data_dir()?.join("reader.sqlite3");
             app.manage(Database::open(database_file).map_err(std::io::Error::other)?);
@@ -528,7 +539,9 @@ pub fn run() {
             mark_card_read_sync,
             update_card_read_status,
             update_participant_details,
-            update_participant
+            update_participant,
+            import_participants,
+            export_participants_csv
         ])
         .run(tauri::generate_context!())
         .expect("error while running Tauri application");

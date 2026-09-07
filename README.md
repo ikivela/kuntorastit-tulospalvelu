@@ -76,7 +76,8 @@ Käytön aikana:
 - **⚙ Asetukset** valitsee sarjaportin EMIT-lukijalle.
 - **👥 HenkilöDB** avaa paikallisen henkilörekisterin selailuun ja
   muokkaukseen (nimi, seura, kortin numero) — hyödyllinen esim. virheellisen
-  kortti-ilmoittautumisen korjaamiseen kesken tapahtuman.
+  kortti-ilmoittautumisen korjaamiseen kesken tapahtuman. **Tuo/Vie CSV**
+  -napeilla koko rekisterin voi tuoda toiselta koneelta tai varmuuskopioida.
 - Kortinluvut kirjautuvat lokiin reaaliajassa ja synkronoituvat API:in heti;
   jos yhteys katkeaa, lukemat jäävät `PENDING`-tilaan ja synkronoituvat
   automaattisesti yhteyden palattua.
