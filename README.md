@@ -1,7 +1,6 @@
-# KoS-Kuntorastit
+# Kuntorastit
 
-Kokkolan Suunnistajien kuntorastien tulospalvelu (tapahtumat eivät ole enää
-vain maanantaisin). Kokonaisuus sisältää julkisen kalenterin ja tulosnäkymän,
+Kuntorastien tulospalvelu. Kokonaisuus sisältää julkisen kalenterin ja tulosnäkymän,
 ylläpitäjän tapahtumahallinnan, TypeScript/NestJS REST API:n, PostgreSQL-
 tietomallin sekä Tauri-pohjaisen desktop-clientin EMIT 250 -kortinlukua ja
 tuloskirjausta varten.
