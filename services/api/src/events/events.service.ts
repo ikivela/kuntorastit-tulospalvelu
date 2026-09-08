@@ -5,6 +5,11 @@ import { CreateEventDto } from "./create-event.dto.js";
 import { UpdateEventDto } from "./update-event.dto.js";
 import { CreateCourseDto, UpdateCourseDto } from "./course.dto.js";
 
+// The club's finish punch unit is always coded 100; IOF CourseData exports
+// usually don't assign the finish control an Id at all, since course-planning
+// tools don't treat it as a numbered EMIT unit.
+const DEFAULT_FINISH_CONTROL_CODE = "100";
+
 @Injectable()
 export class EventsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -162,7 +167,16 @@ export class EventsService {
   }
   async remove(id: string) {
     await this.ensureExists(id);
-    await this.prisma.event.delete({ where: { id } });
+    // Performance.course and CourseControl.control are onDelete: Restrict
+    // (protects a single course/control from being deleted out from under
+    // recorded results via updateCourse/removeCourse). That leaves Postgres's
+    // own cascade unable to satisfy them in one statement when the whole
+    // event is torn down, so those two tables are cleared explicitly first.
+    await this.prisma.$transaction([
+      this.prisma.performance.deleteMany({ where: { attendance: { eventId: id } } }),
+      this.prisma.courseControl.deleteMany({ where: { course: { eventId: id } } }),
+      this.prisma.event.delete({ where: { id } }),
+    ]);
     return { deleted: true };
   }
   async createCourse(eventId: string, input: CreateCourseDto) {
@@ -227,9 +241,14 @@ export class EventsService {
         if (courses.has(name)) throw new BadRequestException(`XML sisältää radan “${name}” useammin kuin kerran.`);
         const courseControls = asArray(course.CourseControl).map((rawCourseControl, index) => {
           const item = rawCourseControl as Record<string, unknown>;
-          const codes = asArray(item.Control).map(textValue).filter(Boolean);
-          if (codes.length === 0) throw new BadRequestException(`Radan “${name}” ratapisteeltä ${index + 1} puuttuu Control.`);
           const type = controlType(item["@_type"]);
+          let codes = asArray(item.Control).map(textValue).filter(Boolean);
+          // IOF CourseData exports commonly omit a Control id for the finish
+          // (course-planning tools don't treat it as a numbered EMIT unit).
+          // Default it to our club's standard finish punch code instead of
+          // rejecting the whole import; other control types still require Id.
+          if (codes.length === 0 && type === "FINISH") codes = [DEFAULT_FINISH_CONTROL_CODE];
+          if (codes.length === 0) throw new BadRequestException(`Radan “${name}” ratapisteeltä ${index + 1} puuttuu Control.`);
           const mapTextPosition = objectValue(item.MapTextPosition);
           for (const code of codes) {
             const existing = controls.get(code);

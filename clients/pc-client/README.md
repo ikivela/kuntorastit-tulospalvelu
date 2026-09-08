@@ -133,6 +133,38 @@ lähetetään kolmen sekunnin välein; yhden kehyksen testin saa komennolla `--o
 Emulaattori tuottaa 217 tavun XOR-kehyksen. Se ei emuloi vielä EMITin
 virallista tarkistussummaa tai täydellistä kilpailukortin sisältöä.
 
+## Koko tapahtuman simulointi
+
+`tools/simulate.py` arpoo paikallisesta henkilörekisteristä (samasta
+`reader.sqlite3`:sta kuin HenkilöDB) satunnaisen joukon oikeita kortin
+numeroita, jakaa jokaiselle satunnaisen radan valitusta tapahtumasta
+(radan oikeat rastikoodit haetaan julkisesta kalenteri-API:sta) ja lähettää
+yhden EMIT-kehyksen per kilpailija sarjaporttiin annetuin väliajoin — hyvä
+tapa kuormittaa/demota koko sovellus (lukija → validointi → API-synkka)
+ilman 100 oikeaa leimausta:
+
+```bash
+python3 tools/simulate.py --list-events
+python3 tools/simulate.py --event-id <uuid> --port /dev/cu.usbserial-FTDBLBY5
+```
+
+Oletuksena 100 kilpailijaa, 10 sekunnin väli ja 5 % osuus tahallisesti
+väärällä rastikoodilla (näkyy clientissä "leima puuttuu"/"rasti puuttuu"
+-tuloksena). Yleisimmät valitsimet: `--count`, `--interval`,
+`--disqualify-rate`, `--seed` (toistettava arvonta), `--loop` (jatka uudella
+arvonnalla loppumatta), `--db` (jos `reader.sqlite3` ei ole oletuspaikassa)
+ja `--api` (jos API ei ole `localhost:3001`:ssä).
+
+Ilman toista fyysistä sarjaporttiparia voi käyttää virtuaalista paria (macOS/
+Linux, vaatii `socat`:
+
+```bash
+socat -d -d pty,raw,echo=0,link=/tmp/emit-a pty,raw,echo=0,link=/tmp/emit-b
+```
+
+Valitse clientissä portiksi `/tmp/emit-b` ja anna simulaattorille `--port
+/tmp/emit-a`.
+
 ## FTDI-kaapeliyhteyden testaus
 
 Kahden ristiinkytketyn FTDI-portin voi testata ilman clientiä:

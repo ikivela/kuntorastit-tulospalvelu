@@ -442,6 +442,20 @@ function App() {
     }
   }
 
+  /// Dismisses an unrecognised card read without registering anyone — e.g. a
+  /// stray/foreign card, or a misread. Only offered for unknown cards; a
+  /// matched card already has "Tulos OK"/"Ilman aikaa" as its way out.
+  async function skipPendingCard() {
+    const shouldResume = editingReadId == null ? Boolean(activeEvent) : resumeAfterEdit;
+    const cardNumber = pendingCard?.cardNumber;
+    setPendingCard(null); setPendingParticipant(null); setResult(null);
+    setPendingEventId(null);
+    setEditingReadId(null); setEditingSource(null); setEditingManualDurationSeconds(undefined); setResumeAfterEdit(false);
+    setFirstName(""); setLastName(""); setClub(""); setFormError("");
+    setStatus(cardNumber ? `Kortti ${cardNumber} ohitettu.` : "Ohitettu.");
+    if (shouldResume && activeEvent) await startListening();
+  }
+
   async function openHistoryRead(item: StoredCardRead) {
     const wasReading = reading;
     if (wasReading) await invoke("stop_emit250");
@@ -600,7 +614,11 @@ function App() {
           if (result?.bytesReceived === latest.bytesReceived) return;
           setResult(latest);
           if (latest.cardNumber) {
-            const participant = await invoke<Participant | null>("participant_by_card_for_event", { eventId: activeEvent.id, cardNumber: latest.cardNumber });
+            // Global lookup, not participant_by_card_for_event: registrations no
+            // longer sync from the API (events can be attended "omatoimi" without
+            // one), so most known people have no local event_registrations row —
+            // an event-scoped lookup would call everyone "unknown".
+            const participant = await invoke<Participant | null>("participant_by_card", { cardNumber: latest.cardNumber });
             setPendingCard(latest);
             setPendingEventId(activeEvent.id);
             setPendingParticipant(participant);
@@ -716,7 +734,10 @@ function App() {
               <label>Sukunimi<input required value={lastName} onChange={(event) => setLastName(event.target.value)} /></label>
               <label>Seura<input value={club} onChange={(event) => setClub(event.target.value)} /></label>
               {formError && <p className="error">{formError}</p>}
-              <button className="primary" type="submit">Tallenna osallistuja</button>
+              <div className="confirm-actions">
+                <button className="primary" type="submit">Tallenna osallistuja</button>
+                <button type="button" onClick={() => void skipPendingCard()}>Ohita kortti</button>
+              </div>
             </form></>}
           </section>
         </div>
@@ -875,8 +896,13 @@ function validateCourse(punches: ProbeResult["punches"], courses: Course[]) {
     .filter((course) => course.controls?.length)
     .map((course) => ({
       course,
+      // START is never an actual EMIT punch. FINISH usually isn't either
+      // (a symbolic code like "M"/"F" for a plain download-station finish),
+      // but when a course does have a real numbered finish punch unit (e.g.
+      // "100"), Number.isFinite below keeps it in the expected sequence so
+      // that trailing punch is matched instead of flagged as unexpected.
       codes: course.controls!
-        .filter((item) => item.type !== "START" && item.type !== "FINISH")
+        .filter((item) => item.type !== "START")
         .map((item) => Number(item.controlCodes[0] || item.control.code))
         .filter(Number.isFinite),
     }));
