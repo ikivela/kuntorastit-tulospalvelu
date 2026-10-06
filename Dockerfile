@@ -28,14 +28,15 @@ ENV NEXT_PUBLIC_SITE_NAME=${NEXT_PUBLIC_SITE_NAME} \
     NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH} \
     NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL} \
     WRANGLER_WRITE_LOGS=false
-RUN npx vinext build
+RUN npx vinext build && node scripts/emit-standalone.mjs
 
-FROM node:22-bookworm-slim
+# Runtime image: only the standalone output (built app + vinext's prod
+# server and its runtime packages), not the full node_modules.
+FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000
-COPY --from=build /app/package.json ./
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
+COPY --from=build /app/dist/standalone ./
+USER node
 EXPOSE 3000
-CMD ["node_modules/.bin/vinext", "start"]
+CMD ["node", "server.js"]
