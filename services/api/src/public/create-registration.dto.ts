@@ -13,7 +13,7 @@ export class CreateRegistrationDto {
   @Length(1, 80)
   lastName!: string;
 
-  @ApiPropertyOptional({ example: "Kokkolan Suunnistajat" })
+  @ApiPropertyOptional({ example: "Esimerkkiseura" })
   @IsOptional()
   @IsString()
   @MaxLength(120)

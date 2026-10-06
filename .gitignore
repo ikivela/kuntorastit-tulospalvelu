@@ -18,6 +18,8 @@
 /out/
 
 # misc
+# Club-specific logo/favicons (see NEXT_PUBLIC_LOGO_URL / NEXT_PUBLIC_FAVICON_URL)
+/public/brand/
 .DS_Store
 *.pem
 

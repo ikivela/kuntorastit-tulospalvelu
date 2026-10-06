@@ -92,7 +92,7 @@ mod tests {
 
         let summary = database
             .import_participants(&[
-                ImportParticipantRow { card_number: 111111, first_name: "Maija".into(), last_name: "Meikäläinen".into(), club: Some("KoS".into()) },
+                ImportParticipantRow { card_number: 111111, first_name: "Maija".into(), last_name: "Meikäläinen".into(), club: Some("Seura".into()) },
                 ImportParticipantRow { card_number: 222222, first_name: "Pekka".into(), last_name: "Peloton".into(), club: None },
                 ImportParticipantRow { card_number: 0, first_name: "Virheellinen".into(), last_name: "Kortti".into(), club: None },
                 ImportParticipantRow { card_number: 333333, first_name: "".into(), last_name: "Puuttuu".into(), club: None },
@@ -105,7 +105,7 @@ mod tests {
         assert_eq!(all.len(), 2);
         let updated = all.iter().find(|p| p.card_number == 111111).unwrap();
         assert_eq!(updated.first_name, "Maija");
-        assert_eq!(updated.club.as_deref(), Some("KoS"));
+        assert_eq!(updated.club.as_deref(), Some("Seura"));
 
         drop(database);
         let _ = std::fs::remove_file(path);
@@ -119,7 +119,7 @@ mod tests {
             SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
         ));
         let database = Database::open(db_path.clone()).unwrap();
-        database.create_participant(111111, "Maija", "Meikäläinen", Some("KoS")).unwrap();
+        database.create_participant(111111, "Maija", "Meikäläinen", Some("Seura")).unwrap();
         database.create_participant(222222, "Pekka", "Peloton", None).unwrap();
 
         let csv_path = std::env::temp_dir().join(format!("kuntorastit-export-{}.csv", std::process::id()));
@@ -127,7 +127,7 @@ mod tests {
         assert_eq!(count, 2);
         let contents = std::fs::read_to_string(&csv_path).unwrap();
         assert!(contents.starts_with("\u{FEFF}Sukunimi;Etunimi;Seura;Kortti\r\n"));
-        assert!(contents.contains("Meikäläinen;Maija;KoS;111111\r\n"));
+        assert!(contents.contains("Meikäläinen;Maija;Seura;111111\r\n"));
         assert!(contents.contains("Peloton;Pekka;;222222\r\n"));
 
         drop(database);

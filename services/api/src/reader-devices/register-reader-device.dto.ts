@@ -6,7 +6,7 @@ export class RegisterReaderDeviceDto {
   @IsUUID()
   installationId!: string;
 
-  @ApiProperty({ example: "Kokkolan lukija #1" })
+  @ApiProperty({ example: "Maalin lukija #1" })
   @IsString()
   @Length(1, 120)
   name!: string;

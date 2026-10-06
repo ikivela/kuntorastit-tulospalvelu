@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Rastilippu">
+  <rect x="6" y="6" width="52" height="52" rx="4" fill="#ffffff" stroke="#d9d9d9" stroke-width="2"/>
+  <path d="M58 6v48a4 4 0 0 1-4 4H6z" fill="#f26a21"/>
+</svg>

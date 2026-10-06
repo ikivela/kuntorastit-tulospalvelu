@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RegistrationDialog } from "@/components/registration-dialog";
-import { API_BASE, SITE_NAME, withBasePath } from "@/lib/site";
+import { API_BASE, CLUB_NAME, LOGO_URL, SITE_NAME, withBasePath } from "@/lib/site";
 
 const apiBase = API_BASE;
 type Course = { id: string; name: string; lengthMeters: number };
@@ -39,14 +39,14 @@ export default function Home() {
   return <main className="min-h-screen bg-background text-foreground">
     <header className="border-b bg-white/90 backdrop-blur">
       <div className="mx-auto flex max-w-4xl items-center justify-between gap-5 px-5 py-4 lg:px-8">
-        <a className="flex items-center gap-3" href={withBasePath("/")}><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src={withBasePath("/kos-logo.png")} alt="" className="size-8 object-contain" /></span><span><b className="block tracking-tight">{SITE_NAME}</b><small className="block text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">Kokkolan Suunnistajat</small></span></a>
+        <a className="flex items-center gap-3" href={withBasePath("/")}><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src={LOGO_URL} alt="" className="size-8 object-contain" /></span><span><b className="block tracking-tight">{SITE_NAME}</b>{CLUB_NAME && <small className="block text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">{CLUB_NAME}</small>}</span></a>
         <nav className="flex items-center gap-2"><Button asChild variant="ghost" className="rounded-full"><a href={withBasePath("/kalenteri")}>Koko kalenteri</a></Button><Button asChild variant="outline" className="rounded-full"><a href={withBasePath("/admin")}>Ylläpito</a></Button></nav>
       </div>
     </header>
 
     <section className="border-b bg-[linear-gradient(135deg,#eaf5ed_0%,#f8fbf7_60%,#fff4d8_100%)]">
       <div className="mx-auto max-w-4xl px-5 py-12 lg:px-8 lg:py-16">
-        <p className="eyebrow">Kokkolan Suunnistajat</p>
+        {CLUB_NAME && <p className="eyebrow">{CLUB_NAME}</p>}
         <h1 className="mt-2 text-4xl font-black tracking-[-.04em] sm:text-5xl">{SITE_NAME}</h1>
         <p className="mt-4 max-w-xl text-base leading-7 text-muted-foreground">Täältä löydät kaikki tulevat tapahtumat, tulokset ja ilmoittautumisen.</p>
       </div>
@@ -60,7 +60,7 @@ export default function Home() {
         : <div className="space-y-4">{events.map((event) => <EventRow key={event.id} event={event} />)}</div>}
     </div>
 
-    <footer className="border-t bg-white"><div className="mx-auto flex max-w-4xl flex-col gap-2 px-5 py-7 text-sm text-muted-foreground sm:flex-row sm:justify-between lg:px-8"><p>© {new Date().getFullYear()} Kokkolan Suunnistajat</p><p>{SITE_NAME} — tapahtumat, tulokset ja ilmoittautuminen.</p></div></footer>
+    <footer className="border-t bg-white"><div className="mx-auto flex max-w-4xl flex-col gap-2 px-5 py-7 text-sm text-muted-foreground sm:flex-row sm:justify-between lg:px-8"><p>© {new Date().getFullYear()} {CLUB_NAME || SITE_NAME}</p><p>{SITE_NAME} — tapahtumat, tulokset ja ilmoittautuminen.</p></div></footer>
   </main>;
 }
 

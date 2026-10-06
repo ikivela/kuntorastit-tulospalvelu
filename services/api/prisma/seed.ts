@@ -24,6 +24,7 @@ async function main() {
   // Login requires >= 8 characters (auth/login.dto.ts); fail loudly instead of
   // creating an admin that can never log in.
   const adminPassword = process.env.ADMIN_INITIAL_PASSWORD || "mara2026";
+  const seriesName = process.env.EVENT_SERIES_NAME || "Kuntorastit";
   if (adminPassword.length < 8) {
     throw new Error("ADMIN_INITIAL_PASSWORD must be at least 8 characters");
   }
@@ -42,8 +43,8 @@ async function main() {
 
   await prisma.eventSeries.upsert({
     where: { id: ids.series },
-    update: { name: "KoS-Kuntorastit" },
-    create: { id: ids.series, name: "KoS-Kuntorastit" },
+    update: { name: seriesName },
+    create: { id: ids.series, name: seriesName },
   });
 
   await prisma.season.upsert({

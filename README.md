@@ -160,6 +160,13 @@ docker compose -f tuotanto.yml --env-file .env.tuotanto up -d --build
   käyttöliittymälle, API:lle (`<BASE_PATH>/api/v1`), Swaggerille
   (`<BASE_PATH>/api/docs`) ja gatewaylle. Se upotetaan web-buildiin, joten
   muutoksen jälkeen aja `up -d --build`.
+- Seurakohtaiset tiedot asetetaan env-tiedostossa: `SITE_NAME`, `CLUB_NAME`,
+  logo ja favicon (`LOGO_URL`, `FAVICON_URL`), kartan oletuskeskipiste ja
+  paikkakunta (`MAP_CENTER`, `DEFAULT_CITY`) sekä oletusmaksutavat ja
+  ilmoittautumisen ohjeteksti (`DEFAULT_PAYMENT_METHODS`, `PAYMENT_HINT`).
+  Seuran kuvat kopioidaan kansioon `public/brand/` (gitignoressa) ennen
+  buildia, esim. `LOGO_URL=/brand/logo.png`. Ilman asetuksia käytetään
+  neutraaleja oletuksia.
 - `GATEWAY_PORT` on julkinen portti. Web, API ja PostgreSQL ovat lisäksi
   suoraan saatavilla omista porteistaan (`*_EXTERNAL_PORT`), oletuksena vain
   palvelimelta itseltään (`*_BIND_ADDRESS=127.0.0.1`).

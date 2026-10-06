@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { LocationMapPicker } from "@/components/location-map-picker";
-import { API_BASE, SITE_NAME, withBasePath } from "@/lib/site";
+import { API_BASE, DEFAULT_CITY, DEFAULT_PAYMENT_METHODS, LOGO_URL, SITE_NAME, withBasePath } from "@/lib/site";
 import { downloadEventsExcel, readEventsExcel, type ImportRow } from "@/lib/event-excel";
 
 const apiBase = API_BASE;
@@ -20,27 +20,6 @@ type EventStatus = "DRAFT" | "OPEN" | "FINISHED" | "PUBLISHED";
 type CourseControl = { id: string; sequenceNumber: number; type: "START" | "NORMAL" | "FINISH" | "CROSSING_POINT" | "END_OF_MARKED_ROUTE"; controlCodes: string[]; control: { code: string } };
 type Course = { id: string; name: string; lengthMeters: number; climbMeters: number | null; sortOrder: number; controls?: CourseControl[] };
 type EventItem = { id: string; seasonId: string; name: string; locationName: string | null; address: string | null; locationDescription: string | null; latitude: string | number | null; longitude: string | number | null; startsAt: string; endsAt: string; status: EventStatus; registrationOpen: boolean; paymentMethods: string[]; registrationCount: number; attendanceCount: number; courses: Course[]; season: { name: string; year: number } };
-// Prefilled default when creating a new event; admins edit the comma-separated list per event from here.
-const DEFAULT_PAYMENT_METHODS = [
-  "Maksu seuran tilille (7€) FI73 5162 0050 0487 95 (Käytä maksaessasi viitenumeroa: 1009)",
-  "E-passi",
-  "Mobilepay (maksu numeroon 70190)",
-  "Ticket Duo",
-  "Eazybreak",
-  "Smartum",
-  "Urheilukortti",
-  "Jervois Finland Oy",
-  "Soiten hk-yhdistyksen jäsen (nimi+ 3.5€ itse maksaen)",
-  "Chydenius (nimi+ 3.5€ itse maksaen)",
-  "KTK",
-  "SI-SU",
-  "Tiiti Service",
-  "Seuran eläkeläinen: Jäsenmaksu 30 € ja kauden omavastuu 110€ maksettu",
-  "CABB",
-  "Ilmainen kartta (alle 16-vuotiaat ja alle 20v KoS jäsenet) / syntymävuosi",
-  "Edenred",
-  "Kirjaston kausikortti",
-];
 type RegistrationItem = { id: string; registeredAt: string; paymentMethod: string | null; notes: string | null; person: { firstName: string; lastName: string; club: { name: string } | null }; course: { id: string; name: string } | null; punchCard: { system: "EMIT" | "SPORT_IDENT"; cardNumber: string } | null };
 type Season = { id: string; name: string; year: number };
 type ReaderDeviceStatus = "PENDING" | "APPROVED" | "REVOKED";
@@ -133,7 +112,7 @@ function AdminEvents({ token, onLogout }: { token: string; onLogout: () => void 
     await load();
   }
   return <main className="min-h-screen bg-muted/30">
-    <header className="border-b bg-background"><div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4"><div className="flex items-center gap-3"><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src={withBasePath("/kos-logo.png")} alt="" className="size-8 object-contain" /></span><div><b className="block">{SITE_NAME}</b><span className="text-xs text-muted-foreground">Ylläpito</span></div></div><div className="flex gap-2"><Button asChild variant="ghost" className="rounded-full"><a href={withBasePath("/")}>Julkinen sivu</a></Button><Button asChild variant="outline" className="rounded-full"><a href={withBasePath("/admin/osallistumiskerrat")}><Award className="mr-2 size-4" />Osallistumiskerrat</a></Button><Button variant="outline" className="rounded-full" onClick={() => setReaderDevicesOpen(true)}><Cpu className="mr-2 size-4" />Lukijalaitteet</Button><Button variant="outline" className="rounded-full" onClick={onLogout}><LogOut className="mr-2 size-4" />Kirjaudu ulos</Button></div></div></header>
+    <header className="border-b bg-background"><div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4"><div className="flex items-center gap-3"><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src={LOGO_URL} alt="" className="size-8 object-contain" /></span><div><b className="block">{SITE_NAME}</b><span className="text-xs text-muted-foreground">Ylläpito</span></div></div><div className="flex gap-2"><Button asChild variant="ghost" className="rounded-full"><a href={withBasePath("/")}>Julkinen sivu</a></Button><Button asChild variant="outline" className="rounded-full"><a href={withBasePath("/admin/osallistumiskerrat")}><Award className="mr-2 size-4" />Osallistumiskerrat</a></Button><Button variant="outline" className="rounded-full" onClick={() => setReaderDevicesOpen(true)}><Cpu className="mr-2 size-4" />Lukijalaitteet</Button><Button variant="outline" className="rounded-full" onClick={onLogout}><LogOut className="mr-2 size-4" />Kirjaudu ulos</Button></div></div></header>
     <div className="mx-auto max-w-6xl px-5 py-10"><div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-sm font-bold uppercase tracking-wider text-primary">Hallinta</p><h1 className="mt-2 text-3xl font-black tracking-tight">Tapahtumat</h1><p className="mt-2 text-muted-foreground">Lisää, muokkaa ja julkaise kauden tapahtumia.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" className="rounded-full" disabled={loading || events.length === 0} onClick={() => downloadEventsExcel(events)}><Download className="mr-2 size-4" />Lataa Excel</Button><Button variant="outline" className="rounded-full" onClick={() => setImportOpen(true)}><FileUp className="mr-2 size-4" />Tuo Excel</Button><Button className="rounded-full" onClick={openCreate}><Plus className="mr-2 size-4" />Lisää tapahtuma</Button></div></div>
       {error && <p role="alert" className="mb-5 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}
       {loading ? <div className="grid place-items-center py-20"><Loader2 className="size-7 animate-spin text-primary" /></div> : events.length === 0 ? <Card className="rounded-3xl border-dashed"><CardContent className="grid place-items-center py-16 text-center"><CalendarDays className="mb-4 size-9 text-muted-foreground" /><p className="font-bold">Ei tapahtumia</p><p className="mt-1 text-sm text-muted-foreground">Luo kauden ensimmäinen tapahtuma.</p></CardContent></Card> : <div className="grid gap-4">{events.map((item) => <EventCard key={item.id} item={item} onRegistrations={() => setRegistrationEvent(item)} onCourses={() => setCourseEvent(item)} onEdit={() => openEdit(item)} onDelete={() => remove(item.id)} />)}</div>}
@@ -385,10 +364,11 @@ function EventForm({ item, seasons, saving, onSubmit, onCancel }: { item: EventI
     // street ("Karhi, Vikåntie" finds nothing), so try the more specific,
     // more likely-to-resolve combinations first and fall back to broader
     // ones — stopping at the first hit instead of firing them all at once.
+    const city = DEFAULT_CITY ? `, ${DEFAULT_CITY}` : "";
     const candidates = [
-      trimmedAddress && `${trimmedAddress}, Kokkola`,
-      trimmedName && trimmedAddress && `${trimmedName}, ${trimmedAddress}, Kokkola`,
-      trimmedName && `${trimmedName}, Kokkola`,
+      trimmedAddress && `${trimmedAddress}${city}`,
+      trimmedName && trimmedAddress && `${trimmedName}, ${trimmedAddress}${city}`,
+      trimmedName && `${trimmedName}${city}`,
     ].filter((value): value is string => Boolean(value));
     if (candidates.length === 0 || hasManuallyMovedRef.current) { setGeocoding(false); return; }
     setGeocodeNotFound(false);

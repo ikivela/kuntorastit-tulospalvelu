@@ -2,9 +2,10 @@
 
 import { useEffect, useRef } from "react";
 import type { Map as LeafletMap, Marker } from "leaflet";
+import { MAP_CENTER } from "@/lib/site";
 
-// Kokkola city centre — used when an event has no location pin yet.
-const DEFAULT_CENTER: [number, number] = [63.8391, 23.1329];
+// Used when an event has no location pin yet (NEXT_PUBLIC_MAP_CENTER).
+const DEFAULT_CENTER: [number, number] = [MAP_CENTER.latitude, MAP_CENTER.longitude];
 
 export function LocationMapPicker({ latitude, longitude, onChange }: { latitude: number | null; longitude: number | null; onChange: (latitude: number, longitude: number) => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -44,7 +45,7 @@ export function LocationMapPicker({ latitude, longitude, onChange }: { latitude:
       });
 
       const start: [number, number] = latitude != null && longitude != null ? [latitude, longitude] : DEFAULT_CENTER;
-      const map = L.map(containerRef.current, { center: start, zoom: 13 });
+      const map = L.map(containerRef.current, { center: start, zoom: latitude != null && longitude != null ? 13 : MAP_CENTER.zoom });
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a>',
         maxZoom: 19,

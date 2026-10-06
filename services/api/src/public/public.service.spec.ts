@@ -13,7 +13,7 @@ test("calendar returns public events with attendance counts", async () => {
           id: "season-1",
           name: "Kausi 2026",
           year: 2026,
-          eventSeries: { name: "KoS-Kuntorastit" },
+          eventSeries: { name: "Kuntorastit" },
           rewards: [],
           events: [{
             id: "event-1",
@@ -30,7 +30,7 @@ test("calendar returns public events with attendance counts", async () => {
 
   const result = await new PublicService(prisma).calendar(2026);
 
-  assert.equal(result[0]?.eventSeries, "KoS-Kuntorastit");
+  assert.equal(result[0]?.eventSeries, "Kuntorastit");
   assert.equal(result[0]?.events[0]?.attendanceCount, 225);
   assert.equal("_count" in (result[0]?.events[0] ?? {}), false);
   assert.deepEqual((receivedQuery as { where: unknown }).where, { year: 2026 });

@@ -61,7 +61,7 @@ Kirjautuminen toimii samalla periaatteella kuin esim. `gh auth login` tai
 älytelevision sovelluskirjautuminen:
 
 1. Avaa clientissä **⚙ Lukijan asetukset**, anna laitteelle nimi (esim.
-   "Kokkolan lukija #1") ja paina **Lähetä hyväksyntäpyyntö**.
+   "Maalin lukija #1") ja paina **Lähetä hyväksyntäpyyntö**.
 2. Ylläpitäjä hyväksyy laitteen admin-UI:n **Lukijalaitteet**-näkymästä
    (`/admin` → Lukijalaitteet).
 3. Client saa tokenin automaattisesti heti kun se on hyväksytty — se
