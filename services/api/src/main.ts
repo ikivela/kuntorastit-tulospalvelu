@@ -3,9 +3,16 @@ import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, NestFastifyApplication } from "@nestjs/platform-fastify";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { AppModule } from "./app.module.js";
+import { assertTokenSecretConfigured } from "./auth/auth.service.js";
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({ bodyLimit: 10 * 1024 * 1024 }));
+  assertTokenSecretConfigured();
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({
+    bodyLimit: 10 * 1024 * 1024,
+    // Behind the nginx gateway: take the client IP (login rate limiting)
+    // from X-Forwarded-For, trusting only local/private-network proxies.
+    trustProxy: process.env.TRUST_PROXY ?? "loopback,linklocal,uniquelocal",
+  }));
   // URL prefixes are configurable so the API can live under a sub-path
   // (e.g. API_PREFIX=kuntorastit/api/v1) without a rewriting reverse proxy.
   const apiPrefix = trimSlashes(process.env.API_PREFIX ?? "api/v1");

@@ -21,6 +21,9 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-kuntorastit}:${POSTGRES_PASSWORD:-kuntorastit}@postgres:5432/${POSTGRES_DB:-kuntorastit}
       PORT: ${PORT:-3001}
       ADMIN_TOKEN_SECRET: ${ADMIN_TOKEN_SECRET:-kuntorastit-local-development-secret}
+      # Development stack: allows the development token secret and the
+      # default admin password (both refused when NODE_ENV=production).
+      NODE_ENV: development
     ports:
       - "3001:3001"
     depends_on:

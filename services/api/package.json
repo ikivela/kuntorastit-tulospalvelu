@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "nest start --watch",
     "build": "nest build",
-    "test": "nest build && node --test dist/src/public/public.service.spec.js dist/src/events/events-import.spec.js",
+    "test": "nest build && node --test dist/src/public/public.service.spec.js dist/src/events/events-import.spec.js dist/src/auth/login-rate-limiter.spec.js",
     "start": "node dist/main.js",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
@@ -14,17 +14,17 @@
   },
   "dependencies": {
     "@fastify/static": "^10.1.3",
-    "@nestjs/common": "11.2.3",
-    "@nestjs/core": "11.2.3",
-    "@nestjs/platform-fastify": "11.2.3",
-    "@nestjs/swagger": "11.2.6",
+    "@nestjs/common": "11.2.7",
+    "@nestjs/core": "11.2.7",
+    "@nestjs/platform-fastify": "11.2.7",
+    "@nestjs/swagger": "11.4.7",
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
     "class-transformer": "0.5.1",
     "class-validator": "0.14.2",
     "dotenv": "17.2.3",
     "fast-xml-parser": "^5.11.1",
-    "fastify": "5.6.2",
+    "fastify": "5.12.5",
     "pg": "8.16.3",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2"
@@ -36,5 +36,9 @@
     "prisma": "7.10.0",
     "tsx": "4.20.6",
     "typescript": "5.9.3"
+  },
+  "overrides": {
+    "fastify": "5.12.5",
+    "js-yaml": "4.3.2"
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEventHandler, FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Award, CalendarDays, CheckCircle2, Clock3, Cpu, Download, FileUp, Loader2, Nfc, LockKeyhole, LogOut, MapPin, Pencil, Plus, Route, Trash2, UserRound, Users } from "lucide-react";
+import { ArrowLeft, Award, CalendarDays, CheckCircle2, Clock3, Cpu, Download, FileUp, KeyRound, Loader2, Nfc, LockKeyhole, LogOut, MapPin, Pencil, Plus, Route, Trash2, UserRound, Users } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { ChangePasswordDialog } from "@/components/change-password-dialog";
 import { EmitReaderDialog } from "@/components/emit-reader-dialog";
 import { LocationMapPicker } from "@/components/location-map-picker";
 import { API_BASE, DEFAULT_CITY, DEFAULT_PAYMENT_METHODS, LOGO_URL, SITE_NAME, withBasePath } from "@/lib/site";
@@ -44,7 +45,11 @@ export default function AdminPage() {
     event.preventDefault(); setLoginError("");
     const data = new FormData(event.currentTarget);
     const response = await fetch(`${apiBase}/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: data.get("username"), password: data.get("password") }) });
-    if (!response.ok) { setLoginError("Virheellinen käyttäjätunnus tai salasana."); return; }
+    if (!response.ok) {
+      // 429 = too many failed attempts; show the API's wait time.
+      const body = response.status === 429 ? await response.json().catch(() => null) as { message?: string } | null : null;
+      setLoginError(body?.message || "Virheellinen käyttäjätunnus tai salasana."); return;
+    }
     const result = await response.json() as { accessToken: string };
     window.localStorage.setItem("kuntorastit-admin-token", result.accessToken); setToken(result.accessToken);
   }
@@ -70,6 +75,7 @@ function AdminEvents({ token, onLogout }: { token: string; onLogout: () => void 
   const [readerDevicesOpen, setReaderDevicesOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [emitEvent, setEmitEvent] = useState<EventItem | null>(null);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const headers = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
@@ -115,7 +121,7 @@ function AdminEvents({ token, onLogout }: { token: string; onLogout: () => void 
     await load();
   }
   return <main className="min-h-screen bg-muted/30">
-    <header className="border-b bg-background"><div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4"><div className="flex items-center gap-3"><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src={LOGO_URL} alt="" className="size-8 object-contain" /></span><div><b className="block">{SITE_NAME}</b><span className="text-xs text-muted-foreground">Ylläpito</span></div></div><div className="flex gap-2"><Button asChild variant="ghost" className="rounded-full"><a href={withBasePath("/")}>Julkinen sivu</a></Button><Button asChild variant="outline" className="rounded-full"><a href={withBasePath("/admin/osallistumiskerrat")}><Award className="mr-2 size-4" />Osallistumiskerrat</a></Button><Button variant="outline" className="rounded-full" onClick={() => setReaderDevicesOpen(true)}><Cpu className="mr-2 size-4" />Lukijalaitteet</Button><Button variant="outline" className="rounded-full" onClick={onLogout}><LogOut className="mr-2 size-4" />Kirjaudu ulos</Button></div></div></header>
+    <header className="border-b bg-background"><div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4"><div className="flex items-center gap-3"><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src={LOGO_URL} alt="" className="size-8 object-contain" /></span><div><b className="block">{SITE_NAME}</b><span className="text-xs text-muted-foreground">Ylläpito</span></div></div><div className="flex gap-2"><Button asChild variant="ghost" className="rounded-full"><a href={withBasePath("/")}>Julkinen sivu</a></Button><Button asChild variant="outline" className="rounded-full"><a href={withBasePath("/admin/osallistumiskerrat")}><Award className="mr-2 size-4" />Osallistumiskerrat</a></Button><Button variant="outline" className="rounded-full" onClick={() => setReaderDevicesOpen(true)}><Cpu className="mr-2 size-4" />Lukijalaitteet</Button><Button variant="outline" className="rounded-full" onClick={() => setPasswordOpen(true)}><KeyRound className="mr-2 size-4" />Vaihda salasana</Button><Button variant="outline" className="rounded-full" onClick={onLogout}><LogOut className="mr-2 size-4" />Kirjaudu ulos</Button></div></div></header>
     <div className="mx-auto max-w-6xl px-5 py-10"><div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-sm font-bold uppercase tracking-wider text-primary">Hallinta</p><h1 className="mt-2 text-3xl font-black tracking-tight">Tapahtumat</h1><p className="mt-2 text-muted-foreground">Lisää, muokkaa ja julkaise kauden tapahtumia.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" className="rounded-full" disabled={loading || events.length === 0} onClick={() => downloadEventsExcel(events)}><Download className="mr-2 size-4" />Lataa Excel</Button><Button variant="outline" className="rounded-full" onClick={() => setImportOpen(true)}><FileUp className="mr-2 size-4" />Tuo Excel</Button><Button className="rounded-full" onClick={openCreate}><Plus className="mr-2 size-4" />Lisää tapahtuma</Button></div></div>
       {error && <p role="alert" className="mb-5 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}
       {loading ? <div className="grid place-items-center py-20"><Loader2 className="size-7 animate-spin text-primary" /></div> : events.length === 0 ? <Card className="rounded-3xl border-dashed"><CardContent className="grid place-items-center py-16 text-center"><CalendarDays className="mb-4 size-9 text-muted-foreground" /><p className="font-bold">Ei tapahtumia</p><p className="mt-1 text-sm text-muted-foreground">Luo kauden ensimmäinen tapahtuma.</p></CardContent></Card> : <div className="grid gap-4">{events.map((item) => <EventCard key={item.id} item={item} onRegistrations={() => setRegistrationEvent(item)} onEmit={() => setEmitEvent(item)} onCourses={() => setCourseEvent(item)} onEdit={() => openEdit(item)} onDelete={() => remove(item.id)} />)}</div>}
@@ -124,6 +130,7 @@ function AdminEvents({ token, onLogout }: { token: string; onLogout: () => void 
     <Dialog open={Boolean(courseEvent)} onOpenChange={(open) => { if (!open) { setCourseEvent(null); void load(); } }}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-3xl">{courseEvent && <CourseManager event={courseEvent} token={token} onSessionExpired={onLogout} />}</DialogContent></Dialog>
     <Dialog open={Boolean(registrationEvent)} onOpenChange={(open) => { if (!open) setRegistrationEvent(null); }}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-4xl">{registrationEvent && <RegistrationManager event={registrationEvent} token={token} onSessionExpired={onLogout} />}</DialogContent></Dialog>
     <Dialog open={Boolean(emitEvent)} onOpenChange={(open) => { if (!open) { setEmitEvent(null); void load(); } }}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-3xl">{emitEvent && <EmitReaderDialog event={emitEvent} token={token} onSessionExpired={onLogout} />}</DialogContent></Dialog>
+    <Dialog open={passwordOpen} onOpenChange={setPasswordOpen}><DialogContent className="rounded-3xl sm:max-w-md">{passwordOpen && <ChangePasswordDialog token={token} onSessionExpired={onLogout} onClose={() => setPasswordOpen(false)} />}</DialogContent></Dialog>
     <Dialog open={importOpen} onOpenChange={setImportOpen}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-2xl">{importOpen && <EventImport token={token} onSessionExpired={onLogout} onImported={() => void load()} onClose={() => setImportOpen(false)} />}</DialogContent></Dialog>
     <Dialog open={readerDevicesOpen} onOpenChange={setReaderDevicesOpen}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-3xl">{readerDevicesOpen && <ReaderDevicesManager token={token} onSessionExpired={onLogout} />}</DialogContent></Dialog>
   </main>;

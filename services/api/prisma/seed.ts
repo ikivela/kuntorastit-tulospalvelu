@@ -21,25 +21,22 @@ function hashPassword(password: string) {
 }
 
 async function main() {
-  // Login requires >= 8 characters (auth/login.dto.ts); fail loudly instead of
-  // creating an admin that can never log in.
-  const adminPassword = process.env.ADMIN_INITIAL_PASSWORD || "mara2026";
   const seriesName = process.env.EVENT_SERIES_NAME || "Kuntorastit";
-  if (adminPassword.length < 8) {
-    throw new Error("ADMIN_INITIAL_PASSWORD must be at least 8 characters");
-  }
 
-  await prisma.adminUser.upsert({
-    where: { username: "admin" },
-    update: {},
-    create: {
-      id: ids.admin,
-      username: "admin",
-      // Only used when the admin user is first created.
-      passwordHash: hashPassword(adminPassword),
-      role: "ADMIN",
-    },
-  });
+  // The admin password is only set when the admin user is first created.
+  const existingAdmin = await prisma.adminUser.findUnique({ where: { username: "admin" }, select: { id: true } });
+  if (!existingAdmin) {
+    const configuredPassword = process.env.ADMIN_INITIAL_PASSWORD;
+    // The development default is public (README), so never use it in production.
+    if (!configuredPassword && process.env.NODE_ENV === "production") {
+      throw new Error("ADMIN_INITIAL_PASSWORD is required in production to create the admin user");
+    }
+    const adminPassword = configuredPassword || "mara2026";
+    // Login requires >= 8 characters (auth/login.dto.ts); fail loudly instead
+    // of creating an admin that can never log in.
+    if (adminPassword.length < 8) throw new Error("ADMIN_INITIAL_PASSWORD must be at least 8 characters");
+    await prisma.adminUser.create({ data: { id: ids.admin, username: "admin", passwordHash: hashPassword(adminPassword), role: "ADMIN" } });
+  }
 
   await prisma.eventSeries.upsert({
     where: { id: ids.series },

@@ -51,8 +51,12 @@ leimauksia ja tavoitepalkintoja. Leimauskortti on mallinnettu yleisenä
 
 ### Ylläpito (`/admin`)
 
-- Kirjaudu sisään oletustunnuksilla **admin / mara2026** (seed-data, ks.
-  alla) — vaihda salasana ennen tuotantokäyttöä (ks. "Tuotantoon vieminen").
+- Kirjaudu sisään tunnuksella **admin**. Kehitysympäristössä oletussalasana
+  on `mara2026`; tuotannossa salasana asetetaan ensimmäisellä käynnistyksellä
+  muuttujalla `ADMIN_INITIAL_PASSWORD` (oletussalasanaa ei hyväksytä).
+  Salasanan voi vaihtaa ylläpidon **Vaihda salasana** -napista (vähintään
+  12 merkkiä). Viisi epäonnistunutta kirjautumista samasta osoitteesta
+  estää uudet yritykset 15 minuutiksi.
 - **Tapahtumat**: luo/muokkaa tapahtumia, ratoja ja sijaintia. Osoitekenttä
   hakee kartalle sijainnin automaattisesti (voi myös raahata merkkiä käsin).
   Kortin alla näkyy "*n* tulosta · *m* ilmoittautunutta"; **Osanottajat**-
@@ -146,7 +150,7 @@ Kopioi tällöin `services/api/.env.example` tiedostoksi `.env` (samat
 muuttujat kuin juuren `.env.development`:ssa, mutta `DATABASE_URL`:n host on
 `localhost` eikä `postgres`).
 
-Alustusdata (mm. ylläpitäjätunnus `admin` / `mara2026`) syntyy migraatioiden
+Alustusdata (mm. ylläpitäjätunnus `admin`, kehityksessä salasana `mara2026`) syntyy migraatioiden
 jälkeen komennolla:
 
 ```bash
