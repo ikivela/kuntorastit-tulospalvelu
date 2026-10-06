@@ -9,9 +9,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RegistrationDialog } from "@/components/registration-dialog";
-import { SITE_NAME } from "@/lib/site";
+import { API_BASE, SITE_NAME, withBasePath } from "@/lib/site";
 
-const apiBase = "/api/v1";
+const apiBase = API_BASE;
 type Course = { id: string; name: string; lengthMeters: number };
 type CalendarEvent = { id: string; name: string; locationName: string | null; address: string | null; startsAt: string; endsAt: string; registrationOpen: boolean; paymentMethods: string[]; courses: Course[] };
 type Season = { events: CalendarEvent[] };
@@ -39,8 +39,8 @@ export default function Home() {
   return <main className="min-h-screen bg-background text-foreground">
     <header className="border-b bg-white/90 backdrop-blur">
       <div className="mx-auto flex max-w-4xl items-center justify-between gap-5 px-5 py-4 lg:px-8">
-        <a className="flex items-center gap-3" href="/"><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src="/kos-logo.png" alt="" className="size-8 object-contain" /></span><span><b className="block tracking-tight">{SITE_NAME}</b><small className="block text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">Kokkolan Suunnistajat</small></span></a>
-        <nav className="flex items-center gap-2"><Button asChild variant="ghost" className="rounded-full"><a href="/kalenteri">Koko kalenteri</a></Button><Button asChild variant="outline" className="rounded-full"><a href="/admin">Ylläpito</a></Button></nav>
+        <a className="flex items-center gap-3" href={withBasePath("/")}><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src={withBasePath("/kos-logo.png")} alt="" className="size-8 object-contain" /></span><span><b className="block tracking-tight">{SITE_NAME}</b><small className="block text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">Kokkolan Suunnistajat</small></span></a>
+        <nav className="flex items-center gap-2"><Button asChild variant="ghost" className="rounded-full"><a href={withBasePath("/kalenteri")}>Koko kalenteri</a></Button><Button asChild variant="outline" className="rounded-full"><a href={withBasePath("/admin")}>Ylläpito</a></Button></nav>
       </div>
     </header>
 
@@ -56,7 +56,7 @@ export default function Home() {
       <div className="mb-6 flex items-end justify-between gap-4"><h2 className="text-2xl font-extrabold tracking-tight">Seuraavat tapahtumat</h2>{error && <Button variant="outline" size="sm" className="rounded-full" onClick={() => void load()}><RotateCcw className="mr-2 size-4" />Yritä uudelleen</Button>}</div>
       {error ? <Alert variant="destructive"><AlertCircle /><AlertTitle>Tapahtumia ei voitu ladata</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>
         : events === null ? <div className="space-y-4">{[1, 2, 3].map((item) => <Skeleton key={item} className="h-28 rounded-3xl" />)}</div>
-        : events.length === 0 ? <Empty className="rounded-3xl border bg-card"><EmptyHeader><EmptyMedia variant="icon"><CalendarDays /></EmptyMedia><EmptyTitle>Ei tulevia tapahtumia juuri nyt</EmptyTitle><EmptyDescription>Koko kauden tapahtumat löytyvät kalenterista.</EmptyDescription></EmptyHeader><EmptyContent><Button asChild variant="outline" className="rounded-full"><a href="/kalenteri">Avaa kalenteri</a></Button></EmptyContent></Empty>
+        : events.length === 0 ? <Empty className="rounded-3xl border bg-card"><EmptyHeader><EmptyMedia variant="icon"><CalendarDays /></EmptyMedia><EmptyTitle>Ei tulevia tapahtumia juuri nyt</EmptyTitle><EmptyDescription>Koko kauden tapahtumat löytyvät kalenterista.</EmptyDescription></EmptyHeader><EmptyContent><Button asChild variant="outline" className="rounded-full"><a href={withBasePath("/kalenteri")}>Avaa kalenteri</a></Button></EmptyContent></Empty>
         : <div className="space-y-4">{events.map((event) => <EventRow key={event.id} event={event} />)}</div>}
     </div>
 
@@ -75,7 +75,7 @@ function EventRow({ event }: { event: CalendarEvent }) {
           <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground"><span className="flex items-center gap-1.5"><Clock3 className="size-3.5" />{formatTimeRange(event.startsAt, event.endsAt)}</span><span className="flex items-center gap-1.5"><MapPin className="size-3.5" />{event.address || event.locationName || "Paikka ilmoitetaan myöhemmin"}</span></div>
         </div>
       </div>
-      <div className="flex shrink-0 gap-2 sm:pl-4"><Button asChild variant="outline" className="rounded-full"><a href={`/tulokset/${event.id}`}><ListOrdered className="mr-2 size-4" />Tulokset</a></Button>{event.registrationOpen && <Button className="rounded-full" onClick={() => setRegistrationOpen(true)}><UserPlus className="mr-2 size-4" />Ilmoittaudu</Button>}</div>
+      <div className="flex shrink-0 gap-2 sm:pl-4"><Button asChild variant="outline" className="rounded-full"><a href={withBasePath(`/tulokset/${event.id}`)}><ListOrdered className="mr-2 size-4" />Tulokset</a></Button>{event.registrationOpen && <Button className="rounded-full" onClick={() => setRegistrationOpen(true)}><UserPlus className="mr-2 size-4" />Ilmoittaudu</Button>}</div>
     </CardContent>
   </Card><RegistrationDialog event={event} open={registrationOpen} onOpenChange={setRegistrationOpen} /></>;
 }

@@ -141,9 +141,8 @@ npm run prisma:seed
 Web-käyttöliittymä (`npm run build && npm run start`, portti 3000 oletuksena)
 ja API (`services/api`, portti 3001) ajetaan kahtena erillisenä prosessina
 samalla palvelimella; niiden eteen laitetaan nginx yhdeksi julkiseksi
-osoitteeksi. Web-käyttöliittymä kutsuu API:a suhteellisella polulla
-`/api/v1/...`, joten API:n reverse proxy -sijainti on pidettävä juuressa
-riippumatta siitä, missä polussa itse käyttöliittymä on.
+osoitteeksi. Web-käyttöliittymä kutsuu API:a oletuksena suhteellisella polulla
+`<alipolku>/api/v1/...` (juuriasennuksessa `/api/v1/...`).
 
 ### Koko domain (esim. `tulokset.esimerkki.fi`)
 
@@ -172,12 +171,27 @@ server {
 
 ### Web-käyttöliittymä alipolussa (esim. seuran olemassa olevan sivuston alla, `esimerkki.fi/kuntorastit/`)
 
-API pidetään edelleen juuressa (`/api/`), koska käyttöliittymän oma koodi
-kutsuu sitä juuripolusta riippumatta alipolusta. Vain käyttöliittymän oma
-sijainti siirtyy:
+Alipolku asetetaan build-aikaisella muuttujalla `NEXT_PUBLIC_BASE_PATH`
+(juuren `.env`). Se välitetään Next/vinextin `basePath`-asetukseksi
+(`next.config.ts`), joten kaikki sivut, linkit, kuvat, faviconit ja JS/CSS-
+resurssit tarjoillaan alipolun alta:
+
+```bash
+NEXT_PUBLIC_BASE_PATH=/kuntorastit npm run build
+```
+
+Käyttöliittymä kutsuu oletuksena API:a samasta alipolusta
+(`/kuntorastit/api/v1`). Jos API on muualla (toinen polku tai domain), aseta
+`NEXT_PUBLIC_API_BASE_URL` (esim. `/api/v1` tai
+`https://api.esimerkki.fi/api/v1`) ennen buildia.
+
+nginx välittää alipolun **sellaisenaan** käyttöliittymälle (ei etuliitteen
+poistoa, eli `proxy_pass`-rivillä ei polkua), koska sovellus odottaa
+`/kuntorastit/`-etuliitteen olevan pyynnöissä. API:n osalta etuliite
+poistetaan, jolloin API pysyy oletusprefiksissään `/api/v1`:
 
 ```nginx
-location /api/ {
+location /kuntorastit/api/ {
     proxy_pass http://127.0.0.1:3001/api/;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -186,7 +200,7 @@ location /api/ {
 }
 
 location /kuntorastit/ {
-    proxy_pass http://127.0.0.1:3000/;
+    proxy_pass http://127.0.0.1:3000;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -194,23 +208,21 @@ location /kuntorastit/ {
 }
 ```
 
-Huomioita alipolkuratkaisusta:
+Vaihtoehtoisesti API:n prefiksin voi muuttaa itse API:ssa ympäristö-
+muuttujilla `API_PREFIX` (oletus `api/v1`, esim. `kuntorastit/api/v1`) ja
+`API_DOCS_PATH` (oletus `api/docs`), jolloin nginx voi välittää API-polun
+ilman uudelleenkirjoitusta.
 
-- Kauttaviivat `/kuntorastit/`-lohkon molemmissa päissä (sekä `location`- että
-  `proxy_pass`-riveillä) ovat tärkeitä — ne saavat nginxin poistamaan
-  `/kuntorastit/`-etuliitteen ennen pyynnön välittämistä eteenpäin, jolloin
-  käyttöliittymä ei itse tarvitse tietää ajavansa alipolussa.
-- Käyttöliittymän build (`npm run build`) upottaa staattisten resurssien
-  (JS/CSS) polut valmiiksi HTML:ään Viten `base`-asetuksen mukaan. Jos sivu
-  näyttää lataavan tyhjänä tai konsolissa näkyy 404-virheitä resursseille,
-  aseta `vite.config.ts`:ään `base: "/kuntorastit/"` ja tee build uudelleen
-  ennen kuin otat alipolkuratkaisun tuotantoon — tätä ei ole vielä testattu
-  päästä päähän vinext + Cloudflare Workers -ympäristössä, joten kannattaa
-  varmistaa yksittäisen sivun lataus selaimen kehitystyökaluilla käyttöönoton
-  yhteydessä.
-- Yksinkertaisin ja varmatoimisin vaihtoehto on oma (ali)domain
-  (`tulokset.esimerkki.fi`) alipolun sijaan — silloin yllä olevaa
-  `base`-huomiota ei tarvitse miettiä lainkaan.
+Huomioita:
+
+- `NEXT_PUBLIC_BASE_PATH` upotetaan buildiin — sen muuttaminen vaatii uuden
+  buildin.
+- Kehityspalvelin (`npm run dev`) noudattaa samaa asetusta: sivu löytyy
+  osoitteesta `http://localhost:5173/kuntorastit/`, ja Viten proxy välittää
+  `/kuntorastit/api`-kutsut API:n `/api`-polkuun.
+- Linkkejä lisätessä käytä `withBasePath("/polku")` (`lib/site.ts`) tavallisissa
+  `<a href>`-, `<img src>`- ja `window.location`-poluissa; `next/link` ja
+  `next/navigation`in router lisäävät etuliitteen itse.
 
 ### pc-client tuotanto-API:a vasten
 
@@ -240,10 +252,5 @@ compose.api.yaml         Paikallinen API ja PostgreSQL
   puuttuu vielä (ks. clientin README).
 - Muiden leimausjärjestelmien (esim. SportIdent) tuki tietomalli sallii
   (`PunchCard`), mutta clientissä on toteutettu vain EMIT 250.
-- Web-käyttöliittymä kutsuu API:a suhteellisella polulla `/api/v1` (samasta
-  originista); jos API halutaan täysin eri domainiin ilman reverse proxya,
-  osoite pitää tehdä konfiguroitavaksi (esim. ympäristömuuttujalla) — tätä ei
-  ole vielä toteutettu.
-- Alipolkuun (`/kuntorastit/`) deployaus vaatii lisäksi Viten
-  `base`-asetuksen (ks. "Tuotantoon vieminen"), jota ei ole vielä testattu
-  päästä päähän tässä vinext + Cloudflare Workers -ympäristössä.
+- Alipolkuasennus (`NEXT_PUBLIC_BASE_PATH`) on testattu buildin ja
+  palvelinrenderöinnin tasolla, mutta ei vielä oikean nginxin takana.

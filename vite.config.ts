@@ -1,7 +1,8 @@
 import vinext from "vinext";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
+import { normalizeBasePath } from "./lib/site";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
   "00000000-0000-4000-8000-000000000000";
@@ -33,7 +34,7 @@ const localBindingConfig = {
     : [],
 };
 
-export default defineConfig(async () => {
+export default defineConfig(async ({ mode }) => {
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
   // settings; application environment belongs in ignored `.env*` files.
   process.env.WRANGLER_WRITE_LOGS ??= "false";
@@ -43,12 +44,20 @@ export default defineConfig(async () => {
   // Wrangler snapshots its log path while the Cloudflare plugin is imported.
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
+  // Mirrors next.config.ts's basePath: in dev the UI calls
+  // <basePath>/api/v1, which the proxy forwards to the API's /api/v1.
+  const basePath = normalizeBasePath(loadEnv(mode, process.cwd(), "").NEXT_PUBLIC_BASE_PATH);
+
   return {
     server: {
       host: "0.0.0.0",
       allowedHosts: ["terminal.local"],
       proxy: {
-        "/api": { target: "http://localhost:3001", changeOrigin: true },
+        [`${basePath}/api`]: {
+          target: "http://localhost:3001",
+          changeOrigin: true,
+          rewrite: (path: string) => path.slice(basePath.length),
+        },
       },
       ...(isCodexSeatbeltSandbox
         ? { watch: { useFsEvents: false, usePolling: true } }

@@ -11,9 +11,9 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { SITE_NAME } from "@/lib/site";
+import { API_BASE, SITE_NAME, withBasePath } from "@/lib/site";
 
-const apiBase = "/api/v1";
+const apiBase = API_BASE;
 type Season = { id: string; name: string; year: number };
 type RewardThreshold = { id: string; name: string; requiredAttendances: number };
 type AttendanceSummaryRow = { personId: string; firstName: string; lastName: string; clubName: string | null; attendanceCount: number };
@@ -31,22 +31,22 @@ export default function AttendanceSummaryPage() {
 
   useEffect(() => {
     const stored = window.localStorage.getItem("kuntorastit-admin-token");
-    if (!stored) { window.location.href = "/admin"; return; }
+    if (!stored) { window.location.href = withBasePath("/admin"); return; }
     fetch(`${apiBase}/auth/me`, { headers: { Authorization: `Bearer ${stored}` } })
       .then((response) => { if (!response.ok) throw new Error(); setToken(stored); })
-      .catch(() => { window.localStorage.removeItem("kuntorastit-admin-token"); window.location.href = "/admin"; })
+      .catch(() => { window.localStorage.removeItem("kuntorastit-admin-token"); window.location.href = withBasePath("/admin"); })
       .finally(() => setChecking(false));
   }, []);
 
   function onSessionExpired() {
     window.localStorage.removeItem("kuntorastit-admin-token");
-    window.location.href = "/admin";
+    window.location.href = withBasePath("/admin");
   }
 
   if (checking || !token) return <main className="grid min-h-screen place-items-center bg-muted/30"><Loader2 className="size-6 animate-spin text-primary" /></main>;
 
   return <main className="min-h-screen bg-muted/30">
-    <header className="border-b bg-background"><div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4"><div className="flex items-center gap-3"><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src="/kos-logo.png" alt="" className="size-8 object-contain" /></span><div><b className="block">{SITE_NAME}</b><span className="text-xs text-muted-foreground">Ylläpito</span></div></div><div className="flex gap-2"><Button variant="outline" className="rounded-full" onClick={() => setDuplicatesOpen(true)}><Copy className="mr-2 size-4" />Epäselvät merkinnät</Button><Button asChild variant="ghost" className="rounded-full"><a href="/admin"><ArrowLeft className="mr-2 size-4" />Tapahtumat</a></Button></div></div></header>
+    <header className="border-b bg-background"><div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4"><div className="flex items-center gap-3"><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src={withBasePath("/kos-logo.png")} alt="" className="size-8 object-contain" /></span><div><b className="block">{SITE_NAME}</b><span className="text-xs text-muted-foreground">Ylläpito</span></div></div><div className="flex gap-2"><Button variant="outline" className="rounded-full" onClick={() => setDuplicatesOpen(true)}><Copy className="mr-2 size-4" />Epäselvät merkinnät</Button><Button asChild variant="ghost" className="rounded-full"><a href={withBasePath("/admin")}><ArrowLeft className="mr-2 size-4" />Tapahtumat</a></Button></div></div></header>
     <div className="mx-auto max-w-4xl px-5 py-10"><div className="mb-8"><p className="text-sm font-bold uppercase tracking-wider text-primary">Hallinta</p><h1 className="mt-2 text-3xl font-black tracking-tight">Osallistumiskerrat</h1><p className="mt-2 text-muted-foreground">Kauden osallistumiskerrat henkilöä kohti. Selvitä ensin mahdolliset epäselvät merkinnät, jotta laskenta pitää paikkansa. Klikkaa nimeä nähdäksesi henkilön tulokset tapahtumittain.</p></div>
       <AttendanceSummaryTable token={token} onSessionExpired={onSessionExpired} />
     </div>

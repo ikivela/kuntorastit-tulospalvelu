@@ -8,8 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
+import { API_BASE } from "@/lib/site";
 
-const apiBase = "http://localhost:3001/api/v1";
+const apiBase = API_BASE;
 
 export type RegistrationEvent = { id: string; name: string; courses: { id: string; name: string; lengthMeters: number }[]; paymentMethods: string[] };
 
