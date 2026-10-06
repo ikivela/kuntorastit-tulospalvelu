@@ -283,6 +283,19 @@ export class PublicService {
     });
   }
 
+  /** Person currently holding an EMIT card: the active card assignment, or
+   * else whoever last registered with it. null when the card is unknown. */
+  async personByCard(cardNumber: string) {
+    const card = await this.prisma.punchCard.findUnique({
+      where: { system_cardNumber: { system: "EMIT", cardNumber: cardNumber.trim() } },
+      select: {
+        assignments: { where: { validUntil: null }, orderBy: { validFrom: "desc" }, take: 1, select: { person: { include: { club: { select: { name: true } } } } } },
+        registrations: { orderBy: { registeredAt: "desc" }, take: 1, select: { person: { include: { club: { select: { name: true } } } } } },
+      },
+    });
+    const person = card?.assignments[0]?.person ?? card?.registrations[0]?.person;
+    return person ? { id: person.id, firstName: person.firstName, lastName: person.lastName, clubName: person.club?.name ?? null } : null;
+  }
   async searchPersons(query: string) {
     const trimmed = query.trim();
     if (trimmed.length < 2) return [];

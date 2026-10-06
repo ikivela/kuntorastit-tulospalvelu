@@ -8,6 +8,7 @@ import { ReaderDevicesService } from "./reader-devices.service.js";
   imports: [AuthModule],
   controllers: [ReaderDevicesController],
   providers: [ReaderDevicesService, ReaderDeviceAuthGuard],
-  exports: [ReaderDevicesService, ReaderDeviceAuthGuard],
+  // AuthModule is re-exported: the guard also accepts admin tokens.
+  exports: [ReaderDevicesService, ReaderDeviceAuthGuard, AuthModule],
 })
 export class ReaderDevicesModule {}

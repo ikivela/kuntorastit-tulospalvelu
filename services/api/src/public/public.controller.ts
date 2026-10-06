@@ -58,6 +58,13 @@ export class PublicController {
     return this.publicService.searchPersons(query ?? "");
   }
 
+  @Get("persons/by-card/:cardNumber")
+  @UseGuards(ReaderDeviceAuthGuard)
+  @ApiSecurity("bearer")
+  personByCard(@Param("cardNumber") cardNumber: string) {
+    return this.publicService.personByCard(cardNumber);
+  }
+
   @Post("events/:eventId/manual-results")
   @UseGuards(ReaderDeviceAuthGuard)
   @ApiSecurity("bearer")

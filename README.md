@@ -64,6 +64,14 @@ leimauksia ja tavoitepalkintoja. Leimauskortti on mallinnettu yleisenä
   rivinumeroineen; mitään ei tallenneta ennen vahvistusta, ja jos yksikin rivi
   on virheellinen, koko tuonti hylätään. Excelistä puuttuvia tapahtumia ei
   poisteta. Tiedoston "Ohje"-välilehdellä on sarakkeiden kuvaus.
+- **EMIT-luenta** (tapahtumakortin nappi): lukee EMIT 250 -kortit suoraan
+  selaimesta Web Serialilla ilman pc-clientiä. Liitä lukija koneeseen, paina
+  "Yhdistä lukijaan" ja valitse sarjaportti. Kortin haltija haetaan aiempien
+  luentojen/ilmoittautumisten perusteella, rata ja tulos (OK / rasti puuttuu /
+  hylätty) päätellään leimoista samoin kuin pc-clientissä, ja tulos
+  tallennetaan kuittauksella. Vaatii Chromen tai Edgen tietokoneella sekä
+  suojatun yhteyden (https:// tai localhost). Toisin kuin pc-client, selain
+  ei toimi offline-tilassa.
 - **Lukijalaitteet**: jokainen pc-client rekisteröityy itse ja jää
   odottamaan hyväksyntää tässä näkymässä ennen kuin se saa API-tokenin.
   Peru pääsy tästä samasta näkymästä tarvittaessa (esim. kannettava katoaa).
