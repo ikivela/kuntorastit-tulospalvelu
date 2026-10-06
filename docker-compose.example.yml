@@ -90,6 +90,9 @@ services:
       BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
       GATEWAY_SERVER_NAME: ${GATEWAY_SERVER_NAME:-_}
       GATEWAY_MAX_BODY_SIZE: ${GATEWAY_MAX_BODY_SIZE:-10m}
+      GATEWAY_FORM_RATE_LIMIT: ${GATEWAY_FORM_RATE_LIMIT:-20r/m}
+      GATEWAY_FORM_RATE_BURST: ${GATEWAY_FORM_RATE_BURST:-20}
+      GATEWAY_CSP: "${GATEWAY_CSP:-default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://nominatim.openstreetmap.org; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'}"
       TZ: ${TZ:-Europe/Helsinki}
     # Normalise BASE_PATH to "" or "/x" before the template is rendered.
     command:

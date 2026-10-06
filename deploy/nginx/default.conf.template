@@ -3,11 +3,34 @@
 # BASE_PATH is "" (domain root) or "/kuntorastit" style: leading slash, no
 # trailing slash.
 
+# Rate limits for unauthenticated form endpoints (public registration and
+# reader device registration), per client IP and only for POST, to stop mass
+# spam. Generous enough for many people registering from one shared address
+# (mobile carrier NAT, club WiFi). Login has its own limit in the API.
+map $request_method $public_form_limit_key {
+    POST    $binary_remote_addr;
+    default "";
+}
+limit_req_zone $public_form_limit_key zone=public_forms:10m rate=${GATEWAY_FORM_RATE_LIMIT};
+limit_req_status 429;
+
 server {
     listen 80;
     server_name ${GATEWAY_SERVER_NAME};
 
     client_max_body_size ${GATEWAY_MAX_BODY_SIZE};
+    server_tokens off;
+
+    # Security headers. The CSP needs 'unsafe-inline' for scripts because the
+    # app embeds its hydration data in inline <script> tags; it still blocks
+    # third-party scripts, framing by other sites and posting elsewhere.
+    # Override with GATEWAY_CSP (e.g. an external API origin in connect-src,
+    # or frame-ancestors for embedding the calendar on the club's site).
+    add_header Content-Security-Policy "${GATEWAY_CSP}" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), serial=(self)" always;
 
     # Real client IP (used by the API's login rate limiting): trust
     # X-Forwarded-For only from local/private proxies, e.g. the server's own
@@ -32,6 +55,11 @@ server {
     # API: forwarded as-is, the API itself listens under ${BASE_PATH}/api/...
     location ^~ ${BASE_PATH}/api/ {
         proxy_pass http://api:3001;
+
+        location ~ /api/v1/public/(events/[^/]+/registrations|reader-devices/register)$ {
+            limit_req zone=public_forms burst=${GATEWAY_FORM_RATE_BURST} nodelay;
+            proxy_pass http://api:3001;
+        }
     }
 
     # Build assets: vinext 0.0.50's App Router prod server only serves them

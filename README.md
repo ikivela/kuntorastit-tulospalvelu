@@ -187,6 +187,12 @@ docker compose -f prod.yml --env-file .env.production up -d --build
 - `GATEWAY_PORT` on julkinen portti. Web, API ja PostgreSQL ovat lisäksi
   suoraan saatavilla omista porteistaan (`*_EXTERNAL_PORT`), oletuksena vain
   palvelimelta itseltään (`*_BIND_ADDRESS=127.0.0.1`).
+- Gateway lisää tietoturvaotsakkeet (Content-Security-Policy, nosniff,
+  X-Frame-Options, Referrer-Policy, Permissions-Policy) ja rajoittaa
+  julkisten lomakkeiden (ilmoittautuminen, lukijalaitteen rekisteröinti)
+  pyyntöjä per IP (`GATEWAY_FORM_RATE_LIMIT`, oletus 20/min). CSP:tä voi
+  muuttaa muuttujalla `GATEWAY_CSP`, esim. jos API on eri domainissa tai
+  kalenteri upotetaan seuran sivulle iframella (`frame-ancestors`).
 - TLS (https) hoidetaan gatewayn edessä, esim. palvelimen omalla nginxillä,
   joka välittää alipolun sellaisenaan gatewaylle.
 - Ohjaa liikenne alipolkuasennuksessa aina gatewayn kautta, älä suoraan
