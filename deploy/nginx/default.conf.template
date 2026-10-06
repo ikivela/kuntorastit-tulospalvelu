@@ -1,4 +1,4 @@
-# Gateway for tuotanto.yml. The nginx image runs envsubst on this file at
+# Gateway for prod.yml (docker-compose.example.yml). The nginx image runs envsubst on this file at
 # start-up (only for variables defined in the container, so $host etc. stay).
 # BASE_PATH is "" (domain root) or "/kuntorastit" style: leading slash, no
 # trailing slash.

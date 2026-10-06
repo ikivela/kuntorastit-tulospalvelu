@@ -1,7 +1,8 @@
 # Tuotantoympäristö: PostgreSQL + API + web-käyttöliittymä + nginx-gateway.
 #
+#   cp docker-compose.example.yml prod.yml        # oma kopio (gitignoressa)
 #   cp .env.production.example .env.production   # ja muokkaa arvot
-#   docker compose -f tuotanto.yml --env-file .env.production up -d --build
+#   docker compose -f prod.yml --env-file .env.production up -d --build
 #
 # Kaikki asetukset tulevat env-tiedostosta (ks. .env.production.example).
 # Gateway palvelee koko sovelluksen yhdestä portista:

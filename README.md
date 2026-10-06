@@ -156,15 +156,16 @@ npm run prisma:seed
 
 ## Tuotantoon vieminen
 
-### Docker Compose (`tuotanto.yml`)
+### Docker Compose (`prod.yml`)
 
 Valmis tuotantokokoonpano: PostgreSQL, API, web-käyttöliittymä ja nginx-
 gateway, joka tarjoilee koko sovelluksen yhdestä portista. Kaikki asetukset
 (portit, alipolku, salasanat, image-tagit) tulevat env-tiedostosta:
 
 ```bash
+cp docker-compose.example.yml prod.yml
 cp .env.production.example .env.production   # aseta vähintään POSTGRES_PASSWORD ja ADMIN_TOKEN_SECRET
-docker compose -f tuotanto.yml --env-file .env.production up -d --build
+docker compose -f prod.yml --env-file .env.production up -d --build
 ```
 
 - `NEXT_PUBLIC_BASE_PATH` (esim. `/kuntorastit`) asettaa alipolun kerralla

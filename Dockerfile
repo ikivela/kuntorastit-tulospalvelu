@@ -1,5 +1,5 @@
 # Web UI (vinext) production image. Built from the repo root:
-#   docker compose -f tuotanto.yml build web
+#   docker compose -f prod.yml build web
 # NEXT_PUBLIC_* values are baked into the build, so changing them requires a
 # rebuild.
 FROM node:22-bookworm-slim AS build
