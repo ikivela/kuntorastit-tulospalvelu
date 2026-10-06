@@ -1,13 +1,13 @@
 # Tuotantoympäristö: PostgreSQL + API + web-käyttöliittymä + nginx-gateway.
 #
-#   cp .env.tuotanto.example .env.tuotanto   # ja muokkaa arvot
-#   docker compose -f tuotanto.yml --env-file .env.tuotanto up -d --build
+#   cp .env.production.example .env.production   # ja muokkaa arvot
+#   docker compose -f tuotanto.yml --env-file .env.production up -d --build
 #
-# Kaikki asetukset tulevat env-tiedostosta (ks. .env.tuotanto.example).
+# Kaikki asetukset tulevat env-tiedostosta (ks. .env.production.example).
 # Gateway palvelee koko sovelluksen yhdestä portista:
-#   http://<host>:${GATEWAY_PORT}${BASE_PATH}/          web-käyttöliittymä
-#   http://<host>:${GATEWAY_PORT}${BASE_PATH}/api/v1    REST API
-#   http://<host>:${GATEWAY_PORT}${BASE_PATH}/api/docs  Swagger
+#   http://<host>:${GATEWAY_PORT}${NEXT_PUBLIC_BASE_PATH}/          web-käyttöliittymä
+#   http://<host>:${GATEWAY_PORT}${NEXT_PUBLIC_BASE_PATH}/api/v1    REST API
+#   http://<host>:${GATEWAY_PORT}${NEXT_PUBLIC_BASE_PATH}/api/docs  Swagger
 
 name: ${COMPOSE_PROJECT_NAME:-kuntorastit}
 
@@ -38,11 +38,11 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-kuntorastit}:${POSTGRES_PASSWORD:?Aseta POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-kuntorastit}
       PORT: 3001
-      API_PREFIX: ${BASE_PATH:-}/api/v1
-      API_DOCS_PATH: ${BASE_PATH:-}/api/docs
+      API_PREFIX: ${NEXT_PUBLIC_BASE_PATH:-}/api/v1
+      API_DOCS_PATH: ${NEXT_PUBLIC_BASE_PATH:-}/api/docs
       ADMIN_TOKEN_SECRET: ${ADMIN_TOKEN_SECRET:?Aseta ADMIN_TOKEN_SECRET}
       ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-}
-      EVENT_SERIES_NAME: ${SITE_NAME:-Kuntorastit}
+      EVENT_SERIES_NAME: ${NEXT_PUBLIC_SITE_NAME:-Kuntorastit}
       RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
       RUN_SEED: ${RUN_SEED:-true}
       TZ: ${TZ:-Europe/Helsinki}
@@ -63,16 +63,16 @@ services:
     build:
       context: .
       args:
-        NEXT_PUBLIC_SITE_NAME: ${SITE_NAME:-Kuntorastit}
-        NEXT_PUBLIC_CLUB_NAME: ${CLUB_NAME:-}
-        NEXT_PUBLIC_LOGO_URL: ${LOGO_URL:-}
-        NEXT_PUBLIC_FAVICON_URL: ${FAVICON_URL:-}
-        NEXT_PUBLIC_MAP_CENTER: ${MAP_CENTER:-}
-        NEXT_PUBLIC_DEFAULT_CITY: ${DEFAULT_CITY:-}
-        NEXT_PUBLIC_DEFAULT_PAYMENT_METHODS: ${DEFAULT_PAYMENT_METHODS:-}
-        NEXT_PUBLIC_PAYMENT_HINT: ${PAYMENT_HINT:-}
-        NEXT_PUBLIC_BASE_PATH: ${BASE_PATH:-}
-        NEXT_PUBLIC_API_BASE_URL: ${WEB_API_BASE_URL:-}
+        NEXT_PUBLIC_SITE_NAME: ${NEXT_PUBLIC_SITE_NAME:-Kuntorastit}
+        NEXT_PUBLIC_CLUB_NAME: ${NEXT_PUBLIC_CLUB_NAME:-}
+        NEXT_PUBLIC_LOGO_URL: ${NEXT_PUBLIC_LOGO_URL:-}
+        NEXT_PUBLIC_FAVICON_URL: ${NEXT_PUBLIC_FAVICON_URL:-}
+        NEXT_PUBLIC_MAP_CENTER: ${NEXT_PUBLIC_MAP_CENTER:-}
+        NEXT_PUBLIC_DEFAULT_CITY: ${NEXT_PUBLIC_DEFAULT_CITY:-}
+        NEXT_PUBLIC_DEFAULT_PAYMENT_METHODS: ${NEXT_PUBLIC_DEFAULT_PAYMENT_METHODS:-}
+        NEXT_PUBLIC_PAYMENT_HINT: ${NEXT_PUBLIC_PAYMENT_HINT:-}
+        NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-}
     image: ${WEB_IMAGE:-kuntorastit-web}:${IMAGE_TAG:-latest}
     restart: ${RESTART_POLICY:-unless-stopped}
     environment:
@@ -86,7 +86,7 @@ services:
     image: nginx:${NGINX_IMAGE_TAG:-1.27-alpine}
     restart: ${RESTART_POLICY:-unless-stopped}
     environment:
-      BASE_PATH: ${BASE_PATH:-}
+      BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
       GATEWAY_SERVER_NAME: ${GATEWAY_SERVER_NAME:-_}
       GATEWAY_MAX_BODY_SIZE: ${GATEWAY_MAX_BODY_SIZE:-10m}
       TZ: ${TZ:-Europe/Helsinki}

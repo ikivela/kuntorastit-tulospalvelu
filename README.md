@@ -118,13 +118,16 @@ npm test
 Koko kehitysympäristö:
 
 ```bash
-docker compose -f compose.api.yaml up --build
+cp .env.development.example .env.development
+docker compose -f compose.api.yaml --env-file .env.development up --build
 ```
 
-Tietokannan ja API:n asetukset (`POSTGRES_DB`, `POSTGRES_USER`,
-`POSTGRES_PASSWORD`, `DATABASE_URL`, `PORT`, `ADMIN_TOKEN_SECRET`) luetaan
-juuren `.env`-tiedostosta (ks. `.env.example`); Docker Compose lukee sen
-automaattisesti.
+Asetukset ovat kahdessa tiedostossa, joissa on samat muuttujien nimet:
+`.env.development` (kehitys) ja `.env.production` (tuotanto); pohjat
+`*.example`-tiedostoissa. Web-käyttöliittymä (Vite/vinext) ja pc-client
+lataavat automaattisesti `.env.development`in `npm run dev`:ssä ja
+`.env.production`in buildissa. Docker Composelle tiedosto annetaan
+`--env-file`-valitsimella.
 
 API käynnistyy osoitteeseen `http://localhost:3001/api/v1` ja Swagger-
 dokumentaatio osoitteeseen `http://localhost:3001/api/docs`.
@@ -140,7 +143,7 @@ npm run dev
 ```
 
 Kopioi tällöin `services/api/.env.example` tiedostoksi `.env` (samat
-muuttujat kuin juuren `.env`:ssä, mutta `DATABASE_URL`:n host on
+muuttujat kuin juuren `.env.development`:ssa, mutta `DATABASE_URL`:n host on
 `localhost` eikä `postgres`).
 
 Alustusdata (mm. ylläpitäjätunnus `admin` / `mara2026`) syntyy migraatioiden
@@ -160,29 +163,30 @@ gateway, joka tarjoilee koko sovelluksen yhdestä portista. Kaikki asetukset
 (portit, alipolku, salasanat, image-tagit) tulevat env-tiedostosta:
 
 ```bash
-cp .env.tuotanto.example .env.tuotanto   # aseta vähintään POSTGRES_PASSWORD ja ADMIN_TOKEN_SECRET
-docker compose -f tuotanto.yml --env-file .env.tuotanto up -d --build
+cp .env.production.example .env.production   # aseta vähintään POSTGRES_PASSWORD ja ADMIN_TOKEN_SECRET
+docker compose -f tuotanto.yml --env-file .env.production up -d --build
 ```
 
-- `BASE_PATH` (esim. `/kuntorastit`) asettaa alipolun kerralla web-
-  käyttöliittymälle, API:lle (`<BASE_PATH>/api/v1`), Swaggerille
-  (`<BASE_PATH>/api/docs`) ja gatewaylle. Se upotetaan web-buildiin, joten
+- `NEXT_PUBLIC_BASE_PATH` (esim. `/kuntorastit`) asettaa alipolun kerralla
+  web-käyttöliittymälle, API:lle (`<polku>/api/v1`), Swaggerille
+  (`<polku>/api/docs`) ja gatewaylle. Se upotetaan web-buildiin, joten
   muutoksen jälkeen aja `up -d --build`.
-- Seurakohtaiset tiedot asetetaan env-tiedostossa: `SITE_NAME`, `CLUB_NAME`,
-  logo ja favicon (`LOGO_URL`, `FAVICON_URL`), kartan oletuskeskipiste ja
-  paikkakunta (`MAP_CENTER`, `DEFAULT_CITY`) sekä oletusmaksutavat ja
-  ilmoittautumisen ohjeteksti (`DEFAULT_PAYMENT_METHODS`, `PAYMENT_HINT`).
-  Seuran kuvat kopioidaan kansioon `public/brand/` (gitignoressa) ennen
-  buildia, esim. `LOGO_URL=/brand/logo.png`. Ilman asetuksia käytetään
+- Seurakohtaiset tiedot asetetaan `NEXT_PUBLIC_*`-muuttujilla: sivuston ja
+  seuran nimi (`SITE_NAME`, `CLUB_NAME`), logo ja favicon (`LOGO_URL`,
+  `FAVICON_URL`), kartan oletuskeskipiste ja paikkakunta (`MAP_CENTER`,
+  `DEFAULT_CITY`) sekä oletusmaksutavat ja ilmoittautumisen ohjeteksti
+  (`DEFAULT_PAYMENT_METHODS`, `PAYMENT_HINT`). Seuran kuvat kopioidaan
+  kansioon `public/brand/` (gitignoressa) ennen buildia, esim.
+  `NEXT_PUBLIC_LOGO_URL=/brand/logo.png`. Ilman asetuksia käytetään
   neutraaleja oletuksia.
 - `GATEWAY_PORT` on julkinen portti. Web, API ja PostgreSQL ovat lisäksi
   suoraan saatavilla omista porteistaan (`*_EXTERNAL_PORT`), oletuksena vain
   palvelimelta itseltään (`*_BIND_ADDRESS=127.0.0.1`).
 - TLS (https) hoidetaan gatewayn edessä, esim. palvelimen omalla nginxillä,
-  joka välittää `BASE_PATH`-polun sellaisenaan gatewaylle.
+  joka välittää alipolun sellaisenaan gatewaylle.
 - Ohjaa liikenne alipolkuasennuksessa aina gatewayn kautta, älä suoraan
   web-konttiin: vinext 0.0.50:n tuotantopalvelin tarjoilee build-assetit
-  vain polusta `/assets/`, ja gateway kääntää `<BASE_PATH>/assets/`-pyynnöt
+  vain polusta `/assets/`, ja gateway kääntää `<polku>/assets/`-pyynnöt
   sinne (ks. `deploy/nginx/default.conf.template`).
 - pc-clientin `VITE_API_BASE_URL` on silloin
   `https://<domain><BASE_PATH>/api/v1`.
@@ -224,7 +228,7 @@ server {
 ### Web-käyttöliittymä alipolussa (esim. seuran olemassa olevan sivuston alla, `esimerkki.fi/kuntorastit/`)
 
 Alipolku asetetaan build-aikaisella muuttujalla `NEXT_PUBLIC_BASE_PATH`
-(juuren `.env`). Se välitetään Next/vinextin `basePath`-asetukseksi
+(`.env.production` / `.env.development`). Se välitetään Next/vinextin `basePath`-asetukseksi
 (`next.config.ts`), joten kaikki sivut, linkit, kuvat, faviconit ja JS/CSS-
 resurssit tarjoillaan alipolun alta:
 
@@ -279,7 +283,8 @@ Huomioita:
 ### pc-client tuotanto-API:a vasten
 
 pc-client lukee API:n osoitteen build-aikaisesta `VITE_API_BASE_URL`-
-muuttujasta (ks. juuren `.env.example`) ja upottaa sen buildattuun
+muuttujasta (`.env.production` tuotantobuildissa, `.env.development`
+kehityksessä) ja upottaa sen buildattuun
 sovellukseen — sitä ei voi enää muuttaa asennuksen jälkeen. Aseta se
 julkisesti tavoitettavaan osoitteeseen (esim.
 `https://tulokset.esimerkki.fi/api/v1`) ennen kuin buildaat clientin

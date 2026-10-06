@@ -1,9 +1,9 @@
 // Single source of truth for the site's display name. Override per
-// deployment via NEXT_PUBLIC_SITE_NAME in .env (see .env.example).
+// deployment via NEXT_PUBLIC_SITE_NAME (see .env.development.example).
 export const SITE_NAME = process.env.NEXT_PUBLIC_SITE_NAME || "Kuntorastit";
 
 // Organising club shown under the site name, in page headings and the footer.
-// Empty = not shown. Set via NEXT_PUBLIC_CLUB_NAME in .env.
+// Empty = not shown. Set via NEXT_PUBLIC_CLUB_NAME.
 export const CLUB_NAME = process.env.NEXT_PUBLIC_CLUB_NAME?.trim() ?? "";
 
 // URL path prefix the web UI is served under, e.g. "/kuntorastit" (empty =

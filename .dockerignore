@@ -15,6 +15,5 @@ examples
 *.csv
 *.xlsx
 .env*
-!.env.example
 *.tsbuildinfo
 .DS_Store
