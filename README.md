@@ -138,6 +138,36 @@ npm run prisma:seed
 
 ## Tuotantoon vieminen
 
+### Docker Compose (`tuotanto.yml`)
+
+Valmis tuotantokokoonpano: PostgreSQL, API, web-käyttöliittymä ja nginx-
+gateway, joka tarjoilee koko sovelluksen yhdestä portista. Kaikki asetukset
+(portit, alipolku, salasanat, image-tagit) tulevat env-tiedostosta:
+
+```bash
+cp .env.tuotanto.example .env.tuotanto   # aseta vähintään POSTGRES_PASSWORD ja ADMIN_TOKEN_SECRET
+docker compose -f tuotanto.yml --env-file .env.tuotanto up -d --build
+```
+
+- `BASE_PATH` (esim. `/kuntorastit`) asettaa alipolun kerralla web-
+  käyttöliittymälle, API:lle (`<BASE_PATH>/api/v1`), Swaggerille
+  (`<BASE_PATH>/api/docs`) ja gatewaylle. Se upotetaan web-buildiin, joten
+  muutoksen jälkeen aja `up -d --build`.
+- `GATEWAY_PORT` on julkinen portti. Web, API ja PostgreSQL ovat lisäksi
+  suoraan saatavilla omista porteistaan (`*_EXTERNAL_PORT`), oletuksena vain
+  palvelimelta itseltään (`*_BIND_ADDRESS=127.0.0.1`).
+- TLS (https) hoidetaan gatewayn edessä, esim. palvelimen omalla nginxillä,
+  joka välittää `BASE_PATH`-polun sellaisenaan gatewaylle.
+- Ohjaa liikenne alipolkuasennuksessa aina gatewayn kautta, älä suoraan
+  web-konttiin: vinext 0.0.50:n tuotantopalvelin tarjoilee build-assetit
+  vain polusta `/assets/`, ja gateway kääntää `<BASE_PATH>/assets/`-pyynnöt
+  sinne (ks. `deploy/nginx/default.conf.template`).
+- pc-clientin `VITE_API_BASE_URL` on silloin
+  `https://<domain><BASE_PATH>/api/v1`.
+
+Alla olevat käsin tehtävät nginx-ohjeet koskevat asennusta ilman Dockeria.
+
+
 Web-käyttöliittymä (`npm run build && npm run start`, portti 3000 oletuksena)
 ja API (`services/api`, portti 3001) ajetaan kahtena erillisenä prosessina
 samalla palvelimella; niiden eteen laitetaan nginx yhdeksi julkiseksi

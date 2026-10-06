@@ -1,0 +1,104 @@
+# Tuotantoympäristö: PostgreSQL + API + web-käyttöliittymä + nginx-gateway.
+#
+#   cp .env.tuotanto.example .env.tuotanto   # ja muokkaa arvot
+#   docker compose -f tuotanto.yml --env-file .env.tuotanto up -d --build
+#
+# Kaikki asetukset tulevat env-tiedostosta (ks. .env.tuotanto.example).
+# Gateway palvelee koko sovelluksen yhdestä portista:
+#   http://<host>:${GATEWAY_PORT}${BASE_PATH}/          web-käyttöliittymä
+#   http://<host>:${GATEWAY_PORT}${BASE_PATH}/api/v1    REST API
+#   http://<host>:${GATEWAY_PORT}${BASE_PATH}/api/docs  Swagger
+
+name: ${COMPOSE_PROJECT_NAME:-kuntorastit}
+
+services:
+  postgres:
+    image: postgres:${POSTGRES_IMAGE_TAG:-17-alpine}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kuntorastit}
+      POSTGRES_USER: ${POSTGRES_USER:-kuntorastit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Aseta POSTGRES_PASSWORD}
+      TZ: ${TZ:-Europe/Helsinki}
+    ports:
+      - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_EXTERNAL_PORT:-5432}:5432"
+    volumes:
+      - ${POSTGRES_DATA:-postgres-data}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ./services/api
+    image: ${API_IMAGE:-kuntorastit-api}:${IMAGE_TAG:-latest}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kuntorastit}:${POSTGRES_PASSWORD:?Aseta POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-kuntorastit}
+      PORT: 3001
+      API_PREFIX: ${BASE_PATH:-}/api/v1
+      API_DOCS_PATH: ${BASE_PATH:-}/api/docs
+      ADMIN_TOKEN_SECRET: ${ADMIN_TOKEN_SECRET:?Aseta ADMIN_TOKEN_SECRET}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-}
+      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
+      RUN_SEED: ${RUN_SEED:-true}
+      TZ: ${TZ:-Europe/Helsinki}
+    ports:
+      - "${API_BIND_ADDRESS:-127.0.0.1}:${API_EXTERNAL_PORT:-3001}:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # Same normalisation as main.ts, so BASE_PATH works with or without slashes.
+      test: ["CMD-SHELL", "p=$$(echo \"$$API_PREFIX\" | sed -E 's#/+#/#g; s#^/##; s#/$$##'); wget -qO- \"http://127.0.0.1:3001/$$p/health\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  web:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_SITE_NAME: ${SITE_NAME:-KoS-Kuntorastit}
+        NEXT_PUBLIC_BASE_PATH: ${BASE_PATH:-}
+        NEXT_PUBLIC_API_BASE_URL: ${WEB_API_BASE_URL:-}
+    image: ${WEB_IMAGE:-kuntorastit-web}:${IMAGE_TAG:-latest}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    environment:
+      TZ: ${TZ:-Europe/Helsinki}
+    ports:
+      - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_EXTERNAL_PORT:-3000}:3000"
+    depends_on:
+      - api
+
+  gateway:
+    image: nginx:${NGINX_IMAGE_TAG:-1.27-alpine}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    environment:
+      BASE_PATH: ${BASE_PATH:-}
+      GATEWAY_SERVER_NAME: ${GATEWAY_SERVER_NAME:-_}
+      GATEWAY_MAX_BODY_SIZE: ${GATEWAY_MAX_BODY_SIZE:-10m}
+      TZ: ${TZ:-Europe/Helsinki}
+    # Normalise BASE_PATH to "" or "/x" before the template is rendered.
+    command:
+      - sh
+      - -c
+      - |
+        p=$$(echo "$$BASE_PATH" | sed -E 's#/+#/#g; s#^/##; s#/$$##')
+        export BASE_PATH=$${p:+/$$p}
+        exec /docker-entrypoint.sh nginx -g "daemon off;"
+    ports:
+      - "${GATEWAY_BIND_ADDRESS:-0.0.0.0}:${GATEWAY_PORT:-80}:80"
+    volumes:
+      - ./deploy/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
+
+volumes:
+  postgres-data:

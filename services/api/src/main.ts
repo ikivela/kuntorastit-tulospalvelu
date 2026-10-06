@@ -29,7 +29,7 @@ async function bootstrap() {
 }
 
 function trimSlashes(value: string) {
-  return value.trim().replace(/^\/+|\/+$/g, "");
+  return value.trim().replace(/\/{2,}/g, "/").replace(/^\/+|\/+$/g, "");
 }
 
 void bootstrap();

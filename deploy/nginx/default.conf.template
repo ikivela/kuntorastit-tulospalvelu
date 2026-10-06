@@ -1,0 +1,40 @@
+# Gateway for tuotanto.yml. The nginx image runs envsubst on this file at
+# start-up (only for variables defined in the container, so $host etc. stay).
+# BASE_PATH is "" (domain root) or "/kuntorastit" style: leading slash, no
+# trailing slash.
+
+server {
+    listen 80;
+    server_name ${GATEWAY_SERVER_NAME};
+
+    client_max_body_size ${GATEWAY_MAX_BODY_SIZE};
+
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host $host;
+
+    # API: forwarded as-is, the API itself listens under ${BASE_PATH}/api/...
+    location ^~ ${BASE_PATH}/api/ {
+        proxy_pass http://api:3001;
+    }
+
+    # Build assets: vinext 0.0.50's App Router prod server only serves them
+    # at /assets/ (it doesn't strip basePath there), while pages reference
+    # ${BASE_PATH}/assets/. Strip the prefix here.
+    location ^~ ${BASE_PATH}/assets/ {
+        proxy_pass http://web:3000/assets/;
+    }
+
+    # Web UI: forwarded as-is, the UI is built with the same base path.
+    location ~ ^${BASE_PATH}(/|$) {
+        proxy_pass http://web:3000;
+    }
+
+    # Anything outside BASE_PATH (only reachable when BASE_PATH is set).
+    location / {
+        return 404;
+    }
+}

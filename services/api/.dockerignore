@@ -1,4 +1,9 @@
+# Local node_modules/dist would overwrite the image's Linux build (Prisma
+# engines are platform specific).
 node_modules
 dist
-.env
+src/generated
+.env*
+!.env.example
+.DS_Store
 npm-debug.log*

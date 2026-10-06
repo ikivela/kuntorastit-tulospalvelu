@@ -20,6 +20,6 @@ export function withBasePath(path: string): string {
 export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || withBasePath("/api/v1")).replace(/\/+$/, "");
 
 export function normalizeBasePath(value: string | undefined): string {
-  const trimmed = (value ?? "").trim().replace(/^\/+|\/+$/g, "");
+  const trimmed = (value ?? "").trim().replace(/\/{2,}/g, "/").replace(/^\/+|\/+$/g, "");
   return trimmed ? `/${trimmed}` : "";
 }

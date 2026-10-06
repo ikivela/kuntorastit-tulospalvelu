@@ -21,13 +21,21 @@ function hashPassword(password: string) {
 }
 
 async function main() {
+  // Login requires >= 8 characters (auth/login.dto.ts); fail loudly instead of
+  // creating an admin that can never log in.
+  const adminPassword = process.env.ADMIN_INITIAL_PASSWORD || "mara2026";
+  if (adminPassword.length < 8) {
+    throw new Error("ADMIN_INITIAL_PASSWORD must be at least 8 characters");
+  }
+
   await prisma.adminUser.upsert({
     where: { username: "admin" },
     update: {},
     create: {
       id: ids.admin,
       username: "admin",
-      passwordHash: hashPassword("mara2026"),
+      // Only used when the admin user is first created.
+      passwordHash: hashPassword(adminPassword),
       role: "ADMIN",
     },
   });

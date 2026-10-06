@@ -1,0 +1,20 @@
+# Web UI image build context (repo root). Keep local builds, secrets and
+# data exports out of the image.
+.git
+node_modules
+dist
+.next
+.wrangler
+.sites-runtime
+outputs
+work
+clients
+services
+tests
+examples
+*.csv
+*.xlsx
+.env*
+!.env.example
+*.tsbuildinfo
+.DS_Store
