@@ -4,7 +4,7 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import { CreateEventDto } from "./create-event.dto.js";
 import { UpdateEventDto } from "./update-event.dto.js";
 import { CreateCourseDto, UpdateCourseDto } from "./course.dto.js";
-import { planEventImport } from "./events-import.js";
+import { NO_COURSES_MESSAGE, planEventImport } from "./events-import.js";
 
 // The club's finish punch unit is always coded 100; IOF CourseData exports
 // usually don't assign the finish control an Id at all, since course-planning
@@ -152,10 +152,16 @@ export class EventsService {
     });
   }
   create(input: CreateEventDto) {
+    // A new event has no courses yet, so it always starts as a draft.
+    if (input.status && input.status !== "DRAFT") throw new BadRequestException(NO_COURSES_MESSAGE);
     return this.prisma.event.create({ data: { ...input, startsAt: new Date(input.startsAt), endsAt: new Date(input.endsAt), registrationOpen: input.registrationOpen ?? false } });
   }
   async update(id: string, input: UpdateEventDto) {
-    await this.ensureExists(id);
+    const current = await this.prisma.event.findUnique({ where: { id }, select: { status: true, _count: { select: { courses: true } } } });
+    if (!current) throw new NotFoundException("Tapahtumaa ei löytynyt");
+    if (current.status === "DRAFT" && input.status && input.status !== "DRAFT" && current._count.courses === 0) {
+      throw new BadRequestException(NO_COURSES_MESSAGE);
+    }
     return this.prisma.event.update({
       where: { id },
       data: {
@@ -170,9 +176,9 @@ export class EventsService {
     const ids = rows.map((row) => String(row.id ?? "").trim().toLowerCase()).filter((id) => /^[0-9a-f-]{36}$/.test(id));
     const [seasons, existing] = await Promise.all([
       this.prisma.season.findMany({ select: { id: true, year: true } }),
-      this.prisma.event.findMany({ where: { id: { in: ids } } }),
+      this.prisma.event.findMany({ where: { id: { in: ids } }, include: { _count: { select: { courses: true } } } }),
     ]);
-    const { changes, errors } = planEventImport(rows, seasons, existing);
+    const { changes, errors } = planEventImport(rows, seasons, existing.map(({ _count, ...event }) => ({ ...event, courseCount: _count.courses })));
     const summary = {
       created: changes.filter((change) => change.action === "create").length,
       updated: changes.filter((change) => change.action === "update").length,
@@ -214,6 +220,10 @@ export class EventsService {
   }
   async removeCourse(eventId: string, courseId: string) {
     await this.ensureCourse(eventId, courseId);
+    const event = await this.prisma.event.findUnique({ where: { id: eventId }, select: { status: true, _count: { select: { courses: true } } } });
+    if (event && event.status !== "DRAFT" && event._count.courses <= 1) {
+      throw new BadRequestException("Julkaistulta tapahtumalta ei voi poistaa viimeistä rataa. Palauta tapahtuma luonnokseksi ensin.");
+    }
     await this.prisma.course.delete({ where: { id: courseId } });
     return { deleted: true };
   }

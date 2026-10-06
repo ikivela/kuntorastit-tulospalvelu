@@ -20,8 +20,11 @@ export type ImportEventData = {
   paymentMethods: string[];
 };
 
+export const NO_COURSES_MESSAGE = "Tapahtumaa ei voi julkaista ennen kuin sille on lisätty radat. Tallenna se luonnoksena ja lisää radat ensin.";
+
 export type ExistingImportEvent = Omit<ImportEventData, "latitude" | "longitude"> & {
   id: string;
+  courseCount?: number;
   latitude: { toString(): string } | number | null;
   longitude: { toString(): string } | number | null;
 };
@@ -113,6 +116,11 @@ export function planEventImport(
     const paymentMethods = Array.isArray(raw.paymentMethods)
       ? raw.paymentMethods.map((value) => String(value).trim()).filter(Boolean)
       : (text(raw.paymentMethods) ?? "").split(/\r?\n|;/).map((value) => value.trim()).filter(Boolean);
+
+    // Only drafts may lack courses: new events have none, so they must be
+    // drafts, and an existing draft can't be published before courses exist.
+    const publishing = status && status !== "DRAFT" && (!id || (current?.status === "DRAFT" && !current.courseCount));
+    if (publishing) fail(current ? "Tapahtumaa ei voi julkaista ennen kuin sille on lisätty radat." : `Uusi tapahtuma pitää tuoda luonnoksena (Tila: Luonnos), koska sillä ei ole vielä ratoja.`);
 
     if (problems.length) { plan.errors.push(...problems.map((message) => ({ row, message }))); return; }
 

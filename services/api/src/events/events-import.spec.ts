@@ -18,6 +18,7 @@ const existing: ExistingImportEvent = {
   status: "PUBLISHED",
   registrationOpen: true,
   paymentMethods: ["E-passi", "Smartum"],
+  courseCount: 2,
 };
 const unchangedRow = {
   row: 2, id: existingId, seasonYear: 2026, name: "Karhi", locationName: "Lohtaja", address: "", locationDescription: "",
@@ -63,4 +64,14 @@ test("invalid rows are reported with their Excel row number", () => {
 test("same ID twice is rejected", () => {
   const plan = planEventImport([unchangedRow, { ...unchangedRow, row: 3 }], seasons, [existing]);
   assert.deepEqual(plan.errors, [{ row: 3, message: "Sama ID on myös rivillä 2." }]);
+});
+
+test("new events must be drafts and drafts without courses can't be published", () => {
+  const newPublished = planEventImport([{ row: 2, seasonYear: 2026, name: "Uusi", startsAt: "2026-07-01T15:00:00Z", endsAt: "2026-07-01T17:00:00Z", status: "Julkaistu" }], seasons, []);
+  assert.match(newPublished.errors[0]?.message ?? "", /luonnoksena/);
+  const draft = { ...existing, status: "DRAFT" as const, courseCount: 0 };
+  const publishDraft = planEventImport([{ ...unchangedRow, status: "Julkaistu" }], seasons, [draft]);
+  assert.match(publishDraft.errors[0]?.message ?? "", /radat/);
+  const withCourses = planEventImport([{ ...unchangedRow, status: "Julkaistu" }], seasons, [{ ...draft, courseCount: 3 }]);
+  assert.deepEqual(withCourses.errors, []);
 });

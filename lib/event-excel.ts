@@ -72,7 +72,7 @@ export function downloadEventsExcel(events: ExcelEvent[], fileName = "tapahtumat
     ["Excelistä poistettuja tapahtumia ei poisteta järjestelmästä."],
     ["Kausi: vuosi, esim. 2026 (kauden pitää olla olemassa)."],
     ["Alkaa / Päättyy: päivämäärä ja kellonaika, esim. 15.6.2026 18:00."],
-    ["Tila: Luonnos, Julkaistu, Päättynyt tai Avoinna."],
+    ["Tila: Luonnos, Julkaistu, Päättynyt tai Avoinna. Uusi tapahtuma tuodaan luonnoksena (tyhjä Tila = Luonnos); julkaise vasta kun radat on lisätty."],
     ["Ilmoittautuminen auki: Kyllä tai Ei."],
     ["Maksutavat: yksi per rivi solun sisällä (Alt+Enter) tai puolipisteellä eroteltuna."],
   ]);
