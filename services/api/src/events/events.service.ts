@@ -4,6 +4,7 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import { CreateEventDto } from "./create-event.dto.js";
 import { UpdateEventDto } from "./update-event.dto.js";
 import { CreateCourseDto, UpdateCourseDto } from "./course.dto.js";
+import { planEventImport } from "./events-import.js";
 
 // The club's finish punch unit is always coded 100; IOF CourseData exports
 // usually don't assign the finish control an Id at all, since course-planning
@@ -164,6 +165,29 @@ export class EventsService {
         version: { increment: 1 },
       },
     });
+  }
+  async importEvents(rows: Record<string, unknown>[], dryRun: boolean) {
+    const ids = rows.map((row) => String(row.id ?? "").trim().toLowerCase()).filter((id) => /^[0-9a-f-]{36}$/.test(id));
+    const [seasons, existing] = await Promise.all([
+      this.prisma.season.findMany({ select: { id: true, year: true } }),
+      this.prisma.event.findMany({ where: { id: { in: ids } } }),
+    ]);
+    const { changes, errors } = planEventImport(rows, seasons, existing);
+    const summary = {
+      created: changes.filter((change) => change.action === "create").length,
+      updated: changes.filter((change) => change.action === "update").length,
+      unchanged: changes.filter((change) => change.action === "unchanged").length,
+      changes: changes.map(({ row, action, name, ...rest }) => ({ row, action, name, fields: "fields" in rest ? rest.fields : undefined })),
+      errors,
+    };
+    // All-or-nothing: any invalid row blocks the whole import.
+    if (errors.length || dryRun) return { ...summary, applied: false };
+    await this.prisma.$transaction(changes.flatMap((change) => {
+      if (change.action === "create") return [this.prisma.event.create({ data: change.data })];
+      if (change.action === "update") return [this.prisma.event.update({ where: { id: change.id }, data: { ...change.data, version: { increment: 1 } } })];
+      return [];
+    }));
+    return { ...summary, applied: true };
   }
   async remove(id: string) {
     await this.ensureExists(id);

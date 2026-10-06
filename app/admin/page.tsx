@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEventHandler, FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Award, CalendarDays, Clock3, Cpu, FileUp, Loader2, LockKeyhole, LogOut, MapPin, Pencil, Plus, Route, Trash2, UserRound, Users } from "lucide-react";
+import { ArrowLeft, Award, CalendarDays, CheckCircle2, Clock3, Cpu, Download, FileUp, Loader2, LockKeyhole, LogOut, MapPin, Pencil, Plus, Route, Trash2, UserRound, Users } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { LocationMapPicker } from "@/components/location-map-picker";
 import { API_BASE, SITE_NAME, withBasePath } from "@/lib/site";
+import { downloadEventsExcel, readEventsExcel, type ImportRow } from "@/lib/event-excel";
 
 const apiBase = API_BASE;
 type EventStatus = "DRAFT" | "OPEN" | "FINISHED" | "PUBLISHED";
@@ -87,6 +88,7 @@ function AdminEvents({ token, onLogout }: { token: string; onLogout: () => void 
   const [courseEvent, setCourseEvent] = useState<EventItem | null>(null);
   const [registrationEvent, setRegistrationEvent] = useState<EventItem | null>(null);
   const [readerDevicesOpen, setReaderDevicesOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const headers = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const load = useCallback(async () => {
@@ -132,19 +134,71 @@ function AdminEvents({ token, onLogout }: { token: string; onLogout: () => void 
   }
   return <main className="min-h-screen bg-muted/30">
     <header className="border-b bg-background"><div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4"><div className="flex items-center gap-3"><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src={withBasePath("/kos-logo.png")} alt="" className="size-8 object-contain" /></span><div><b className="block">{SITE_NAME}</b><span className="text-xs text-muted-foreground">Ylläpito</span></div></div><div className="flex gap-2"><Button asChild variant="ghost" className="rounded-full"><a href={withBasePath("/")}>Julkinen sivu</a></Button><Button asChild variant="outline" className="rounded-full"><a href={withBasePath("/admin/osallistumiskerrat")}><Award className="mr-2 size-4" />Osallistumiskerrat</a></Button><Button variant="outline" className="rounded-full" onClick={() => setReaderDevicesOpen(true)}><Cpu className="mr-2 size-4" />Lukijalaitteet</Button><Button variant="outline" className="rounded-full" onClick={onLogout}><LogOut className="mr-2 size-4" />Kirjaudu ulos</Button></div></div></header>
-    <div className="mx-auto max-w-6xl px-5 py-10"><div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-sm font-bold uppercase tracking-wider text-primary">Hallinta</p><h1 className="mt-2 text-3xl font-black tracking-tight">Tapahtumat</h1><p className="mt-2 text-muted-foreground">Lisää, muokkaa ja julkaise kauden tapahtumia.</p></div><Button className="rounded-full" onClick={openCreate}><Plus className="mr-2 size-4" />Lisää tapahtuma</Button></div>
+    <div className="mx-auto max-w-6xl px-5 py-10"><div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-sm font-bold uppercase tracking-wider text-primary">Hallinta</p><h1 className="mt-2 text-3xl font-black tracking-tight">Tapahtumat</h1><p className="mt-2 text-muted-foreground">Lisää, muokkaa ja julkaise kauden tapahtumia.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" className="rounded-full" disabled={loading || events.length === 0} onClick={() => downloadEventsExcel(events)}><Download className="mr-2 size-4" />Lataa Excel</Button><Button variant="outline" className="rounded-full" onClick={() => setImportOpen(true)}><FileUp className="mr-2 size-4" />Tuo Excel</Button><Button className="rounded-full" onClick={openCreate}><Plus className="mr-2 size-4" />Lisää tapahtuma</Button></div></div>
       {error && <p role="alert" className="mb-5 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}
       {loading ? <div className="grid place-items-center py-20"><Loader2 className="size-7 animate-spin text-primary" /></div> : events.length === 0 ? <Card className="rounded-3xl border-dashed"><CardContent className="grid place-items-center py-16 text-center"><CalendarDays className="mb-4 size-9 text-muted-foreground" /><p className="font-bold">Ei tapahtumia</p><p className="mt-1 text-sm text-muted-foreground">Luo kauden ensimmäinen tapahtuma.</p></CardContent></Card> : <div className="grid gap-4">{events.map((item) => <EventCard key={item.id} item={item} onRegistrations={() => setRegistrationEvent(item)} onCourses={() => setCourseEvent(item)} onEdit={() => openEdit(item)} onDelete={() => remove(item.id)} />)}</div>}
     </div>
     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-2xl"><DialogHeader><DialogTitle>{editing ? "Muokkaa tapahtumaa" : "Lisää tapahtuma"}</DialogTitle><DialogDescription>Täytä tapahtuman perustiedot ja valitse julkaisutila.</DialogDescription></DialogHeader><EventForm key={editing?.id ?? "new"} item={editing} seasons={seasons} saving={saving} onSubmit={save} onCancel={() => setDialogOpen(false)} /></DialogContent></Dialog>
     <Dialog open={Boolean(courseEvent)} onOpenChange={(open) => { if (!open) { setCourseEvent(null); void load(); } }}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-3xl">{courseEvent && <CourseManager event={courseEvent} token={token} onSessionExpired={onLogout} />}</DialogContent></Dialog>
     <Dialog open={Boolean(registrationEvent)} onOpenChange={(open) => { if (!open) setRegistrationEvent(null); }}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-4xl">{registrationEvent && <RegistrationManager event={registrationEvent} token={token} onSessionExpired={onLogout} />}</DialogContent></Dialog>
+    <Dialog open={importOpen} onOpenChange={setImportOpen}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-2xl">{importOpen && <EventImport token={token} onSessionExpired={onLogout} onImported={() => void load()} onClose={() => setImportOpen(false)} />}</DialogContent></Dialog>
     <Dialog open={readerDevicesOpen} onOpenChange={setReaderDevicesOpen}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-3xl">{readerDevicesOpen && <ReaderDevicesManager token={token} onSessionExpired={onLogout} />}</DialogContent></Dialog>
   </main>;
 }
 
 function EventCard({ item, onRegistrations, onCourses, onEdit, onDelete }: { item: EventItem; onRegistrations: () => void; onCourses: () => void; onEdit: () => void; onDelete: () => void }) {
   return <Card className="rounded-2xl"><CardContent className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-extrabold">{item.name}</h2><Badge variant={item.status === "DRAFT" ? "secondary" : "default"}>{statusLabels[item.status]}</Badge>{item.registrationOpen && <Badge variant="outline">Ilmoittautuminen avoinna</Badge>}</div><div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground"><span className="flex items-center gap-2"><CalendarDays className="size-4" />{formatDate(item.startsAt)}–{formatDate(item.endsAt)}</span><span className="flex items-center gap-2"><MapPin className="size-4" />{item.locationName || item.address || "Ei sijaintia"}</span><span className="flex items-center gap-2"><Clock3 className="size-4" />{item.season.name}</span><span className="flex items-center gap-2"><Route className="size-4" />{item.courses.length} rataa</span><span className="flex items-center gap-2"><Users className="size-4" />{item.attendanceCount} tulosta · {item.registrationCount} ilmoittautunutta</span></div></div><div className="flex shrink-0 flex-wrap gap-2"><Button variant="secondary" className="rounded-full" onClick={onRegistrations}><Users className="mr-2 size-4" />Osanottajat</Button><Button variant="secondary" className="rounded-full" onClick={onCourses}><FileUp className="mr-2 size-4" />Radat / XML-tuonti</Button><Button variant="outline" className="rounded-full" onClick={onEdit}><Pencil className="mr-2 size-4" />Muokkaa</Button><AlertDialog><AlertDialogTrigger asChild><Button variant="outline" size="icon" className="rounded-full text-destructive" aria-label={`Poista ${item.name}`}><Trash2 className="size-4" /></Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Poistetaanko tapahtuma?</AlertDialogTitle><AlertDialogDescription>Tapahtuma “{item.name}” ja siihen liittyvät tiedot poistetaan pysyvästi. Toimintoa ei voi perua.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Peruuta</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={onDelete}>Poista tapahtuma</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></div></CardContent></Card>;
+}
+
+type ImportResult = { created: number; updated: number; unchanged: number; applied: boolean; changes: { row: number; action: "create" | "update" | "unchanged"; name: string; fields?: string[] }[]; errors: { row: number; message: string }[] };
+
+// Excel import: parse in the browser, dry-run on the API for a preview, then
+// apply all rows in one transaction once the admin confirms.
+function EventImport({ token, onSessionExpired, onImported, onClose }: { token: string; onSessionExpired: () => void; onImported: () => void; onClose: () => void }) {
+  const [fileName, setFileName] = useState("");
+  const [rows, setRows] = useState<ImportRow[] | null>(null);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  async function send(importRows: ImportRow[], dryRun: boolean) {
+    const response = await fetch(`${apiBase}/events/import`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ dryRun, rows: importRows }) });
+    if (response.status === 401) { onSessionExpired(); throw new Error("Istunto on vanhentunut. Kirjaudu uudelleen."); }
+    const body = await response.json().catch(() => null) as (ImportResult & { message?: string | string[] }) | null;
+    if (!response.ok || !body) throw new Error((Array.isArray(body?.message) ? body.message.join(" ") : body?.message) || "Tuonti epäonnistui.");
+    return body;
+  }
+  async function choose(file: File | undefined) {
+    if (!file) return;
+    setBusy(true); setError(""); setResult(null); setRows(null); setFileName(file.name);
+    try {
+      const parsed = await readEventsExcel(file);
+      if (parsed.length === 0) throw new Error("Tiedostossa ei ole yhtään tapahtumariviä.");
+      setRows(parsed); setResult(await send(parsed, true));
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Tiedoston lukeminen epäonnistui."); }
+    finally { setBusy(false); if (inputRef.current) inputRef.current.value = ""; }
+  }
+  async function apply() {
+    if (!rows) return;
+    setBusy(true); setError("");
+    try { const applied = await send(rows, false); setResult(applied); if (applied.applied) onImported(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Tuonti epäonnistui."); }
+    finally { setBusy(false); }
+  }
+  const pending = result && !result.applied && result.errors.length === 0 && result.created + result.updated > 0;
+  const actionLabels = { create: "Uusi", update: "Päivitetään", unchanged: "Ei muutoksia" } as const;
+  return <><DialogHeader><DialogTitle>Tuo tapahtumat Excelistä</DialogTitle><DialogDescription>Yksi rivi = yksi tapahtuma. Rivi, jolla on ID, päivittää tapahtuman; tyhjä ID luo uuden. Lataa pohja &quot;Lataa Excel&quot; -napilla. Excelistä puuttuvia tapahtumia ei poisteta.</DialogDescription></DialogHeader>
+    <input ref={inputRef} type="file" accept=".xlsx,.xls,.ods,.csv" className="hidden" onChange={(changeEvent) => void choose(changeEvent.target.files?.[0])} />
+    <div className="flex flex-wrap items-center gap-3"><Button variant="outline" className="rounded-full" disabled={busy} onClick={() => inputRef.current?.click()}><FileUp className="mr-2 size-4" />{fileName ? "Valitse toinen tiedosto" : "Valitse tiedosto"}</Button>{fileName && <span className="text-sm text-muted-foreground">{fileName}</span>}{busy && <Loader2 className="size-4 animate-spin text-primary" />}</div>
+    {error && <p role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}
+    {result && <div className="space-y-4">
+      {result.applied ? <p className="flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm font-medium"><CheckCircle2 className="size-4 text-primary" />Tuonti valmis: {result.created} uutta, {result.updated} päivitettyä, {result.unchanged} ennallaan.</p>
+        : <p className="text-sm">{result.errors.length ? <b className="text-destructive">Tiedostossa on {result.errors.length} virhettä — mitään ei tallennettu. Korjaa rivit ja valitse tiedosto uudelleen.</b> : <>Tarkistettu: <b>{result.created}</b> uutta, <b>{result.updated}</b> päivitettävää, <b>{result.unchanged}</b> ennallaan.</>}</p>}
+      {result.errors.length > 0 && <Table><TableHeader><TableRow><TableHead className="w-16">Rivi</TableHead><TableHead>Virhe</TableHead></TableRow></TableHeader><TableBody>{result.errors.map((item, index) => <TableRow key={index}><TableCell>{item.row}</TableCell><TableCell className="whitespace-normal text-destructive">{item.message}</TableCell></TableRow>)}</TableBody></Table>}
+      {result.errors.length === 0 && result.changes.some((change) => change.action !== "unchanged") && <Table><TableHeader><TableRow><TableHead className="w-16">Rivi</TableHead><TableHead>Tapahtuma</TableHead><TableHead>Muutos</TableHead></TableRow></TableHeader><TableBody>{result.changes.filter((change) => change.action !== "unchanged").map((change) => <TableRow key={change.row}><TableCell>{change.row}</TableCell><TableCell className="font-medium">{change.name}</TableCell><TableCell className="whitespace-normal text-muted-foreground">{actionLabels[change.action]}{change.fields?.length ? `: ${change.fields.join(", ")}` : ""}</TableCell></TableRow>)}</TableBody></Table>}
+    </div>}
+    <DialogFooter><Button variant="ghost" className="rounded-full" onClick={onClose}>{result?.applied ? "Sulje" : "Peruuta"}</Button>{pending && <Button className="rounded-full" disabled={busy} onClick={() => void apply()}>{busy && <Loader2 className="mr-2 size-4 animate-spin" />}Tuo {result.created + result.updated} tapahtumaa</Button>}</DialogFooter>
+  </>;
 }
 
 function RegistrationManager({ event, token, onSessionExpired }: { event: EventItem; token: string; onSessionExpired: () => void }) {

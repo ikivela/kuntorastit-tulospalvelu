@@ -57,6 +57,13 @@ leimauksia ja tavoitepalkintoja. Leimauskortti on mallinnettu yleisenä
   hakee kartalle sijainnin automaattisesti (voi myös raahata merkkiä käsin).
   Kortin alla näkyy "*n* tulosta · *m* ilmoittautunutta"; **Osanottajat**-
   nappi avaa ilmoittautuneiden hallinnan.
+- **Lataa Excel / Tuo Excel**: tapahtumat voi viedä Exceliin (yksi rivi =
+  yksi tapahtuma), muokata siellä ja tuoda takaisin. Rivi, jolla on ID,
+  päivittää kyseisen tapahtuman; tyhjä ID luo uuden. Tuonti näyttää ensin
+  esikatselun (uudet, päivitettävät ja muuttuneet kentät) ja virheet
+  rivinumeroineen; mitään ei tallenneta ennen vahvistusta, ja jos yksikin rivi
+  on virheellinen, koko tuonti hylätään. Excelistä puuttuvia tapahtumia ei
+  poisteta. Tiedoston "Ohje"-välilehdellä on sarakkeiden kuvaus.
 - **Lukijalaitteet**: jokainen pc-client rekisteröityy itse ja jää
   odottamaan hyväksyntää tässä näkymässä ennen kuin se saa API-tokenin.
   Peru pääsy tästä samasta näkymästä tarvittaessa (esim. kannettava katoaa).

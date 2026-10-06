@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "nest start --watch",
     "build": "nest build",
-    "test": "nest build && node --test dist/src/public/public.service.spec.js",
+    "test": "nest build && node --test dist/src/public/public.service.spec.js dist/src/events/events-import.spec.js",
     "start": "node dist/main.js",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",

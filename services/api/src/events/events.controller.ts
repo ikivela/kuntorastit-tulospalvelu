@@ -6,6 +6,7 @@ import { EventsService } from "./events.service.js";
 import { UpdateEventDto } from "./update-event.dto.js";
 import { CreateCourseDto, UpdateCourseDto } from "./course.dto.js";
 import { ImportCoursesDto } from "./import-courses.dto.js";
+import { ImportEventsDto } from "./import-events.dto.js";
 
 @ApiTags("events")
 @ApiBearerAuth()
@@ -19,6 +20,7 @@ export class EventsController {
   @Get("seasons/:seasonId/attendance-export") attendanceExport(@Param("seasonId") seasonId: string) { return this.events.seasonAttendanceExport(seasonId); }
   @Get(":id") get(@Param("id") id: string) { return this.events.get(id); }
   @Get(":id/registrations") registrations(@Param("id") id: string) { return this.events.registrations(id); }
+  @Post("import") importEvents(@Body() input: ImportEventsDto) { return this.events.importEvents(input.rows, input.dryRun ?? false); }
   @Post() create(@Body() input: CreateEventDto) { return this.events.create(input); }
   @Patch(":id") update(@Param("id") id: string, @Body() input: UpdateEventDto) { return this.events.update(id, input); }
   @Delete(":id") remove(@Param("id") id: string) { return this.events.remove(id); }
