@@ -28,6 +28,13 @@ export default function InstructionsPage() {
       .catch(() => { window.localStorage.removeItem("kuntorastit-admin-token"); window.location.href = withBasePath("/admin"); });
   }, []);
 
+  // The sections render only after the login check, so the browser's own
+  // jump to a #section in the URL finds nothing; scroll once they exist.
+  useEffect(() => {
+    if (checking || !window.location.hash) return;
+    document.getElementById(decodeURIComponent(window.location.hash.slice(1)))?.scrollIntoView();
+  }, [checking]);
+
   if (checking) return <main className="grid min-h-screen place-items-center bg-muted/30"><Loader2 className="size-6 animate-spin text-primary" /></main>;
 
   return <main className="min-h-screen bg-muted/30">
