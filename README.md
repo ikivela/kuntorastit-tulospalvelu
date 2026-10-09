@@ -138,7 +138,7 @@ kehityskannan.
 Pelkkä API + PostgreSQL ilman webiä:
 
 ```bash
-docker compose -f compose.api.yaml --env-file .env.development up --build
+docker compose -f dev.yml --env-file .env.development up api
 ```
 
 Asetukset ovat kahdessa tiedostossa, joissa on samat muuttujien nimet:
@@ -325,7 +325,8 @@ services/api/src/        NestJS REST API
 services/api/prisma/     PostgreSQL/Prisma-tietomalli
 clients/pc-client/       Tauri-desktop-client EMIT 250 -lukijalle
 components/ui/           Käyttöliittymäkomponentit
-compose.api.yaml         Paikallinen API ja PostgreSQL
+dev.yml                  Kehitysympäristö Dockerissa (PostgreSQL, API, web)
+docker-compose.example.yml  Tuotantokokoonpanon pohja (kopioidaan prod.yml:ksi)
 .github/workflows/       CI: clientin Windows/Linux-buildit
 ```
 

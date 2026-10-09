@@ -49,7 +49,8 @@ npm run tauri dev
 ```
 
 Client odottaa API:a osoitteessa `http://localhost:3001/api/v1` — käynnistä
-se ensin repon juuresta: `docker compose -f compose.api.yaml up --build`.
+se ensin repon juuresta:
+`docker compose -f dev.yml --env-file .env.development up api`.
 
 ## Laitteen hyväksyntä (kirjautuminen)
 
