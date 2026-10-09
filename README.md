@@ -346,3 +346,7 @@ docker-compose.example.yml  Tuotantokokoonpanon pohja (kopioidaan prod.yml:ksi)
   (`PunchCard`), mutta clientissä on toteutettu vain EMIT 250.
 - Alipolkuasennus (`NEXT_PUBLIC_BASE_PATH`) on testattu buildin ja
   palvelinrenderöinnin tasolla, mutta ei vielä oikean nginxin takana.
+
+## Lisenssi
+
+MIT, ks. [LICENSE](LICENSE).
