@@ -76,14 +76,23 @@ uudelleen samalla nimellä ja odottaa uutta hyväksyntää.
 
 ## Tuotantobuild
 
-Paikallisesti: `npm run tauri build` (macOS: `.app`/`.dmg`; Windows/Linux
-käyttävät alustan normaaleja pakettityyppejä `.msi`, `.deb`, `.rpm`,
-`.AppImage`).
+API:n osoite upotetaan buildiin muuttujasta `VITE_API_BASE_URL` (esim.
+`https://tulokset.esimerkki.fi/kuntorastit/api/v1`). Build lisää osoitteen
+myös sovelluksen Content-Security-Policyyn, joka muuten sallii vain
+`localhost:3001`:n.
+
+Paikallisesti: aseta `VITE_API_BASE_URL` juuren `.env.production`iin (tai
+ympäristömuuttujaksi) ja aja `npm run tauri:build` (macOS: `.app`/`.dmg`;
+Windows/Linux käyttävät alustan normaaleja pakettityyppejä `.msi`, `.deb`,
+`.rpm`, `.AppImage`). `npm run tauri:build -- --dry-run` näyttää vain
+käytettävän osoitteen ja CSP:n.
 
 GitHub Actions (`.github/workflows/client-build.yml`) buildaa Windows- ja
-Linux-versiot automaattisesti jokaisesta pushista/PR:stä jotka koskettavat
-tätä hakemistoa, sekä manuaalisesti ajettuna (`workflow_dispatch`). Buildit
-löytyvät ajon liitteistä (artifacts) Actions-välilehdeltä.
+Linux-versiot käsin käynnistettynä (Actions → Client build → Run
+workflow). Osoite luetaan repositorion muuttujasta `VITE_API_BASE_URL`
+(Settings → Secrets and variables → Actions → Variables, tai
+`gh variable set VITE_API_BASE_URL --body <osoite>`); ilman sitä build
+pysähtyy virheeseen. Buildit löytyvät ajon liitteistä (artifacts).
 
 ## Testidatan generointi
 
