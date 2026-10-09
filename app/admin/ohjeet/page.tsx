@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { ArrowLeft, BookOpen, Download, Loader2, MonitorDown } from "lucide-react";
+import { ArrowLeft, BookOpen, Code, Download, ExternalLink, Loader2, MonitorDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { API_BASE, CLIENT_DOWNLOAD_URL, LOGO_URL, SITE_NAME, withBasePath } from "@/lib/site";
+import { API_BASE, CLIENT_DOWNLOAD_URL, LOGO_URL, SITE_NAME, SOURCE_URL, withBasePath } from "@/lib/site";
 
 const apiBase = API_BASE;
 
@@ -33,7 +33,7 @@ export default function InstructionsPage() {
   return <main className="min-h-screen bg-muted/30">
     <header className="border-b bg-background"><div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4"><div className="flex items-center gap-3"><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src={LOGO_URL} alt="" className="size-8 object-contain" /></span><div><b className="block">{SITE_NAME}</b><span className="text-xs text-muted-foreground">Ylläpito</span></div></div><Button asChild variant="ghost" className="rounded-full"><a href={withBasePath("/admin")}><ArrowLeft className="mr-2 size-4" />Tapahtumat</a></Button></div></header>
     <div className="mx-auto max-w-4xl px-5 py-10">
-      <div className="mb-8"><p className="text-sm font-bold uppercase tracking-wider text-primary">Hallinta</p><h1 className="mt-2 text-3xl font-black tracking-tight">Ohjeet</h1><p className="mt-2 text-muted-foreground">Miten tulospalvelua ylläpidetään ja miten tapahtumapäivän luenta hoidetaan PC-clientillä.</p></div>
+      <div className="mb-8"><p className="text-sm font-bold uppercase tracking-wider text-primary">Hallinta</p><h1 className="mt-2 text-3xl font-black tracking-tight">Ohjeet</h1><p className="mt-2 text-muted-foreground">Miten tulospalvelua ylläpidetään ja miten tapahtumapäivän luenta hoidetaan PC-clientillä. Tulospalvelu on avointa lähdekoodia: <a href={SOURCE_URL} target="_blank" rel="noreferrer" className="font-medium text-primary underline-offset-4 hover:underline">lähdekoodi GitHubissa</a>.</p></div>
 
       <Card className="mb-8 rounded-2xl"><CardContent className="grid gap-6 p-5 sm:grid-cols-2">
         <Toc title="Web-sovellus" items={[["kausi", "1. Sarjat ja kaudet"], ["tapahtumat", "2. Tapahtumat"], ["radat", "3. Radat ja XML-tuonti"], ["ilmoittautumiset", "4. Ilmoittautuminen ja osanottajat"], ["tapahtumapaiva", "5. Tapahtumapäivä ja tulokset"], ["osallistumiskerrat", "6. Osallistumiskerrat ja palkinnot"], ["lukijalaitteet", "7. Lukijalaitteet"], ["tili", "8. Salasana ja kirjautuminen"]]} />
@@ -179,6 +179,13 @@ export default function InstructionsPage() {
           ]} />
         </Section>
       </div>
+
+      <h2 className="mt-12 mb-4 flex items-center gap-2 text-2xl font-black tracking-tight"><Code className="size-6 text-primary" />Avoin lähdekoodi</h2>
+      <Section id="lahdekoodi" title="Lähdekoodi ja lisenssi">
+        <p>Tulospalvelu ja PC-client ovat avointa lähdekoodia. Kuka tahansa saa käyttää, muokata ja levittää niitä maksutta GNU Affero General Public License v3 -lisenssin (AGPL-3.0) ehdoilla. Lisenssi pitää ohjelmiston vapaana: muokattua versiota levittävän tai verkkopalveluna tarjoavan pitää julkaista muutostensa lähdekoodi samalla lisenssillä.</p>
+        <p>Lähdekoodista löytyvät myös asennusohjeet omalle palvelimelle. Virheilmoitukset ja kehitysideat voi kirjata GitHubin Issues-osioon.</p>
+        <p><Button asChild variant="outline" className="rounded-full"><a href={SOURCE_URL} target="_blank" rel="noreferrer"><ExternalLink className="mr-2 size-4" />Lähdekoodi GitHubissa</a></Button></p>
+      </Section>
     </div>
   </main>;
 }

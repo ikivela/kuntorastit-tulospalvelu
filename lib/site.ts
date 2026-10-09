@@ -42,6 +42,11 @@ export const PAYMENT_HINT = process.env.NEXT_PUBLIC_PAYMENT_HINT?.trim() || "Val
 // "ask the administrator"). Set via NEXT_PUBLIC_CLIENT_DOWNLOAD_URL.
 export const CLIENT_DOWNLOAD_URL = process.env.NEXT_PUBLIC_CLIENT_DOWNLOAD_URL?.trim() ?? "";
 
+// Source code of this deployment, linked from /admin/ohjeet (AGPL-3.0: users
+// of a modified version must be able to get its source). Override with
+// NEXT_PUBLIC_SOURCE_URL when running a fork.
+export const SOURCE_URL = process.env.NEXT_PUBLIC_SOURCE_URL?.trim() || "https://github.com/ikivela/kuntorastit-tulospalvelu";
+
 function assetUrl(value: string | undefined, fallback: string): string {
   const url = value?.trim() || fallback;
   return /^[a-z]+:\/\//i.test(url) ? url : withBasePath(url.startsWith("/") ? url : `/${url}`);
