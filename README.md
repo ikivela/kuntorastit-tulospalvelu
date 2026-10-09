@@ -119,10 +119,25 @@ npm test
 
 ## API ja PostgreSQL
 
-Koko kehitysympäristö:
+Koko kehitysympäristö (PostgreSQL + API + web) Dockerissa:
 
 ```bash
 cp .env.development.example .env.development
+docker compose -f dev.yml --env-file .env.development up
+```
+
+Web löytyy osoitteesta http://localhost:5173 (alipolun kanssa esim.
+`/kuntorastit/`), API osoitteesta http://localhost:3001/api/v1 ja tietokanta
+portista 5432; ylläpitoon `admin` / `mara2026`. Lähdekoodi on liitetty
+kontteihin: API käynnistyy uudelleen ja web päivittyy selaimessa
+muutosten jälkeen. Jos portit ovat varattuja (esim. tuotantostack samalla
+koneella), vaihda ne muuttujilla `DEV_WEB_PORT`, `DEV_API_PORT` ja
+`DEV_POSTGRES_PORT`. `docker compose -f dev.yml down -v` tyhjentää
+kehityskannan.
+
+Pelkkä API + PostgreSQL ilman webiä:
+
+```bash
 docker compose -f compose.api.yaml --env-file .env.development up --build
 ```
 

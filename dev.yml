@@ -1,0 +1,101 @@
+# Kehitysympäristö: PostgreSQL + API (watch) + web (Vite dev, HMR).
+#
+#   cp .env.development.example .env.development   # kerran
+#   docker compose -f dev.yml --env-file .env.development up
+#
+#   web:     http://localhost:5173        (DEV_WEB_PORT)
+#   API:     http://localhost:3001/api/v1 (DEV_API_PORT), Swagger /api/docs
+#   kanta:   localhost:5432               (DEV_POSTGRES_PORT, esim. Prisma Studio)
+#   ylläpito: admin / mara2026 (kehityksen oletus)
+#
+# Lähdekoodi on liitetty kontteihin, joten muutokset näkyvät heti: API
+# käynnistyy uudelleen ja web päivittyy selaimessa. node_modules ovat
+# konttien omissa volumeissa (Linux-paketit eivät käy macOS:llä eikä
+# päinvastoin); riippuvuudet asennetaan lukkotiedoston mukaan (npm ci)
+# aina kun package-lock.json on muuttunut, seuraavalla käynnistyksellä.
+# Tietokanta säilyy volumessa; tyhjennä se: docker compose -f dev.yml down -v
+
+name: kuntorastit-dev
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kuntorastit}
+      POSTGRES_USER: ${POSTGRES_USER:-kuntorastit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kuntorastit}
+    ports:
+      - "127.0.0.1:${DEV_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  api:
+    image: node:22-alpine
+    working_dir: /app
+    command:
+      - sh
+      - -c
+      - |
+        # npm ci (never rewrites the lockfile), only when the lockfile changed.
+        h=$$(sha256sum package-lock.json | cut -c1-64)
+        [ "$$(cat node_modules/.lock-hash 2>/dev/null)" = "$$h" ] || { npm ci --legacy-peer-deps --no-audit --no-fund && echo "$$h" > node_modules/.lock-hash; }
+        npx prisma generate
+        npx prisma migrate deploy
+        npx prisma db seed
+        exec npx nest start --watch --preserveWatchOutput
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kuntorastit}:${POSTGRES_PASSWORD:-kuntorastit}@postgres:5432/${POSTGRES_DB:-kuntorastit}
+      PORT: 3001
+      ADMIN_TOKEN_SECRET: ${ADMIN_TOKEN_SECRET:-kuntorastit-local-development-secret}
+      NODE_ENV: development
+    volumes:
+      - ./services/api:/app
+      - api-node-modules:/app/node_modules
+      # The generated Prisma client stays in the container so it doesn't
+      # overwrite the host's copy.
+      - api-generated:/app/src/generated
+    ports:
+      - "127.0.0.1:${DEV_API_PORT:-3001}:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/api/v1/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 60s
+
+  web:
+    # Debian, not Alpine: Vite's Cloudflare plugin (workerd) needs glibc.
+    image: node:22-bookworm-slim
+    working_dir: /app
+    command:
+      - sh
+      - -c
+      - |
+        h=$$(sha256sum package-lock.json | cut -c1-64)
+        [ "$$(cat node_modules/.lock-hash 2>/dev/null)" = "$$h" ] || { npm ci --no-audit --no-fund && echo "$$h" > node_modules/.lock-hash; }
+        exec npm run dev -- --host 0.0.0.0 --port 5173 --strictPort
+    environment:
+      # NEXT_PUBLIC_* settings come from .env.development, which Vite loads.
+      DEV_API_PROXY_TARGET: http://api:3001
+    volumes:
+      - .:/app
+      - web-node-modules:/app/node_modules
+    ports:
+      - "127.0.0.1:${DEV_WEB_PORT:-5173}:5173"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  api-node-modules:
+  api-generated:
+  web-node-modules:

@@ -44,9 +44,12 @@ export default defineConfig(async ({ mode }) => {
   // Wrangler snapshots its log path while the Cloudflare plugin is imported.
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
+  const env = loadEnv(mode, process.cwd(), "");
   // Mirrors next.config.ts's basePath: in dev the UI calls
   // <basePath>/api/v1, which the proxy forwards to the API's /api/v1.
-  const basePath = normalizeBasePath(loadEnv(mode, process.cwd(), "").NEXT_PUBLIC_BASE_PATH);
+  const basePath = normalizeBasePath(env.NEXT_PUBLIC_BASE_PATH);
+  // Where the dev server finds the API (dev.yml sets http://api:3001).
+  const apiProxyTarget = env.DEV_API_PROXY_TARGET || "http://localhost:3001";
 
   return {
     server: {
@@ -54,7 +57,7 @@ export default defineConfig(async ({ mode }) => {
       allowedHosts: ["terminal.local"],
       proxy: {
         [`${basePath}/api`]: {
-          target: "http://localhost:3001",
+          target: apiProxyTarget,
           changeOrigin: true,
           rewrite: (path: string) => path.slice(basePath.length),
         },
