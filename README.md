@@ -315,11 +315,11 @@ Huomioita:
 
 pc-client lukee API:n osoitteen build-aikaisesta `VITE_API_BASE_URL`-
 muuttujasta (`.env.production` tuotantobuildissa, `.env.development`
-kehityksessä) ja upottaa sen buildattuun
-sovellukseen — sitä ei voi enää muuttaa asennuksen jälkeen. Aseta se
-julkisesti tavoitettavaan osoitteeseen (esim.
+kehityksessä) ja upottaa sen buildattuun sovellukseen oletusosoitteeksi.
+Osoitteen voi vaihtaa asennuksen jälkeen sovelluksen **⚙ Asetukset**
+-näkymästä. Aseta oletus julkisesti tavoitettavaan osoitteeseen (esim.
 `https://tulokset.esimerkki.fi/kuntorastit/api/v1`) ja buildaa komennolla
-`npm run tauri:build`, joka sallii osoitteen myös sovelluksen CSP:ssä;
+`npm run tauri:build`;
 GitHub Actions -buildissa osoite tulee repositorion muuttujasta
 `VITE_API_BASE_URL` (ks. [clients/pc-client/README.md](clients/pc-client/README.md#tuotantobuild)).
 Oletusarvo `http://localhost:3001/api/v1` toimii vain paikallisessa

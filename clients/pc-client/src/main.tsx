@@ -6,7 +6,11 @@ import { save } from "@tauri-apps/plugin-dialog";
 import "./style.css";
 
 declare const __BUILD_DATE__: string;
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001/api/v1";
+// API address baked into the build (VITE_API_BASE_URL); the user can override
+// it in Asetukset, stored as the reader.api_base_url setting. Kept in a module
+// variable so the fetch helpers always use the current address.
+const DEFAULT_API_BASE = normalizeApiBase(import.meta.env.VITE_API_BASE_URL || "http://localhost:3001/api/v1");
+let API_BASE = DEFAULT_API_BASE;
 let installationIdPromise: Promise<string> | undefined;
 const syncingReadIds = new Set<number>();
 
@@ -85,6 +89,9 @@ function App() {
   const [deviceNameInput, setDeviceNameInput] = useState("");
   const [deviceStatus, setDeviceStatus] = useState<"unregistered" | "pending" | "approved" | "revoked">("unregistered");
   const [deviceError, setDeviceError] = useState("");
+  const [apiBase, setApiBase] = useState(API_BASE);
+  const [apiBaseInput, setApiBaseInput] = useState(API_BASE);
+  const [apiBaseError, setApiBaseError] = useState("");
   const [editingReadId, setEditingReadId] = useState<number | null>(null);
   const [editingSource, setEditingSource] = useState<"EMIT" | "MANUAL" | null>(null);
   const [editingManualDurationSeconds, setEditingManualDurationSeconds] = useState<number | undefined>(undefined);
@@ -235,6 +242,33 @@ function App() {
     await invoke("clear_setting_value", { key: "reader.device_name" }).catch(() => undefined);
     setDeviceToken(""); setDeviceName(""); setDeviceNameInput(""); setDeviceError("");
     setDeviceStatus("unregistered");
+  }
+
+  // A device token is issued by one server, so switching to another address
+  // forgets the device (the token must not be sent to the new server) and
+  // reloads that server's calendar.
+  async function saveApiBase(input: string) {
+    const value = normalizeApiBase(input);
+    try {
+      const url = new URL(value);
+      if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error();
+    } catch {
+      setApiBaseError("Anna osoite muodossa https://palvelin.fi/polku/api/v1.");
+      return;
+    }
+    setApiBaseError("");
+    if (value === API_BASE) { setApiBaseInput(value); return; }
+    try {
+      if (value === DEFAULT_API_BASE) await invoke("clear_setting_value", { key: "reader.api_base_url" });
+      else await invoke("set_setting_value", { key: "reader.api_base_url", value });
+    } catch (error) {
+      setApiBaseError(String(error));
+      return;
+    }
+    API_BASE = value;
+    setApiBase(value); setApiBaseInput(value);
+    await forgetDevice();
+    void loadCalendar();
   }
 
   async function stopEvent() {
@@ -475,11 +509,13 @@ function App() {
 
   useEffect(() => {
     void refresh();
-    void loadCalendar();
     void invoke<string | null>("reader_port_setting").then((port) => {
       if (port) setSelected(port);
     }).catch(() => undefined);
     void (async () => {
+      const savedApiBase = await invoke<string | null>("setting_value", { key: "reader.api_base_url" }).catch(() => null);
+      if (savedApiBase) { API_BASE = savedApiBase; setApiBase(savedApiBase); setApiBaseInput(savedApiBase); }
+      void loadCalendar();
       const [token, name] = await Promise.all([
         invoke<string | null>("setting_value", { key: "reader.device_token" }).catch(() => null),
         invoke<string | null>("setting_value", { key: "reader.device_name" }).catch(() => null),
@@ -678,7 +714,7 @@ function App() {
         <div className="modal-backdrop" role="presentation">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
             <h2 id="settings-title">Asetukset</h2>
-            <div className="reader-settings"><select value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading}><option value="">Valitse sarjaportti</option>{devices.map((device) => <option key={device.portName} value={device.portName}>{device.portName} – {device.product || device.manufacturer || device.portType}</option>)}</select><input className="port-input" value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading} placeholder="Sarjaportin polku" aria-label="Sarjaportin polku" /><button type="button" onClick={() => void refresh()} disabled={reading}>Päivitä portit</button><div className="device-row">{deviceStatus === "unregistered" || deviceStatus === "revoked" ? <>{deviceStatus === "revoked" && <p className="error">Ylläpitäjä on peruuttanut tämän laitteen pääsyn. Rekisteröidy uudelleen.</p>}<input className="device-name-input" value={deviceNameInput} onChange={(e) => setDeviceNameInput(e.target.value)} placeholder="Laitteen nimi, esim. Maalin lukija #1" aria-label="Laitteen nimi" /><button type="button" onClick={() => void registerDevice()} disabled={!deviceNameInput.trim()}>Lähetä hyväksyntäpyyntö</button></> : deviceStatus === "pending" ? <><span>Odotetaan ylläpitäjän hyväksyntää (nimellä &quot;{deviceName}&quot;)…</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button></> : <><span className="device-approved">✓ Hyväksytty (nimellä &quot;{deviceName}&quot;)</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button><button type="button" onClick={() => void forgetDevice()}>Unohda laite</button></>}{deviceError && <p className="error">{deviceError}</p>}</div></div>
+            <div className="reader-settings"><select value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading}><option value="">Valitse sarjaportti</option>{devices.map((device) => <option key={device.portName} value={device.portName}>{device.portName} – {device.product || device.manufacturer || device.portType}</option>)}</select><input className="port-input" value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading} placeholder="Sarjaportin polku" aria-label="Sarjaportin polku" /><button type="button" onClick={() => void refresh()} disabled={reading}>Päivitä portit</button><div className="device-row">{deviceStatus === "unregistered" || deviceStatus === "revoked" ? <>{deviceStatus === "revoked" && <p className="error">Ylläpitäjä on peruuttanut tämän laitteen pääsyn. Rekisteröidy uudelleen.</p>}<input className="device-name-input" value={deviceNameInput} onChange={(e) => setDeviceNameInput(e.target.value)} placeholder="Laitteen nimi, esim. Maalin lukija #1" aria-label="Laitteen nimi" /><button type="button" onClick={() => void registerDevice()} disabled={!deviceNameInput.trim()}>Lähetä hyväksyntäpyyntö</button></> : deviceStatus === "pending" ? <><span>Odotetaan ylläpitäjän hyväksyntää (nimellä &quot;{deviceName}&quot;)…</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button></> : <><span className="device-approved">✓ Hyväksytty (nimellä &quot;{deviceName}&quot;)</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button><button type="button" onClick={() => void forgetDevice()}>Unohda laite</button></>}{deviceError && <p className="error">{deviceError}</p>}</div><form className="api-row" onSubmit={(event) => { event.preventDefault(); void saveApiBase(apiBaseInput); }}><label htmlFor="api-base-input">API-osoite</label><input id="api-base-input" className="api-base-input" value={apiBaseInput} onChange={(e) => setApiBaseInput(e.target.value)} disabled={!!activeEvent} placeholder={DEFAULT_API_BASE} spellCheck={false} /><button type="submit" disabled={!!activeEvent || normalizeApiBase(apiBaseInput) === apiBase}>Tallenna</button>{apiBase !== DEFAULT_API_BASE && <button type="button" disabled={!!activeEvent} onClick={() => void saveApiBase(DEFAULT_API_BASE)}>Palauta oletus</button>}<p className="hint">{activeEvent ? "Osoitetta voi vaihtaa vain, kun tapahtuma ei ole käynnissä." : "Osoitteen vaihto unohtaa laitteen hyväksynnän: lähetä hyväksyntäpyyntö uudelle palvelimelle."}</p>{apiBaseError && <p className="error">{apiBaseError}</p>}</form></div>
             <div className="confirm-actions"><button type="button" className="primary" onClick={() => setSettingsOpen(false)}>Sulje</button></div>
           </section>
         </div>
@@ -844,6 +880,10 @@ function parsePersonCsv(text: string): PersonImportRow[] {
       cardNumber: Number.isFinite(cardNumber) && cardNumber > 0 ? cardNumber : 0,
     };
   });
+}
+
+function normalizeApiBase(value: string) {
+  return value.trim().replace(/\/+$/, "");
 }
 
 function formatDuration(seconds?: number) {

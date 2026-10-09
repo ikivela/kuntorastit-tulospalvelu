@@ -52,6 +52,12 @@ Client odottaa API:a osoitteessa `http://localhost:3001/api/v1` — käynnistä
 se ensin repon juuresta:
 `docker compose -f dev.yml --env-file .env.development up api`.
 
+Osoitteen voi vaihtaa sovelluksen **⚙ Asetukset** -näkymän API-osoite-
+kentästä (tallentuu paikalliseen kantaan; **Palauta oletus** palaa buildin
+osoitteeseen). Vaihto ei onnistu tapahtuman ollessa käynnissä, ja se unohtaa
+laitteen hyväksynnän, koska token on edellisen palvelimen myöntämä:
+lähetä hyväksyntäpyyntö uudelle palvelimelle.
+
 ## Laitteen hyväksyntä (kirjautuminen)
 
 Lukijan omat rajapinnat (`reader-results`, `manual-results`,
@@ -76,16 +82,16 @@ uudelleen samalla nimellä ja odottaa uutta hyväksyntää.
 
 ## Tuotantobuild
 
-API:n osoite upotetaan buildiin muuttujasta `VITE_API_BASE_URL` (esim.
-`https://tulokset.esimerkki.fi/kuntorastit/api/v1`). Build lisää osoitteen
-myös sovelluksen Content-Security-Policyyn, joka muuten sallii vain
-`localhost:3001`:n.
+API:n oletusosoite upotetaan buildiin muuttujasta `VITE_API_BASE_URL` (esim.
+`https://tulokset.esimerkki.fi/kuntorastit/api/v1`); käyttäjä voi vaihtaa sen
+sovelluksen asetuksista, joten sovelluksen Content-Security-Policy sallii
+yhteydet mihin tahansa http(s)-osoitteeseen.
 
 Paikallisesti: aseta `VITE_API_BASE_URL` juuren `.env.production`iin (tai
 ympäristömuuttujaksi) ja aja `npm run tauri:build` (macOS: `.app`/`.dmg`;
 Windows/Linux käyttävät alustan normaaleja pakettityyppejä `.msi`, `.deb`,
 `.rpm`, `.AppImage`). `npm run tauri:build -- --dry-run` näyttää vain
-käytettävän osoitteen ja CSP:n.
+käytettävän oletusosoitteen.
 
 GitHub Actions (`.github/workflows/client-build.yml`) buildaa Windows- ja
 Linux-versiot käsin käynnistettynä (Actions → Client build → Run

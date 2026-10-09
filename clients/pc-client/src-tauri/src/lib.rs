@@ -329,7 +329,7 @@ fn set_reader_port_setting(database: State<'_, Database>, port_name: String) -> 
     database.set_setting("reader.port", port_name.trim())
 }
 
-const SETTING_KEYS: &[&str] = &["reader.installation_id", "reader.device_token", "reader.device_name"];
+const SETTING_KEYS: &[&str] = &["reader.installation_id", "reader.device_token", "reader.device_name", "reader.api_base_url"];
 
 #[tauri::command]
 fn setting_value(database: State<'_, Database>, key: String) -> Result<Option<String>, String> {

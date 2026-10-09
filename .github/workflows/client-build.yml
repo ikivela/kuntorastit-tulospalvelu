@@ -67,7 +67,7 @@ jobs:
       - name: Run Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
-      # API address baked into the client (and allowed in its CSP):
+      # Default API address baked into the client (changeable in the app):
       # set the repository variable VITE_API_BASE_URL, e.g.
       # https://tulokset.example.fi/kuntorastit/api/v1
       - name: Build Tauri app
