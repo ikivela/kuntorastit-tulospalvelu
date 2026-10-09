@@ -38,6 +38,10 @@ export const DEFAULT_CITY = process.env.NEXT_PUBLIC_DEFAULT_CITY?.trim() ?? "";
 export const DEFAULT_PAYMENT_METHODS = (process.env.NEXT_PUBLIC_DEFAULT_PAYMENT_METHODS ?? "").split(";").map((value) => value.trim()).filter(Boolean);
 export const PAYMENT_HINT = process.env.NEXT_PUBLIC_PAYMENT_HINT?.trim() || "Valitse haluamasi maksutapa.";
 
+// Download link for the PC client installers shown on /admin/ohjeet (empty =
+// "ask the administrator"). Set via NEXT_PUBLIC_CLIENT_DOWNLOAD_URL.
+export const CLIENT_DOWNLOAD_URL = process.env.NEXT_PUBLIC_CLIENT_DOWNLOAD_URL?.trim() ?? "";
+
 function assetUrl(value: string | undefined, fallback: string): string {
   const url = value?.trim() || fallback;
   return /^[a-z]+:\/\//i.test(url) ? url : withBasePath(url.startsWith("/") ? url : `/${url}`);
