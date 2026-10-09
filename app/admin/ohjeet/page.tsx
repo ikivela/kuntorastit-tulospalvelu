@@ -200,5 +200,5 @@ function Definitions({ items }: { items: [string, string][] }) {
 }
 
 function Note({ children }: { children: ReactNode }) {
-  return <p className="rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-amber-950 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">{children}</p>;
+  return <p className="rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-amber-950">{children}</p>;
 }
