@@ -48,6 +48,7 @@ button:disabled { opacity: .5; cursor: default; }
 .api-base-input { flex: 1; min-width: 260px; }
 .api-row .hint, .api-row .error { flex-basis: 100%; margin: 0; }
 .api-row .hint { color: #5b6578; font-size: .85rem; }
+.event-start .hint { color: #5b6578; font-size: .85rem; margin: 4px 0 10px; }
 .course-list { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px solid #edf0f3; }
 .course-list span { border-radius: 999px; background: #edf5ef; color: #244b30; padding: 6px 10px; font-size: .88rem; font-weight: 650; }
 .device { display: grid; grid-template-columns: 1fr 1.5fr 1fr; gap: 12px; padding: 10px 0; border-top: 1px solid #edf0f3; }
