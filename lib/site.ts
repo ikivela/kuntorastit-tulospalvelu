@@ -38,14 +38,17 @@ export const DEFAULT_CITY = process.env.NEXT_PUBLIC_DEFAULT_CITY?.trim() ?? "";
 export const DEFAULT_PAYMENT_METHODS = (process.env.NEXT_PUBLIC_DEFAULT_PAYMENT_METHODS ?? "").split(";").map((value) => value.trim()).filter(Boolean);
 export const PAYMENT_HINT = process.env.NEXT_PUBLIC_PAYMENT_HINT?.trim() || "Valitse haluamasi maksutapa.";
 
-// Download link for the PC client installers shown on /admin/ohjeet (empty =
-// "ask the administrator"). Set via NEXT_PUBLIC_CLIENT_DOWNLOAD_URL.
-export const CLIENT_DOWNLOAD_URL = process.env.NEXT_PUBLIC_CLIENT_DOWNLOAD_URL?.trim() ?? "";
-
 // Source code of this deployment, linked from /admin/ohjeet (AGPL-3.0: users
 // of a modified version must be able to get its source). Override with
 // NEXT_PUBLIC_SOURCE_URL when running a fork.
-export const SOURCE_URL = process.env.NEXT_PUBLIC_SOURCE_URL?.trim() || "https://github.com/ikivela/kuntorastit-tulospalvelu";
+export const SOURCE_URL = (process.env.NEXT_PUBLIC_SOURCE_URL?.trim() || "https://github.com/ikivela/kuntorastit-tulospalvelu").replace(/\/+$/, "");
+
+// Download link for the PC client installers shown on /admin/ohjeet. Defaults
+// to the rolling "pc-client-latest" release that client-build.yml publishes
+// in a GitHub source repository; set NEXT_PUBLIC_CLIENT_DOWNLOAD_URL to link
+// elsewhere. Empty (no GitHub source) = "ask the administrator".
+export const CLIENT_DOWNLOAD_URL = process.env.NEXT_PUBLIC_CLIENT_DOWNLOAD_URL?.trim()
+  || (SOURCE_URL.startsWith("https://github.com/") ? `${SOURCE_URL}/releases/tag/pc-client-latest` : "");
 
 function assetUrl(value: string | undefined, fallback: string): string {
   const url = value?.trim() || fallback;
