@@ -67,7 +67,10 @@ export function planEventImport(
 ): ImportPlan {
   const plan: ImportPlan = { changes: [], errors: [] };
   const existingById = new Map(existing.map((event) => [event.id.toLowerCase(), event]));
-  const seasonByYear = new Map(seasons.map((season) => [season.year, season.id]));
+  // Year is unique per event series only, so with several series one year can
+  // match several seasons.
+  const seasonsByYear = new Map<number, string[]>();
+  for (const season of seasons) seasonsByYear.set(season.year, [...(seasonsByYear.get(season.year) ?? []), season.id]);
   const seenIds = new Map<string, number>();
 
   rows.forEach((raw, index) => {
@@ -90,7 +93,14 @@ export function planEventImport(
     let seasonId: string | undefined;
     if (seasonYear === undefined) seasonId = current?.seasonId ?? fail("Kausi (vuosi) puuttuu.");
     else if (!Number.isInteger(seasonYear)) fail(`Kausi "${String(raw.seasonYear)}" ei ole vuosiluku.`);
-    else seasonId = seasonByYear.get(seasonYear) ?? fail(`Kautta ${seasonYear} ei ole olemassa.`);
+    else {
+      const candidates = seasonsByYear.get(seasonYear) ?? [];
+      if (candidates.length === 0) fail(`Kautta ${seasonYear} ei ole olemassa.`);
+      // An existing event keeps its own season when the year still matches it.
+      else if (current && candidates.includes(current.seasonId)) seasonId = current.seasonId;
+      else if (candidates.length > 1) fail(`Vuodelle ${seasonYear} on kausi useammassa tapahtumasarjassa, joten kautta ei voi päätellä vuodesta. Lisää tapahtuma lomakkeella.`);
+      else seasonId = candidates[0];
+    }
 
     const startsAt = date(raw.startsAt) ?? fail(`Alkaa: "${String(raw.startsAt ?? "")}" ei ole kelvollinen aika (esim. 15.6.2026 18:00).`);
     const endsAt = date(raw.endsAt) ?? fail(`Päättyy: "${String(raw.endsAt ?? "")}" ei ole kelvollinen aika (esim. 15.6.2026 20:00).`);

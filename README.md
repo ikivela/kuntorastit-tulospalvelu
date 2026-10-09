@@ -79,6 +79,10 @@ leimauksia ja tavoitepalkintoja. Leimauskortti on mallinnettu yleisenä
 - **Lukijalaitteet**: jokainen pc-client rekisteröityy itse ja jää
   odottamaan hyväksyntää tässä näkymässä ennen kuin se saa API-tokenin.
   Peru pääsy tästä samasta näkymästä tarvittaessa (esim. kannettava katoaa).
+- **Kaudet**: tapahtumasarjojen ja kausien (nimi, vuosi, aikaväli) sekä
+  kausien palkintorajojen ylläpito. Uusi kausi esitäytetään edellisen
+  pohjalta. Kautta, jolla on tapahtumia, tai sarjaa, jolla on kausia, ei voi
+  poistaa. Excel-tuonnin Kausi-sarake viittaa kauden vuoteen.
 - **Osallistumiskerrat**: henkilöittäinen historia kaudelta, sisältäen
   omatoimiset osallistumiset omana rivinään. **Lataa Excel** -nappi vie koko
   listan (tapahtuma, ilmoittautumis-/luenta-aika, nimi, seura, maksutapa,
