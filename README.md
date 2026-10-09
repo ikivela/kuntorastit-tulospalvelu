@@ -349,4 +349,10 @@ docker-compose.example.yml  Tuotantokokoonpanon pohja (kopioidaan prod.yml:ksi)
 
 ## Lisenssi
 
-MIT, ks. [LICENSE](LICENSE).
+Copyright (C) 2026 Ilkka Kivelä
+
+Ohjelmisto on vapaa: sitä saa käyttää, muokata ja levittää GNU Affero General
+Public License -lisenssin version 3 (tai halutessasi minkä tahansa myöhemmän
+version) ehdoilla, ks. [LICENSE](LICENSE). Muokattua versiota levittävän tai
+verkkopalveluna tarjoavan pitää julkaista muutostensa lähdekoodi samalla
+lisenssillä.
