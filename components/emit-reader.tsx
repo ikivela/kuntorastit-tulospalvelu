@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, Loader2, Unplug, Usb } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
@@ -21,8 +20,10 @@ const statusLabels: Record<ResultStatus, string> = { OK: "Tulos OK", MISSING_CON
 const validationToStatus = { ACCEPTED: "OK", MISSING_CONTROL: "MISSING_CONTROL", DISQUALIFIED: "DISQUALIFIED", UNAVAILABLE: "OK" } as const;
 
 /** Admin-side EMIT 250 reader: reads cards over Web Serial and saves them
- * through the same endpoint as the pc-client (POST .../reader-results). */
-export function EmitReaderDialog({ event, token, onSessionExpired }: { event: { id: string; name: string; status: string }; token: string; onSessionExpired: () => void }) {
+ * through the same endpoint as the pc-client (POST .../reader-results).
+ * Reports connection and unconfirmed-card state so the page can lock the
+ * event choice and warn before leaving. */
+export function EmitReader({ event, token, onSessionExpired, onStateChange }: { event: { id: string; name: string; status: string }; token: string; onSessionExpired: () => void; onStateChange?: (state: { connected: boolean; pendingCards: number }) => void }) {
   const support = webSerialSupport();
   const [courses, setCourses] = useState<Course[]>([]);
   const [connected, setConnected] = useState(false);
@@ -43,8 +44,10 @@ export function EmitReaderDialog({ event, token, onSessionExpired }: { event: { 
       .catch(() => setError("Tapahtuman ratojen lataaminen epäonnistui."));
   }, [event.id, authHeaders, onSessionExpired]);
 
-  // Release the serial port when the dialog closes.
+  // Release the serial port when leaving the page or switching event.
   useEffect(() => () => { void stopRef.current?.(); }, []);
+
+  useEffect(() => { onStateChange?.({ connected, pendingCards: queue.length }); }, [connected, queue.length, onStateChange]);
 
   async function lookupPerson(cardNumber: number) {
     const response = await fetch(`${API_BASE}/public/persons/by-card/${cardNumber}`, { headers: authHeaders() });
@@ -75,8 +78,7 @@ export function EmitReaderDialog({ event, token, onSessionExpired }: { event: { 
   }
 
   const current = queue[0];
-  return <>
-    <DialogHeader><DialogTitle>EMIT-luenta · {event.name}</DialogTitle><DialogDescription>Liitä EMIT 250 -lukija tähän koneeseen ja yhdistä. Luetut kortit tallentuvat tapahtuman tuloksiin samoin kuin lukijaohjelmalla.</DialogDescription></DialogHeader>
+  return <div className="space-y-5">
     {support !== "ok" ? <p role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{support === "insecure" ? "Web Serial toimii vain suojatulla yhteydellä (https:// tai localhost). Avaa ylläpito https-osoitteesta." : "Tämä selain ei tue Web Serialia. Käytä Chromea tai Edgeä tietokoneella."}</p>
       : <div className="flex flex-wrap items-center gap-3">
         {connected ? <><Badge variant="outline" className="gap-1.5 py-1"><span className="size-2 animate-pulse rounded-full bg-primary" />Yhdistetty · odotetaan korttia</Badge><Button variant="ghost" className="rounded-full" onClick={() => void disconnect()}><Unplug className="mr-2 size-4" />Katkaise</Button></>
@@ -88,7 +90,7 @@ export function EmitReaderDialog({ event, token, onSessionExpired }: { event: { 
     {current && <CardConfirm key={`${current.signature}-${current.readAt}`} card={current} courses={courses} eventId={event.id} authHeaders={authHeaders} onSessionExpired={onSessionExpired}
       onDone={(result) => { setQueue((items) => items.slice(1)); if (result) setSaved((items) => [result, ...items]); }} />}
     {saved.length > 0 && <div><p className="mb-2 text-sm font-bold">Tallennetut tällä kertaa ({saved.length})</p><Table><TableHeader><TableRow><TableHead>Nimi</TableHead><TableHead>Kortti</TableHead><TableHead>Rata</TableHead><TableHead>Aika</TableHead><TableHead>Tila</TableHead></TableRow></TableHeader><TableBody>{saved.map((item) => <TableRow key={item.key}><TableCell className="font-medium">{item.name}</TableCell><TableCell>{item.cardNumber}</TableCell><TableCell>{item.courseName}</TableCell><TableCell>{item.status === "NO_TIME" ? "–" : formatSeconds(item.seconds)}</TableCell><TableCell>{statusLabels[item.status]}</TableCell></TableRow>)}</TableBody></Table></div>}
-  </>;
+  </div>;
 }
 
 function CardConfirm({ card, courses, eventId, authHeaders, onSessionExpired, onDone }: { card: PendingCard; courses: Course[]; eventId: string; authHeaders: () => Record<string, string>; onSessionExpired: () => void; onDone: (result: SavedRead | null) => void }) {
