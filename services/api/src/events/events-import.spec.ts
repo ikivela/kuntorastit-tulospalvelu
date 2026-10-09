@@ -75,3 +75,12 @@ test("new events must be drafts and drafts without courses can't be published", 
   const withCourses = planEventImport([{ ...unchangedRow, status: "Julkaistu" }], seasons, [{ ...draft, courseCount: 3 }]);
   assert.deepEqual(withCourses.errors, []);
 });
+
+test("a year shared by seasons of two series is ambiguous except for an event's own season", () => {
+  const twoSeries = [...seasons, { id: "other-2026", year: 2026 }];
+  const created = planEventImport([{ row: 2, seasonYear: 2026, name: "Uusi", startsAt: "2026-07-01T15:00:00Z", endsAt: "2026-07-01T17:00:00Z" }], twoSeries, []);
+  assert.match(created.errors[0]?.message ?? "", /useammassa tapahtumasarjassa/);
+  const kept = planEventImport([unchangedRow], twoSeries, [existing]);
+  assert.deepEqual(kept.errors, []);
+  assert.equal(kept.changes[0].action, "unchanged");
+});

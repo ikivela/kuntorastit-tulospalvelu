@@ -38,15 +38,18 @@ async function main() {
     await prisma.adminUser.create({ data: { id: ids.admin, username: "admin", passwordHash: hashPassword(adminPassword), role: "ADMIN" } });
   }
 
+  // Series, season and reward threshold are only created here: the seed runs
+  // on every start, and admins edit these in Ylläpito → Kaudet afterwards.
+  const seasonExisted = Boolean(await prisma.season.findUnique({ where: { id: ids.season }, select: { id: true } }));
   await prisma.eventSeries.upsert({
     where: { id: ids.series },
-    update: { name: seriesName },
+    update: {},
     create: { id: ids.series, name: seriesName },
   });
 
   await prisma.season.upsert({
     where: { id: ids.season },
-    update: { name: "Kausi 2026" },
+    update: {},
     create: {
       id: ids.season,
       eventSeriesId: ids.series,
@@ -85,16 +88,11 @@ async function main() {
     });
   }
 
-  await prisma.rewardThreshold.upsert({
-    where: { seasonId_requiredAttendances: { seasonId: ids.season, requiredAttendances: 15 } },
-    update: { name: "15 kerran tavoitepalkinto" },
-    create: {
-      seasonId: ids.season,
-      name: "15 kerran tavoitepalkinto",
-      requiredAttendances: 15,
-      sortOrder: 1,
-    },
-  });
+  if (!seasonExisted) {
+    await prisma.rewardThreshold.create({
+      data: { seasonId: ids.season, name: "15 kerran tavoitepalkinto", requiredAttendances: 15, sortOrder: 1 },
+    });
+  }
 }
 
 main()
