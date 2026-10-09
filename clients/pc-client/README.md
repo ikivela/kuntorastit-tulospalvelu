@@ -95,10 +95,22 @@ käytettävän oletusosoitteen.
 
 GitHub Actions (`.github/workflows/client-build.yml`) buildaa Windows- ja
 Linux-versiot käsin käynnistettynä (Actions → Client build → Run
-workflow). Osoite luetaan repositorion muuttujasta `VITE_API_BASE_URL`
+workflow) tai `pc-client-v*`-tagin puskemisesta. Osoite luetaan repositorion muuttujasta `VITE_API_BASE_URL`
 (Settings → Secrets and variables → Actions → Variables, tai
 `gh variable set VITE_API_BASE_URL --body <osoite>`); ilman sitä build
-pysähtyy virheeseen. Buildit löytyvät ajon liitteistä (artifacts).
+pysähtyy virheeseen.
+
+Asennuspaketit (`.exe`/`.msi`, `.AppImage`/`.deb`/`.rpm`) julkaistaan
+GitHubin **Releases**-osioon:
+
+- käsin käynnistetty ajo `master`-haarassa päivittää esijulkaisun
+  **pc-client-latest** (aina uusin build)
+- versiojulkaisu: nosta versio (`package.json`, `src-tauri/tauri.conf.json`,
+  `src-tauri/Cargo.toml`), commitoi ja puske tagi, esim.
+  `git tag pc-client-v0.2.0 && git push origin pc-client-v0.2.0` — tagin
+  pitää vastata `tauri.conf.json`:n versiota
+
+Kaikki bundle-tiedostot löytyvät lisäksi ajon liitteistä (artifacts).
 
 ## Testidatan generointi
 
