@@ -68,9 +68,8 @@ leimauksia ja tavoitepalkintoja. Leimauskortti on mallinnettu yleisenä
   rivinumeroineen; mitään ei tallenneta ennen vahvistusta, ja jos yksikin rivi
   on virheellinen, koko tuonti hylätään. Excelistä puuttuvia tapahtumia ei
   poisteta. Tiedoston "Ohje"-välilehdellä on sarakkeiden kuvaus.
-- **EMIT-luenta** (oma sivu `/admin/emit`, tapahtumakortin nappi avaa sen
-  kyseiselle tapahtumalle; ilman valintaa sivu valitsee ajallisesti lähimmän
-  tapahtuman): lukee EMIT 250 -kortit suoraan selaimesta Web Serialilla ilman
+- **EMIT-luenta** (yläpalkin nappi, sivu `/admin/emit`; avautuu ajallisesti
+  lähimpään tapahtumaan, jonka voi vaihtaa sivulla): lukee EMIT 250 -kortit suoraan selaimesta Web Serialilla ilman
   pc-clientiä. Liitä lukija koneeseen, paina "Yhdistä lukijaan" ja valitse
   sarjaportti. Kortin haltija haetaan aiempien
   luentojen/ilmoittautumisten perusteella, rata ja tulos (OK / rasti puuttuu /
