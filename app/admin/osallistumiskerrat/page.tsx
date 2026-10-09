@@ -8,13 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { NativeSelect, NativeSelectOptGroup, NativeSelectOption } from "@/components/ui/native-select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { groupSeasonsBySeries, type SeasonOption } from "@/lib/seasons";
 import { API_BASE, LOGO_URL, SITE_NAME, withBasePath } from "@/lib/site";
 
 const apiBase = API_BASE;
-type Season = { id: string; name: string; year: number };
+type Season = SeasonOption;
 type RewardThreshold = { id: string; name: string; requiredAttendances: number };
 type AttendanceSummaryRow = { personId: string; firstName: string; lastName: string; clubName: string | null; attendanceCount: number };
 type AttendanceSummary = { seasonId: string; seasonName: string; year: number; eventCount: number; rewardThresholds: RewardThreshold[]; rows: AttendanceSummaryRow[] };
@@ -107,7 +108,7 @@ function AttendanceSummaryTable({ token, onSessionExpired }: { token: string; on
   }
 
   return <>
-    <div className="mb-5 flex flex-wrap items-center gap-3"><Label className="shrink-0">Kausi</Label><NativeSelect value={seasonId} onChange={(event) => setSeasonId(event.target.value)}>{seasons.map((season) => <NativeSelectOption key={season.id} value={season.id}>{season.name} ({season.year})</NativeSelectOption>)}</NativeSelect><Button type="button" variant="outline" className="ml-auto rounded-full" disabled={exporting || !summary || summary.rows.length === 0} onClick={() => void exportExcel()}>{exporting ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Download className="mr-2 size-4" />}Lataa Excel</Button></div>
+    <div className="mb-5 flex flex-wrap items-center gap-3"><Label className="shrink-0">Kausi</Label><NativeSelect value={seasonId} onChange={(event) => setSeasonId(event.target.value)}>{groupSeasonsBySeries(seasons).map((group) => { const options = group.seasons.map((season) => <NativeSelectOption key={season.id} value={season.id}>{season.name} ({season.year})</NativeSelectOption>); return group.seriesName === null ? options : <NativeSelectOptGroup key={group.seriesName} label={group.seriesName}>{options}</NativeSelectOptGroup>; })}</NativeSelect><Button type="button" variant="outline" className="ml-auto rounded-full" disabled={exporting || !summary || summary.rows.length === 0} onClick={() => void exportExcel()}>{exporting ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Download className="mr-2 size-4" />}Lataa Excel</Button></div>
     {exportError && <p role="alert" className="mb-5 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{exportError}</p>}
     {summary && summary.rewardThresholds.length > 0 && <p className="mb-5 text-sm text-muted-foreground">Tavoitepalkinto: {summary.rewardThresholds.map((threshold) => `${threshold.name} (${threshold.requiredAttendances} kertaa)`).join(", ")}</p>}
     {error && <p role="alert" className="mb-5 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}

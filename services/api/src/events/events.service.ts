@@ -15,7 +15,11 @@ const DEFAULT_FINISH_CONTROL_CODE = "100";
 export class EventsService {
   constructor(private readonly prisma: PrismaService) {}
   list() { return this.prisma.event.findMany({ include: { courses: { orderBy: { sortOrder: "asc" } }, season: { select: { name: true, year: true } }, _count: { select: { registrations: { where: { status: "ACTIVE" } }, attendances: true } } }, orderBy: { startsAt: "asc" } }).then((events) => events.map(({ _count, ...event }) => ({ ...event, registrationCount: _count.registrations, attendanceCount: _count.attendances }))); }
-  seasons() { return this.prisma.season.findMany({ select: { id: true, name: true, year: true }, orderBy: { year: "desc" } }); }
+  // seriesName lets pickers tell apart same-year seasons of different series.
+  seasons() {
+    return this.prisma.season.findMany({ select: { id: true, name: true, year: true, eventSeries: { select: { name: true } } }, orderBy: [{ year: "desc" }, { eventSeries: { name: "asc" } }] })
+      .then((seasons) => seasons.map(({ eventSeries, ...season }) => ({ ...season, seriesName: eventSeries.name })));
+  }
   async seasonAttendanceSummary(seasonId: string) {
     const season = await this.prisma.season.findUnique({
       where: { id: seasonId },
