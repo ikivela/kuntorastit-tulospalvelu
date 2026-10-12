@@ -394,7 +394,7 @@ fn log_path(logger: State<'_, Logger>) -> String {
 /// Opens the log file in the OS default app, or its folder in the file manager.
 #[tauri::command]
 fn open_log(logger: State<'_, Logger>, folder: bool) -> Result<(), String> {
-    let path = if folder { logger.path().parent().unwrap_or(logger.path()) } else { logger.path() };
+    let path = if folder { logger.directory().to_path_buf() } else { logger.path() };
     #[cfg(target_os = "macos")]
     let mut command = std::process::Command::new("open");
     #[cfg(target_os = "windows")]

@@ -51,16 +51,18 @@ kehystunnistus hyväksyy siis vain rakenteellisesti oikean 217 tavun kehyksen.
 
 ## Debug-loki
 
-Client kirjoittaa vianetsintälokia tiedostoon `client.log` käyttöjärjestelmän
-lokikansiossa (Windows `%LOCALAPPDATA%\fi.kuntorastit.client\logs`, macOS
+Client kirjoittaa vianetsintälokia päiväkohtaiseen tiedostoon
+`client-VVVV-KK-PP.log` (syntyy vain päivinä, joina clientia käytetään)
+käyttöjärjestelmän lokikansiossa (Windows `%LOCALAPPDATA%\fi.kuntorastit.client\logs`, macOS
 `~/Library/Logs/fi.kuntorastit.client`, Linux
-`~/.local/share/fi.kuntorastit.client/logs`). Lokin saa auki **⚙ Asetukset**
-→ **Avaa loki** / **Avaa kansio**. Lokiin kirjataan käynnistys (versio,
+`~/.local/share/fi.kuntorastit.client/logs`). **⚙ Asetukset** → **Avaa loki**
+avaa kuluvan päivän lokin, **Avaa kansio** kaikki lokit. Lokiin kirjataan käynnistys (versio,
 käyttöjärjestelmä, tietokannan polku), sarjaportin avaus ja virheet, jokaisen
 luetun kortin leimat ja raakakehys, kalenterin haku, tulosten lähetys
 palvelimelle (vastaukset ja virheet; yhteyskatko kirjataan kerran),
 kuittaukset ja käyttöliittymän käsittelemättömät virheet. Nimiä tai laitteen
-tokenia ei kirjata. Yli 5 Mt:n loki siirretään tiedostoon `client.log.1`.
+tokenia ei kirjata. Yli 5 Mt:n päivän loki siirretään talteen `.1`-päätteellä,
+ja yli 60 päivää vanhat lokit poistetaan.
 
 ## Käynnistys (kehitys)
 

@@ -240,7 +240,7 @@ function App() {
     const found = seasons.flatMap((season) => season.events).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
     setEvents(found);
     const nearest = nearestEventToNow(found);
-    setSelectedEventId((current) => found.some((event) => event.id === current) ? current : nearest?.id || "");
+    setSelectedEventId((current) => found.some((event) => event.id === current && !isPastEvent(event)) ? current : nearest?.id || "");
     // Fresh courses/controls for a running event, e.g. one started offline.
     setActiveEvent((current) => current ? found.find((event) => event.id === current.id) ?? current : current);
   }
@@ -248,6 +248,11 @@ function App() {
   async function startEvent() {
     const event = events.find((item) => item.id === selectedEventId);
     if (!event) return;
+    if (isPastEvent(event)) {
+      setStatus(`${event.name} on jo päättynyt. Menneisiin tapahtumiin ei voi käynnistää tulospalvelua.`);
+      log("WARN", "event", `Mennyttä tapahtumaa ei käynnistetty: ${event.name} (${event.id})`);
+      return;
+    }
     if (!selected) { setSettingsOpen(true); setStatus("Valitse ensin lukijan sarjaportti."); return; }
     setHistorySearch("");
     setActiveEvent(event);
@@ -652,7 +657,6 @@ function App() {
 
   useEffect(() => {
     void refresh();
-    void invoke<string>("log_path").then(setLogPath).catch(() => undefined);
     void invoke<string | null>("reader_port_setting").then((port) => {
       if (port) setSelected(port);
     }).catch(() => undefined);
@@ -731,6 +735,11 @@ function App() {
       .finally(() => { if (!disposed) setPersonDbLoading(false); });
     return () => { disposed = true; };
   }, [personDbOpen]);
+
+  // Today's log file; the name changes daily, so refresh it per opening.
+  useEffect(() => {
+    if (settingsOpen) void invoke<string>("log_path").then(setLogPath).catch(() => undefined);
+  }, [settingsOpen]);
 
   // Esc closes the card dialog like its × button.
   useEffect(() => {
@@ -894,7 +903,7 @@ function App() {
       <p className="build-version">Build: {new Date(__BUILD_DATE__).toLocaleString("fi-FI")}</p>
 
       <section>
-        {activeEvent ? <><div className="event-running"><div><span className="eyebrow">Tapahtuma käynnissä</span><h2>{activeEvent.name}</h2><p>{new Date(activeEvent.startsAt).toLocaleString("fi-FI")} · {activeEvent.locationName || "Paikka ei tiedossa"}</p></div><div className={`reader-badge ${reading ? "ok" : "error"}`}><span />{pendingCard ? "Kuittaus odottaa" : reading ? "Lukija OK" : "Lukija ei yhteydessä"}</div><button onClick={() => void stopEvent()}>Lopeta tapahtuma</button><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div><div className="course-list"><strong>Radat</strong>{activeEvent.courses.length ? activeEvent.courses.map((course) => <span key={course.id}>{course.name} · {(course.lengthMeters / 1000).toLocaleString("fi-FI", { maximumFractionDigits: 1 })} km</span>) : <span>Ei julkaistuja ratoja</span>}</div></> : <div className="event-start">{calendarLoading ? <p>Haetaan tapahtumia…</p> : calendarError ? <div><p className="error">{calendarError}</p><p className="hint">API-osoite: {apiBase}</p><div className="event-start-actions"><button onClick={() => void loadCalendar()}>Yritä uudelleen</button><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div></div> : <>{calendarCachedAt != null && <div className="offline-note"><p className="hint">Ei yhteyttä palvelimeen: tapahtumat ja radat on haettu {new Date(calendarCachedAt).toLocaleString("fi-FI")}.</p><button type="button" onClick={() => void loadCalendar()}>Yritä uudelleen</button></div>}<label className="event-select-field"><span className="eyebrow">Käynnistä tulospalvelu</span><select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}><option value="">Käynnistä tulospalvelu</option>{events.map((event) => <option key={event.id} value={event.id}>{new Date(event.startsAt).toLocaleDateString("fi-FI")} · {event.name}</option>)}</select></label><button className="primary" onClick={() => void startEvent()} disabled={!selectedEventId}>Käynnistä tulospalvelu</button><div className="event-start-actions"><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div></>}</div>}
+        {activeEvent ? <><div className="event-running"><div><span className="eyebrow">Tapahtuma käynnissä</span><h2>{activeEvent.name}</h2><p>{new Date(activeEvent.startsAt).toLocaleString("fi-FI")} · {activeEvent.locationName || "Paikka ei tiedossa"}</p></div><div className={`reader-badge ${reading ? "ok" : "error"}`}><span />{pendingCard ? "Kuittaus odottaa" : reading ? "Lukija OK" : "Lukija ei yhteydessä"}</div><button onClick={() => void stopEvent()}>Lopeta tapahtuma</button><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div><div className="course-list"><strong>Radat</strong>{activeEvent.courses.length ? activeEvent.courses.map((course) => <span key={course.id}>{course.name} · {(course.lengthMeters / 1000).toLocaleString("fi-FI", { maximumFractionDigits: 1 })} km</span>) : <span>Ei julkaistuja ratoja</span>}</div></> : <div className="event-start">{calendarLoading ? <p>Haetaan tapahtumia…</p> : calendarError ? <div><p className="error">{calendarError}</p><p className="hint">API-osoite: {apiBase}</p><div className="event-start-actions"><button onClick={() => void loadCalendar()}>Yritä uudelleen</button><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div></div> : <>{calendarCachedAt != null && <div className="offline-note"><p className="hint">Ei yhteyttä palvelimeen: tapahtumat ja radat on haettu {new Date(calendarCachedAt).toLocaleString("fi-FI")}.</p><button type="button" onClick={() => void loadCalendar()}>Yritä uudelleen</button></div>}<label className="event-select-field"><span className="eyebrow">Käynnistä tulospalvelu</span><select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}><option value="">Käynnistä tulospalvelu</option>{events.map((event) => { const past = isPastEvent(event); return <option key={event.id} value={event.id} disabled={past}>{new Date(event.startsAt).toLocaleDateString("fi-FI")} · {event.name}{past ? " · mennyt" : ""}</option>; })}</select></label><button className="primary" onClick={() => void startEvent()} disabled={!selectedEventId || events.some((event) => event.id === selectedEventId && isPastEvent(event))}>Käynnistä tulospalvelu</button><div className="event-start-actions"><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div></>}</div>}
         {status && <p className="status">{status}</p>}
       </section>
 
@@ -1116,8 +1125,17 @@ function splitSeconds(punches: ProbeResult["punches"], index: number) {
   return punches[index].timeSeconds - (index > 0 ? punches[index - 1].timeSeconds : 0);
 }
 
+/// An event whose last day is before today. The result service cannot be
+/// started for it; on the event day it can, at any time, so late finishers or
+/// an overrunning event can still be read.
+function isPastEvent(event: CalendarEvent, now = Date.now()) {
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  return new Date(event.endsAt).getTime() < startOfToday.getTime();
+}
+
 function nearestEventToNow(events: CalendarEvent[], now = Date.now()) {
-  return events.reduce<CalendarEvent | undefined>((nearest, event) => {
+  return events.filter((event) => !isPastEvent(event, now)).reduce<CalendarEvent | undefined>((nearest, event) => {
     if (!nearest) return event;
     return distanceFromEvent(event, now) < distanceFromEvent(nearest, now) ? event : nearest;
   }, undefined);
