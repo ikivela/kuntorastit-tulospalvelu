@@ -327,6 +327,28 @@ GitHub Actions -buildissa osoite tulee repositorion muuttujasta
 Oletusarvo `http://localhost:3001/api/v1` toimii vain paikallisessa
 kehityksessä.
 
+### Ylläpitoskriptit
+
+API-kontissa voi ajaa tietokannan ylläpitoskriptejä (`services/api/src/scripts`).
+Molemmat tekevät oletuksena vain kuivaharjoituksen, joka raportoi muutokset;
+`--apply` tallentaa ne. Ota tietokannasta varmuuskopio ennen `--apply`-ajoa.
+
+```bash
+docker compose -f prod.yml --env-file .env.production exec api node dist/src/scripts/delete-event-results.js --event <tapahtuman id>
+docker compose -f prod.yml --env-file .env.production exec api node dist/src/scripts/recompute-reader-times.js --event <tapahtuman id>
+```
+
+- `delete-event-results`: poistaa tapahtuman tulokset leimoineen,
+  korttiluennat ja osallistumiset (osallistumiskerrat lasketaan näistä).
+  Tapahtuma, radat, henkilöt ja EMIT-kortit säilyvät.
+  `--include-registrations` poistaa myös ilmoittautumiset (verkkoilmoittautumiset
+  ja korttiluentojen luomat). Pc-clientin vielä lähettämättömät tulokset
+  tallentuvat palvelimelle myöhemmin uudelleen.
+- `recompute-reader-times`: laskee EMIT-tulosten ajat uudelleen
+  korttiluentojen raakaleimoista (korjaa ennen versiota 0.3.1 tallennetut
+  väärät ajat). `--fix-status` muuttaa myös hylätyiksi kuitatut tulokset
+  hyväksytyiksi, jos kaikki radan rastit löytyvät kortilta.
+
 ## Keskeiset hakemistot
 
 ```text
