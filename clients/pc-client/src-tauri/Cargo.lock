@@ -2256,6 +2256,7 @@ dependencies = [
 name = "pc-client"
 version = "0.3.0"
 dependencies = [
+ "chrono",
  "rusqlite",
  "serde",
  "serialport",

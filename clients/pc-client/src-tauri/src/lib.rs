@@ -1,6 +1,8 @@
 mod database;
+mod logger;
 
 use database::{CachedCalendar, Database, ImportParticipantRow, ImportSummary, Participant, StoredCardRead};
+use logger::Logger;
 use serde::Serialize;
 use serialport::{DataBits, Parity, SerialPort, SerialPortType, StopBits};
 use std::io::Read;
@@ -14,6 +16,9 @@ use tauri::{AppHandle, Emitter, LogicalSize, Manager, State};
 const EMIT_250_BAUD_RATE: u32 = 9_600;
 const EMIT_250_FRAME_LENGTH: usize = 217;
 const EMIT_OD: u8 = 255 - 32;
+/// The readout unit writes its own code as the card's last punch when the
+/// card is read; it is not a control, so it is dropped from the punches.
+const EMIT_READOUT_UNIT_CODE: u8 = 250;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -125,16 +130,33 @@ fn start_emit250(
         .stop_bits(StopBits::Two)
         .timeout(Duration::from_millis(200))
         .open()
-        .map_err(|error| format!("Could not open {port_name}: {error}"))?;
+        .map_err(|error| {
+            let message = format!("Could not open {port_name}: {error}");
+            app.state::<Logger>().error("serial", &message);
+            message
+        })?;
+    app.state::<Logger>().info("serial", &format!("Kuuntelu alkoi portissa {port_name}"));
     state.listening.store(true, Ordering::SeqCst);
     let listening = Arc::clone(&state.listening);
     let latest_read = Arc::clone(&state.latest_read);
     std::thread::spawn(move || {
-        if let Err(error) = read_emit250_loop(&app, &port_name, port, &listening, &latest_read) {
-            let _ = app.emit("emit250://error", error);
-        }
+        let outcome = read_emit250_loop(&app, &port_name, port, &listening, &latest_read);
         listening.store(false, Ordering::SeqCst);
-        let _ = app.emit("emit250://stopped", ());
+        match outcome {
+            // A card was read: the UI picks it up from latest_emit250_read and
+            // restarts listening after the confirmation. A "stopped" event here
+            // would race that pick-up and make the UI drop the card.
+            Ok(true) => {}
+            Ok(false) => {
+                app.state::<Logger>().info("serial", &format!("Kuuntelu pysäytetty portissa {port_name}"));
+                let _ = app.emit("emit250://stopped", ());
+            }
+            Err(error) => {
+                app.state::<Logger>().error("serial", &error);
+                let _ = app.emit("emit250://error", error);
+                let _ = app.emit("emit250://stopped", ());
+            }
+        }
     });
     Ok(())
 }
@@ -159,7 +181,7 @@ fn read_emit250_loop(
     mut port: Box<dyn SerialPort>,
     listening: &AtomicBool,
     latest_read: &Mutex<Option<Emit250Read>>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     app.emit("emit250://opened", port_name.to_owned())
         .map_err(|error| format!("Could not publish reader status: {error}"))?;
     let mut raw = Vec::new();
@@ -205,19 +227,29 @@ fn read_emit250_loop(
                 production_year: Some(frame[7]),
                 punches: parse_punches(&frame),
             };
+            app.state::<Logger>().info(
+                "serial",
+                &format!(
+                    "Kortti {} luettu: {} leimaa [{}], kehys {}",
+                    result.card_number.unwrap_or_default(),
+                    result.punches.len(),
+                    result.punches.iter().map(|punch| format!("{}@{}s", punch.control_code, punch.time_seconds)).collect::<Vec<_>>().join(" "),
+                    result.raw_hex
+                ),
+            );
             if let Ok(mut latest) = latest_read.lock() {
                 *latest = Some(result.clone());
             }
             app.emit("emit250://read", result)
                 .map_err(|error| format!("Could not publish EMIT read: {error}"))?;
-            raw.clear();
-            listening.store(false, Ordering::SeqCst);
+            // One card per listening session: stop until the read is confirmed.
+            return Ok(true);
         }
         if raw.len() > EMIT_250_FRAME_LENGTH * 4 {
             raw.drain(..EMIT_250_FRAME_LENGTH);
         }
     }
-    Ok(())
+    Ok(false)
 }
 
 #[tauri::command]
@@ -293,7 +325,7 @@ fn checksum_is_valid(frame: &[u8]) -> bool {
 }
 
 fn parse_punches(frame: &[u8]) -> Vec<Emit250Punch> {
-    (0..50)
+    let mut punches: Vec<Emit250Punch> = (0..50)
         .filter_map(|index| {
             let offset = 10 + index * 3;
             let control_code = frame[offset];
@@ -303,12 +335,43 @@ fn parse_punches(frame: &[u8]) -> Vec<Emit250Punch> {
                 time_seconds,
             })
         })
-        .collect()
+        .collect();
+    if punches.last().is_some_and(|punch| punch.control_code == EMIT_READOUT_UNIT_CODE) {
+        punches.pop();
+    }
+    punches
 }
 
 #[tauri::command]
 fn recent_card_reads(database: State<'_, Database>, event_id: String, limit: Option<usize>) -> Result<Vec<StoredCardRead>, String> {
     database.recent_reads(&event_id, limit.unwrap_or(20))
+}
+
+/// Frontend entries for the debug log (calendar, sync, confirmations, errors).
+#[tauri::command]
+fn write_log(logger: State<'_, Logger>, level: String, source: String, message: String) {
+    let level = if matches!(level.as_str(), "INFO" | "WARN" | "ERROR") { level } else { "INFO".into() };
+    let source: String = source.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(24).collect();
+    let message: String = message.chars().take(4000).collect();
+    logger.write(&level, &source, &message);
+}
+
+#[tauri::command]
+fn log_path(logger: State<'_, Logger>) -> String {
+    logger.path().display().to_string()
+}
+
+/// Opens the log file in the OS default app, or its folder in the file manager.
+#[tauri::command]
+fn open_log(logger: State<'_, Logger>, folder: bool) -> Result<(), String> {
+    let path = if folder { logger.path().parent().unwrap_or(logger.path()) } else { logger.path() };
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut command = std::process::Command::new("explorer");
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = std::process::Command::new("xdg-open");
+    command.arg(path).spawn().map(|_| ()).map_err(|error| format!("Lokin avaaminen epäonnistui: {error}"))
 }
 
 #[tauri::command]
@@ -522,8 +585,24 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            let logger = Logger::open(app.path().app_log_dir()?);
             let database_file = app.path().app_data_dir()?.join("reader.sqlite3");
-            app.manage(Database::open(database_file).map_err(std::io::Error::other)?);
+            logger.info(
+                "app",
+                &format!(
+                    "Käynnistys: versio {}, {} {}, tietokanta {}",
+                    app.package_info().version,
+                    std::env::consts::OS,
+                    std::env::consts::ARCH,
+                    database_file.display()
+                ),
+            );
+            let database = Database::open(database_file).map_err(|error| {
+                logger.error("app", &format!("Tietokannan avaaminen epäonnistui: {error}"));
+                std::io::Error::other(error)
+            })?;
+            app.manage(logger);
+            app.manage(database);
             if let Some(window) = app.get_webview_window("main") {
                 let monitor = window.current_monitor()?.or(window.primary_monitor()?);
                 if let Some(monitor) = monitor {
@@ -551,6 +630,9 @@ pub fn run() {
             latest_emit250_read,
             recent_card_reads,
             pending_card_reads,
+            write_log,
+            log_path,
+            open_log,
             cached_calendar,
             set_cached_calendar,
             database_path,
@@ -613,6 +695,19 @@ mod tests {
             0x123456
         );
         assert_eq!(parse_punches(&found)[0].time_seconds, 300);
+    }
+
+    #[test]
+    fn drops_the_readout_unit_punch_only_at_the_end() {
+        let mut frame = vec![0_u8; EMIT_250_FRAME_LENGTH];
+        for (index, (code, seconds)) in [(250_u8, 60_u16), (100, 1598), (250, 1603)].iter().enumerate() {
+            let offset = 10 + index * 3;
+            frame[offset] = *code;
+            frame[offset + 1] = (*seconds & 0xff) as u8;
+            frame[offset + 2] = (*seconds >> 8) as u8;
+        }
+        let codes: Vec<u8> = parse_punches(&frame).iter().map(|punch| punch.control_code).collect();
+        assert_eq!(codes, vec![250, 100]);
     }
 
     #[test]

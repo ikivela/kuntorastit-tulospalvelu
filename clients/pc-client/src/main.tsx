@@ -19,6 +19,18 @@ const SYNC_INTERVAL_MS = 30_000;
 const FETCH_TIMEOUT_MS = 10_000;
 let syncRunning = false;
 let syncRequested = false;
+// Last sync problem written to the debug log, so an offline client logs the
+// outage once instead of on every 30 s round.
+let lastLoggedSyncError = "";
+
+/// Debug log entry (client.log in the OS log folder, opened from Asetukset).
+/// Never throws: logging must not break the operation being logged.
+function log(level: "INFO" | "WARN" | "ERROR", source: string, message: string) {
+  void invoke("write_log", { level, source, message }).catch(() => undefined);
+}
+
+window.addEventListener("error", (event) => log("ERROR", "ui", `${event.message} (${event.filename}:${event.lineno})`));
+window.addEventListener("unhandledrejection", (event) => log("ERROR", "ui", `Käsittelemätön virhe: ${String(event.reason)}`));
 
 async function fetchWithTimeout(url: string, init: RequestInit = {}) {
   const controller = new AbortController();
@@ -117,6 +129,8 @@ function App() {
   const [apiBase, setApiBase] = useState(API_BASE);
   const [apiBaseInput, setApiBaseInput] = useState(API_BASE);
   const [apiBaseError, setApiBaseError] = useState("");
+  const [logPath, setLogPath] = useState("");
+  const [logError, setLogError] = useState("");
   const [editingReadId, setEditingReadId] = useState<number | null>(null);
   const [editingSource, setEditingSource] = useState<"EMIT" | "MANUAL" | null>(null);
   const [editingManualDurationSeconds, setEditingManualDurationSeconds] = useState<number | undefined>(undefined);
@@ -201,15 +215,18 @@ function App() {
       const seasons = await response.json() as CalendarSeason[];
       showCalendar(seasons);
       setCalendarCachedAt(null);
+      log("INFO", "calendar", `Kalenteri haettu${background ? " (yhteys palasi)" : ""}: ${seasons.reduce((count, season) => count + season.events.length, 0)} tapahtumaa, ${API_BASE}`);
       await invoke("set_cached_calendar", { json: JSON.stringify({ apiBase: API_BASE, seasons }) }).catch(() => undefined);
-    } catch {
+    } catch (error) {
       if (background) return;
+      log("WARN", "calendar", `Kalenterin haku epäonnistui (${API_BASE}): ${String(error)}`);
       const cached = await invoke<CachedCalendar | null>("cached_calendar").catch(() => null);
       const stored = cached ? parseCachedCalendar(cached.json) : null;
       // A calendar fetched from another server has the wrong event ids.
       if (cached && stored?.apiBase === API_BASE) {
         showCalendar(stored.seasons);
         setCalendarCachedAt(cached.fetchedAtMs);
+        log("INFO", "calendar", `Käytetään tallennettua kalenteria (haettu ${new Date(cached.fetchedAtMs).toLocaleString("fi-FI")})`);
       } else {
         setEvents([]);
         setCalendarCachedAt(null);
@@ -234,6 +251,7 @@ function App() {
     setHistorySearch("");
     setActiveEvent(event);
     activeEventIdRef.current = event.id;
+    log("INFO", "event", `Tapahtuma käynnistetty: ${event.name} (${event.id}), ${event.courses.length} rataa, portti ${selected}`);
     if (await startListening()) {
       await refreshHistory(event.id);
     } else {
@@ -257,10 +275,12 @@ function App() {
       if (data.status === "APPROVED") {
         if (data.token) await invoke("set_setting_value", { key: "reader.device_token", value: data.token });
         setDeviceToken((current) => data.token || current);
+        if (deviceStatus !== "approved") log("INFO", "device", "Laite hyväksytty");
         setDeviceStatus("approved");
       } else if (data.status === "REVOKED") {
         await invoke("clear_setting_value", { key: "reader.device_token" }).catch(() => undefined);
         setDeviceToken("");
+        log("WARN", "device", "Laitteen pääsy on peruutettu");
         setDeviceStatus("revoked");
       } else {
         setDeviceStatus("pending");
@@ -319,6 +339,7 @@ function App() {
       setApiBaseError(String(error));
       return;
     }
+    log("INFO", "settings", `API-osoite vaihdettu: ${API_BASE} -> ${value}`);
     API_BASE = value;
     setApiBase(value); setApiBaseInput(value);
     await forgetDevice();
@@ -326,12 +347,22 @@ function App() {
   }
 
   async function stopEvent() {
+    log("INFO", "event", `Tapahtuma lopetettu: ${activeEvent?.name ?? "–"}`);
     await stopListening();
     setActiveEvent(null);
     activeEventIdRef.current = null;
     setPendingEventId(null);
     setHistory([]);
     setHistorySearch("");
+  }
+
+  async function openLog(folder: boolean) {
+    setLogError("");
+    try {
+      await invoke("open_log", { folder });
+    } catch (error) {
+      setLogError(String(error));
+    }
   }
 
   async function stopListening() {
@@ -427,25 +458,31 @@ function App() {
       } catch {
         // Offline or timed out: the remaining reads would fail the same way.
         roundError = "Ei yhteyttä palvelimeen.";
+        if (lastLoggedSyncError !== roundError) log("WARN", "sync", `${roundError} ${url}`);
         await markSync(read, false, roundError);
         break;
       }
       if (response.status === 401) {
         roundError = "Lukijaa ei ole hyväksytty tai pääsy on peruutettu. Tarkista Asetukset-paneelista.";
+        if (lastLoggedSyncError !== roundError) log("ERROR", "sync", `401 ${url}`);
         await markSync(read, false, roundError);
         break;
       }
       if (!response.ok) {
         const message = `${response.status}: ${await response.text().catch(() => "")}`;
         roundError ||= message;
+        log("ERROR", "sync", `Lukema #${read.id} (${read.source}, kortti ${read.cardNumber ?? "–"}) hylättiin: ${message}`);
         await markSync(read, false, message);
         continue;
       }
       // Edited while the request was out: stays pending and goes again.
+      log("INFO", "sync", `Lukema #${read.id} lähetetty (${read.source}, kortti ${read.cardNumber ?? "–"}, ${read.resultStatus})`);
       if (await markSync(read, true, null)) remaining -= 1;
       else syncRequested = true;
     }
     setSyncState({ pending: remaining, error: remaining ? roundError : "" });
+    if (!roundError && lastLoggedSyncError) log("INFO", "sync", "Yhteys palvelimeen palasi");
+    lastLoggedSyncError = roundError;
   }
 
   // Returns false when the read was edited after it was sent (newer revision).
@@ -479,6 +516,7 @@ function App() {
         durationSeconds,
       });
       const name = `${manualFirstName} ${manualLastName}`;
+      log("INFO", "result", `Käsin syötetty tulos: rata ${activeEvent.courses.find((course) => course.id === manualCourseId)?.name ?? "–"}, aika ${formatDuration(durationSeconds ?? undefined)}`);
       closeManualEntry();
       await refreshHistory();
       setStatus(durationSeconds != null ? `${name}: tulos ${formatDuration(durationSeconds)} tallennettu.` : `${name} lisätty tuloksiin ilman aikaa.`);
@@ -561,6 +599,7 @@ function App() {
         });
       }
       const name = `${pendingParticipant.firstName} ${pendingParticipant.lastName}`;
+      log("INFO", "result", `${editingReadId != null ? `Lukema #${editingReadId} muokattu` : "Kortti kuitattu"}: kortti ${pendingCard.cardNumber ?? "–"}, rata ${activeEvent?.courses.find((course) => course.id === resultCourseId)?.name ?? "–"}, ${resultStatus} (tarkistus ${cardValidation?.status ?? "–"}, tulos ${formatDuration(cardValidation?.resultSeconds ?? undefined)})`);
       const shouldResume = editingReadId == null ? Boolean(activeEvent) : resumeAfterEdit;
       setPendingCard(null); setPendingParticipant(null); setResult(null);
       setPendingEventId(null);
@@ -570,6 +609,7 @@ function App() {
       setStatus(`${name}: ${resultStatusLabel(resultStatus).toLocaleLowerCase("fi-FI")}.`);
       if (shouldResume && activeEvent) await startListening();
     } catch (error) {
+      log("ERROR", "result", `Kuittaus epäonnistui: ${String(error)}`);
       setFormError(String(error));
     }
   }
@@ -586,6 +626,7 @@ function App() {
     setSelectedCourseId(null);
     setFirstName(""); setLastName(""); setClub(""); setFormError("");
     setStatus(cardNumber ? `Kortti ${cardNumber} ohitettu.` : "Ohitettu.");
+    log("INFO", "result", `Kortti ${cardNumber ?? "–"} ohitettu`);
     if (shouldResume && activeEvent) await startListening();
   }
 
@@ -609,6 +650,7 @@ function App() {
 
   useEffect(() => {
     void refresh();
+    void invoke<string>("log_path").then(setLogPath).catch(() => undefined);
     void invoke<string | null>("reader_port_setting").then((port) => {
       if (port) setSelected(port);
     }).catch(() => undefined);
@@ -783,6 +825,7 @@ function App() {
             // one), so most known people have no local event_registrations row —
             // an event-scoped lookup would call everyone "unknown".
             const participant = await invoke<Participant | null>("participant_by_card", { cardNumber: latest.cardNumber });
+            log("INFO", "reader", `Kortti ${latest.cardNumber} noudettu kuitattavaksi (${participant ? "tunnettu" : "tuntematon"} kortti)`);
             setPendingCard(latest);
             setSelectedCourseId(null);
             setPendingEventId(activeEvent.id);
@@ -849,7 +892,7 @@ function App() {
         <div className="modal-backdrop" role="presentation">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
             <h2 id="settings-title">Asetukset</h2>
-            <div className="reader-settings"><select value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading}><option value="">Valitse sarjaportti</option>{devices.map((device) => <option key={device.portName} value={device.portName}>{device.portName} – {device.product || device.manufacturer || device.portType}</option>)}</select><input className="port-input" value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading} placeholder="Sarjaportin polku" aria-label="Sarjaportin polku" /><button type="button" onClick={() => void refresh()} disabled={reading}>Päivitä portit</button><div className="device-row">{deviceStatus === "unregistered" || deviceStatus === "revoked" ? <>{deviceStatus === "revoked" && <p className="error">Ylläpitäjä on peruuttanut tämän laitteen pääsyn. Rekisteröidy uudelleen.</p>}<input className="device-name-input" value={deviceNameInput} onChange={(e) => setDeviceNameInput(e.target.value)} placeholder="Laitteen nimi, esim. Maalin lukija #1" aria-label="Laitteen nimi" /><button type="button" onClick={() => void registerDevice()} disabled={!deviceNameInput.trim()}>Lähetä hyväksyntäpyyntö</button></> : deviceStatus === "pending" ? <><span>Odotetaan ylläpitäjän hyväksyntää (nimellä &quot;{deviceName}&quot;)…</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button></> : <><span className="device-approved">✓ Hyväksytty (nimellä &quot;{deviceName}&quot;)</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button><button type="button" onClick={() => void forgetDevice()}>Unohda laite</button></>}{deviceError && <p className="error">{deviceError}</p>}</div><form className="api-row" onSubmit={(event) => { event.preventDefault(); void saveApiBase(apiBaseInput); }}><label htmlFor="api-base-input">API-osoite</label><input id="api-base-input" className="api-base-input" value={apiBaseInput} onChange={(e) => setApiBaseInput(e.target.value)} disabled={!!activeEvent} placeholder={DEFAULT_API_BASE} spellCheck={false} /><button type="submit" disabled={!!activeEvent || normalizeApiBase(apiBaseInput) === apiBase}>Tallenna</button>{apiBase !== DEFAULT_API_BASE && <button type="button" disabled={!!activeEvent} onClick={() => void saveApiBase(DEFAULT_API_BASE)}>Palauta oletus</button>}<p className="hint">{activeEvent ? "Osoitetta voi vaihtaa vain, kun tapahtuma ei ole käynnissä." : "Osoitteen vaihto unohtaa laitteen hyväksynnän: lähetä hyväksyntäpyyntö uudelle palvelimelle."}</p>{apiBaseError && <p className="error">{apiBaseError}</p>}</form></div>
+            <div className="reader-settings"><select value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading}><option value="">Valitse sarjaportti</option>{devices.map((device) => <option key={device.portName} value={device.portName}>{device.portName} – {device.product || device.manufacturer || device.portType}</option>)}</select><input className="port-input" value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading} placeholder="Sarjaportin polku" aria-label="Sarjaportin polku" /><button type="button" onClick={() => void refresh()} disabled={reading}>Päivitä portit</button><div className="device-row">{deviceStatus === "unregistered" || deviceStatus === "revoked" ? <>{deviceStatus === "revoked" && <p className="error">Ylläpitäjä on peruuttanut tämän laitteen pääsyn. Rekisteröidy uudelleen.</p>}<input className="device-name-input" value={deviceNameInput} onChange={(e) => setDeviceNameInput(e.target.value)} placeholder="Laitteen nimi, esim. Maalin lukija #1" aria-label="Laitteen nimi" /><button type="button" onClick={() => void registerDevice()} disabled={!deviceNameInput.trim()}>Lähetä hyväksyntäpyyntö</button></> : deviceStatus === "pending" ? <><span>Odotetaan ylläpitäjän hyväksyntää (nimellä &quot;{deviceName}&quot;)…</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button></> : <><span className="device-approved">✓ Hyväksytty (nimellä &quot;{deviceName}&quot;)</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button><button type="button" onClick={() => void forgetDevice()}>Unohda laite</button></>}{deviceError && <p className="error">{deviceError}</p>}</div><form className="api-row" onSubmit={(event) => { event.preventDefault(); void saveApiBase(apiBaseInput); }}><label htmlFor="api-base-input">API-osoite</label><input id="api-base-input" className="api-base-input" value={apiBaseInput} onChange={(e) => setApiBaseInput(e.target.value)} disabled={!!activeEvent} placeholder={DEFAULT_API_BASE} spellCheck={false} /><button type="submit" disabled={!!activeEvent || normalizeApiBase(apiBaseInput) === apiBase}>Tallenna</button>{apiBase !== DEFAULT_API_BASE && <button type="button" disabled={!!activeEvent} onClick={() => void saveApiBase(DEFAULT_API_BASE)}>Palauta oletus</button>}<p className="hint">{activeEvent ? "Osoitetta voi vaihtaa vain, kun tapahtuma ei ole käynnissä." : "Osoitteen vaihto unohtaa laitteen hyväksynnän: lähetä hyväksyntäpyyntö uudelle palvelimelle."}</p>{apiBaseError && <p className="error">{apiBaseError}</p>}</form><div className="log-row"><span className="log-row-label">Debug-loki</span><button type="button" onClick={() => void openLog(false)}>Avaa loki</button><button type="button" onClick={() => void openLog(true)}>Avaa kansio</button>{logPath && <p className="hint">{logPath}</p>}{logError && <p className="error">{logError}</p>}</div></div>
             <div className="confirm-actions"><button type="button" className="primary" onClick={() => setSettingsOpen(false)}>Sulje</button></div>
           </section>
         </div>
@@ -893,14 +936,14 @@ function App() {
 
       <section>
         <div className="log-heading"><div><h2>Tulokset</h2><p>{history.length} viimeisintä tulosta</p>{syncState && (syncState.pending > 0 ? <p className="sync-summary pending">{syncState.pending} {syncState.pending === 1 ? "tulos odottaa" : "tulosta odottaa"} lähetystä{syncState.error ? ` · ${syncState.error}` : ""} <button type="button" className="link-button" onClick={() => void syncPending()}>Lähetä nyt</button></p> : <p className="sync-summary ok">✓ Kaikki tulokset lähetetty</p>)}</div><div className="log-heading-actions"><label className="log-search"><span className="sr-only">Hae tuloksista</span><input type="search" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Hae nimellä, seuralla tai kortilla…" /></label><button onClick={openManualEntry} disabled={!activeEvent}>+ Syötä osanottoja</button></div></div>
-        {history.length === 0 ? <p>Ei tallennettuja tuloksia.</p> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Seura</th><th>Rata</th><th>Aika</th><th><span className="sr-only">Lähetys</span></th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td className="log-read-at"><time>{new Date(item.readAtMs).toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="log-club">{item.club || "–"}</td><td className="log-course">{activeEvent?.courses.find((course) => course.id === item.courseId)?.name ?? "–"}</td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : item.resultStatus === "DID_NOT_FINISH" ? "Keskeytti" : formatDuration(item.source === "MANUAL" ? item.manualDurationSeconds : totalTime(item.punches))}</td><td className={`log-sync ${item.syncStatus.toLowerCase()}`} title={syncStatusLabel(item)}>{item.syncStatus === "SYNCED" ? "✓" : item.syncStatus === "ERROR" ? "!" : "…"}<span className="sr-only">{syncStatusLabel(item)}</span></td></tr>)}</tbody></table></div></>}
+        {history.length === 0 ? <p>Ei tallennettuja tuloksia.</p> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Seura</th><th>Rata</th><th>Aika</th><th><span className="sr-only">Lähetys</span></th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td className="log-read-at"><time>{new Date(item.readAtMs).toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="log-club">{item.club || "–"}</td><td className="log-course">{activeEvent?.courses.find((course) => course.id === item.courseId)?.name ?? "–"}</td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : item.resultStatus === "DID_NOT_FINISH" ? "Keskeytti" : formatDuration(item.source === "MANUAL" ? item.manualDurationSeconds : cardResultSeconds(item.punches, activeEvent?.courses.find((course) => course.id === item.courseId)))}</td><td className={`log-sync ${item.syncStatus.toLowerCase()}`} title={syncStatusLabel(item)}>{item.syncStatus === "SYNCED" ? "✓" : item.syncStatus === "ERROR" ? "!" : "…"}<span className="sr-only">{syncStatusLabel(item)}</span></td></tr>)}</tbody></table></div></>}
       </section>
 
       {pendingCard && (
         <div className="modal-backdrop" role="presentation">
           <section className={`modal ${pendingParticipant ? "result-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="participant-title">
             <h2 id="participant-title">{editingReadId != null ? "Muokkaa lukutulosta" : pendingParticipant ? "Kuittaa lukutulos" : "Uusi osallistuja"}</h2>
-            {pendingParticipant ? <div className="result-confirm"><aside className={`result-person ${cardValidation?.status === "DISQUALIFIED" || cardValidation?.status === "MISSING_CONTROL" ? "disqualified" : ""}`}><span className="eyebrow">Osallistuja</span><div className="result-person-edit"><label>Etunimi<input value={pendingParticipant.firstName} onChange={(event) => { const value = event.target.value; setPendingParticipant((prev) => prev ? { ...prev, firstName: value } : prev); }} /></label><label>Sukunimi<input value={pendingParticipant.lastName} onChange={(event) => { const value = event.target.value; setPendingParticipant((prev) => prev ? { ...prev, lastName: value } : prev); }} /></label><label>Seura<input value={pendingParticipant.club ?? ""} onChange={(event) => { const value = event.target.value; setPendingParticipant((prev) => prev ? { ...prev, club: value } : prev); }} placeholder="Ei seuraa" /></label><label>Rata<select value={resultCourseId ?? ""} onChange={(event) => setSelectedCourseId(event.target.value || null)}>{!resultCourseId && <option value="">Valitse rata</option>}{activeEvent?.courses.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select></label></div>{cardValidation &&<div className={`validation-badge ${cardValidation.status.toLowerCase()}`}>{cardValidation.status === "ACCEPTED" ? `Hyväksytty · ${cardValidation.courseName}` : cardValidation.status === "MISSING_CONTROL" ? `Rasti puuttuu · rata ${cardValidation.courseName}` : cardValidation.status === "DISQUALIFIED" ? `Hylätty · ei vastaa rataa ${cardValidation.courseName}` : "Ratadata puuttuu · käynnistä tapahtuma uudelleen"}</div>}<dl>{editingSource === "MANUAL" ? <><dt>Tulos</dt><dd className="result-time">{formatDuration(editingManualDurationSeconds)}</dd></> : <><dt>EMIT-kortti</dt><dd>{pendingCard.cardNumber}</dd><dt>Rasteja</dt><dd>{pendingCard.punches.length}</dd><dt>Tulos</dt><dd className="result-time">{cardValidation?.status === "DISQUALIFIED" ? "Hylätty" : cardValidation?.status === "MISSING_CONTROL" ? "Rasti puuttuu" : formatDuration(totalTime(pendingCard.punches))}</dd></>}</dl></aside>{editingSource !== "MANUAL" && <div className="punch-panel"><table className="punch-table"><thead><tr><th>Rasti</th><th>Koodi</th><th>Väliaika</th><th>Lähdöstä</th><th>Huomio</th></tr></thead><tbody>{pendingCard.punches.map((punch, index) => { const elapsed = totalTime(pendingCard.punches.slice(0, index + 1)); const invalid = cardValidation?.invalidIndices.includes(index); return <tr className={invalid ? "invalid-punch" : ""} key={`${index}-${punch.controlCode}`}><td>{index + 1}</td><td>{punch.controlCode}</td><td>{formatDuration(punch.timeSeconds)}</td><td>{formatDuration(elapsed)}</td><td>{invalid ? `Odotettu ${cardValidation?.expectedCodes[index] ?? "–"}` : ""}</td></tr>; })}</tbody></table></div>}{formError && <p className="error result-error">{formError}</p>}<div className="confirm-actions">{cardValidation?.status === "DISQUALIFIED" ? <button className="danger" onClick={() => void confirmResult("DISQUALIFIED")}>Kuittaa hylätty</button> : cardValidation?.status === "MISSING_CONTROL" ? <button className="danger" onClick={() => void confirmResult("MISSING_CONTROL")}>Kuittaa: rasti puuttuu</button> : <button className="primary" onClick={() => void confirmResult("OK")}>Tulos OK</button>}{editingSource !== "MANUAL" && <button onClick={() => void confirmResult("DID_NOT_FINISH")}>Keskeytti</button>}<button onClick={() => void confirmResult("NO_TIME")}>Ilman aikaa</button></div></div> : <><p>EMIT-korttia <strong>{pendingCard.cardNumber}</strong> ei löydy tietokannasta.</p><form onSubmit={(event) => void saveParticipant(event)}>
+            {pendingParticipant ? <div className="result-confirm"><aside className={`result-person ${cardValidation?.status === "DISQUALIFIED" || cardValidation?.status === "MISSING_CONTROL" ? "disqualified" : ""}`}><span className="eyebrow">Osallistuja</span><div className="result-person-edit"><label>Etunimi<input value={pendingParticipant.firstName} onChange={(event) => { const value = event.target.value; setPendingParticipant((prev) => prev ? { ...prev, firstName: value } : prev); }} /></label><label>Sukunimi<input value={pendingParticipant.lastName} onChange={(event) => { const value = event.target.value; setPendingParticipant((prev) => prev ? { ...prev, lastName: value } : prev); }} /></label><label>Seura<input value={pendingParticipant.club ?? ""} onChange={(event) => { const value = event.target.value; setPendingParticipant((prev) => prev ? { ...prev, club: value } : prev); }} placeholder="Ei seuraa" /></label><label>Rata<select value={resultCourseId ?? ""} onChange={(event) => setSelectedCourseId(event.target.value || null)}>{!resultCourseId && <option value="">Valitse rata</option>}{activeEvent?.courses.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select></label></div>{cardValidation &&<div className={`validation-badge ${cardValidation.status.toLowerCase()}`}>{cardValidation.status === "ACCEPTED" ? `Hyväksytty · ${cardValidation.courseName}` : cardValidation.status === "MISSING_CONTROL" ? `Rasti puuttuu (${cardValidation.missingCodes.join(", ")}) · rata ${cardValidation.courseName}` : cardValidation.status === "DISQUALIFIED" ? `Hylätty · ei vastaa rataa ${cardValidation.courseName} (puuttuu ${cardValidation.missingCodes.join(", ")})` : "Ratadata puuttuu · käynnistä tapahtuma uudelleen"}</div>}<dl>{editingSource === "MANUAL" ? <><dt>Tulos</dt><dd className="result-time">{formatDuration(editingManualDurationSeconds)}</dd></> : <><dt>EMIT-kortti</dt><dd>{pendingCard.cardNumber}</dd><dt>Rasteja</dt><dd>{pendingCard.punches.length}</dd><dt>Tulos</dt><dd className="result-time">{cardValidation?.status === "DISQUALIFIED" ? "Hylätty" : cardValidation?.status === "MISSING_CONTROL" ? "Rasti puuttuu" : formatDuration(cardValidation ? cardValidation.resultSeconds ?? undefined : pendingCard.punches.at(-1)?.timeSeconds)}</dd></>}</dl></aside>{editingSource !== "MANUAL" && <div className="punch-panel"><table className="punch-table"><thead><tr><th>Rasti</th><th>Koodi</th><th>Väliaika</th><th>Lähdöstä</th><th>Huomio</th></tr></thead><tbody>{pendingCard.punches.map((punch, index) => { const controlNumber = cardValidation ? cardValidation.matchedIndices.indexOf(index) : -1; const isFinish = cardValidation?.finishIndex === index; const extra = cardValidation != null && cardValidation.status !== "UNAVAILABLE" && controlNumber === -1 && !isFinish; return <tr className={extra ? "extra-punch" : ""} key={`${index}-${punch.controlCode}`}><td>{index + 1}</td><td>{punch.controlCode}</td><td>{formatDuration(splitSeconds(pendingCard.punches, index))}</td><td>{formatDuration(punch.timeSeconds)}</td><td>{isFinish ? "Maali" : controlNumber >= 0 ? `Rasti ${controlNumber + 1}` : extra ? "Ylimääräinen" : ""}</td></tr>; })}</tbody></table></div>}{formError && <p className="error result-error">{formError}</p>}<div className="confirm-actions">{cardValidation?.status === "DISQUALIFIED" ? <button className="danger" onClick={() => void confirmResult("DISQUALIFIED")}>Kuittaa hylätty</button> : cardValidation?.status === "MISSING_CONTROL" ? <button className="danger" onClick={() => void confirmResult("MISSING_CONTROL")}>Kuittaa: rasti puuttuu</button> : <button className="primary" onClick={() => void confirmResult("OK")}>Tulos OK</button>}{editingSource !== "MANUAL" && <button onClick={() => void confirmResult("DID_NOT_FINISH")}>Keskeytti</button>}<button onClick={() => void confirmResult("NO_TIME")}>Ilman aikaa</button></div></div> : <><p>EMIT-korttia <strong>{pendingCard.cardNumber}</strong> ei löydy tietokannasta.</p><form onSubmit={(event) => void saveParticipant(event)}>
               <label>Etunimi<input autoFocus required value={firstName} onChange={(event) => setFirstName(event.target.value)} /></label>
               <label>Sukunimi<input required value={lastName} onChange={(event) => setLastName(event.target.value)} /></label>
               <label>Seura<input value={club} onChange={(event) => setClub(event.target.value)} /></label>
@@ -1058,8 +1101,9 @@ function parseDurationInput(value: string): number | null {
   return seconds >= 1 && seconds <= 24 * 60 * 60 ? seconds : null;
 }
 
-function totalTime(punches: ProbeResult["punches"]) {
-  return punches.reduce((total, punch) => total + punch.timeSeconds, 0);
+// EMIT punch times are seconds from the start (cumulative), not leg times.
+function splitSeconds(punches: ProbeResult["punches"], index: number) {
+  return punches[index].timeSeconds - (index > 0 ? punches[index - 1].timeSeconds : 0);
 }
 
 function nearestEventToNow(events: CalendarEvent[], now = Date.now()) {
@@ -1090,40 +1134,70 @@ function resultStatusLabel(status: ResultStatus) {
   return "OK";
 }
 
-function validateCourse(punches: ProbeResult["punches"], courses: Course[]) {
-  const candidates = courses
-    .filter((course) => course.controls?.length)
-    .map((course) => ({
-      course,
-      // START is never an actual EMIT punch. FINISH usually isn't either
-      // (a symbolic code like "M"/"F" for a plain download-station finish),
-      // but when a course does have a real numbered finish punch unit (e.g.
-      // "100"), Number.isFinite below keeps it in the expected sequence so
-      // that trailing punch is matched instead of flagged as unexpected.
-      codes: course.controls!
-        .filter((item) => item.type !== "START")
-        .map((item) => Number(item.controlCodes[0] || item.control.code))
-        .filter(Number.isFinite),
-    }));
-  if (candidates.length === 0) return { status: "UNAVAILABLE" as const, courseId: undefined, courseName: "–", expectedCodes: [] as number[], invalidIndices: [] as number[] };
-  const actual = punches.map((punch) => punch.controlCode);
-  const exact = candidates.find(({ codes }) => codes.length === actual.length && codes.every((code, index) => code === actual[index]));
-  if (exact) return { status: "ACCEPTED" as const, courseId: exact.course.id, courseName: exact.course.name, expectedCodes: exact.codes, invalidIndices: [] as number[] };
-  const missing = candidates.find(({ codes }) => actual.length < codes.length && isSubsequence(actual, codes));
-  if (missing) return { status: "MISSING_CONTROL" as const, courseId: missing.course.id, courseName: missing.course.name, expectedCodes: missing.codes, invalidIndices: [] as number[] };
-  const closest = candidates.reduce((best, candidate) => {
-    const matches = candidate.codes.filter((code, index) => actual[index] === code).length;
-    return matches > best.matches ? { course: candidate.course, matches } : best;
-  }, { course: candidates[0].course, matches: -1 });
-  const expectedCodes = candidates.find((candidate) => candidate.course.id === closest.course.id)?.codes ?? [];
-  const invalidIndices = actual.flatMap((code, index) => code === expectedCodes[index] ? [] : [index]);
-  return { status: "DISQUALIFIED" as const, courseId: closest.course.id, courseName: closest.course.name, expectedCodes, invalidIndices };
+type CardCheck = {
+  status: "ACCEPTED" | "MISSING_CONTROL" | "DISQUALIFIED";
+  matchedIndices: number[]; // punch index of each course control found, in course order
+  missingCodes: number[];
+  finishIndex: number | null; // punch whose time is the result
+  resultSeconds: number | null;
+};
+
+/// Codes a card must contain in order: the course's controls, plus its
+/// FINISH when that is a numbered punch unit (e.g. "100"). START is never
+/// punched, and a symbolic finish ("M") has no punch of its own.
+function courseCodes(course: Course) {
+  const controls = (course.controls ?? []).filter((item) => item.type !== "START");
+  const numbered = controls
+    .map((item) => ({ type: item.type, code: Number(item.controlCodes[0] || item.control.code) }))
+    .filter((item) => Number.isFinite(item.code));
+  return { codes: numbered.map((item) => item.code), finishPunched: numbered.at(-1)?.type === "FINISH" };
 }
 
-function isSubsequence(actual: number[], expected: number[]) {
-  let actualIndex = 0;
-  for (const code of expected) {
-    if (actual[actualIndex] === code) actualIndex += 1;
+/// Checks a card against one course the way orienteering rules do: every
+/// course control must be found in order, extra punches (a finish or readout
+/// unit, a control visited by mistake) are allowed. The result time is the
+/// finish punch: the course's numbered finish, or else the first punch after
+/// the last control; without one, the last punch.
+function checkCard(punches: ProbeResult["punches"], codes: number[], finishPunched: boolean): CardCheck {
+  const matchedIndices: number[] = [];
+  const missingCodes: number[] = [];
+  let from = 0;
+  for (const code of codes) {
+    const index = punches.findIndex((punch, punchIndex) => punchIndex >= from && punch.controlCode === code);
+    if (index === -1) { missingCodes.push(code); continue; }
+    matchedIndices.push(index);
+    from = index + 1;
   }
-  return actualIndex === actual.length;
+  const status = missingCodes.length === 0 ? "ACCEPTED" : matchedIndices.length * 2 >= codes.length ? "MISSING_CONTROL" : "DISQUALIFIED";
+  const lastMatched = matchedIndices.at(-1);
+  const finishIndex = status !== "ACCEPTED" || lastMatched == null ? null
+    : finishPunched ? lastMatched
+    : lastMatched + 1 < punches.length ? lastMatched + 1 : null;
+  const resultPunch = finishIndex != null ? punches[finishIndex] : punches.at(-1);
+  return { status, matchedIndices, missingCodes, finishIndex, resultSeconds: resultPunch?.timeSeconds ?? null };
+}
+
+/// Picks the course the card fits best: an accepted course with the most
+/// controls (a card that completes C also contains the shorter D), else the
+/// one with the largest share of its controls found.
+function validateCourse(punches: ProbeResult["punches"], courses: Course[]) {
+  const candidates = courses
+    .map((course) => ({ course, ...courseCodes(course) }))
+    .filter((candidate) => candidate.codes.length > 0)
+    .map((candidate) => ({ ...candidate, check: checkCard(punches, candidate.codes, candidate.finishPunched) }));
+  if (candidates.length === 0) {
+    return { status: "UNAVAILABLE" as const, courseId: undefined, courseName: "–", matchedIndices: [] as number[], missingCodes: [] as number[], finishIndex: null, resultSeconds: punches.at(-1)?.timeSeconds ?? null };
+  }
+  const score = (candidate: (typeof candidates)[number]) => candidate.check.status === "ACCEPTED"
+    ? 2 + candidate.codes.length / 1000
+    : candidate.check.matchedIndices.length / candidate.codes.length;
+  const best = candidates.reduce((winner, candidate) => score(candidate) > score(winner) ? candidate : winner);
+  return { ...best.check, courseId: best.course.id, courseName: best.course.name };
+}
+
+/// Result time of a stored read on its course (seconds from the start).
+function cardResultSeconds(punches: ProbeResult["punches"], course: Course | undefined) {
+  if (!course) return punches.at(-1)?.timeSeconds;
+  const { codes, finishPunched } = courseCodes(course);
+  return (codes.length ? checkCard(punches, codes, finishPunched).resultSeconds : punches.at(-1)?.timeSeconds) ?? undefined;
 }

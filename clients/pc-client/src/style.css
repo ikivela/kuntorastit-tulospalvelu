@@ -49,6 +49,10 @@ button:disabled { opacity: .5; cursor: default; }
 .api-base-input { flex: 1; min-width: 260px; }
 .api-row .hint, .api-row .error { flex-basis: 100%; margin: 0; }
 .api-row .hint { color: #5b6578; font-size: .85rem; }
+.log-row { flex-basis: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #edf0f3; }
+.log-row-label { font-weight: 600; }
+.log-row .hint, .log-row .error { flex-basis: 100%; margin: 0; }
+.log-row .hint { color: #5b6578; font-size: .85rem; word-break: break-all; }
 .event-start .hint { color: #5b6578; font-size: .85rem; margin: 4px 0 10px; }
 .course-list { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px solid #edf0f3; }
 .course-list span { border-radius: 999px; background: #edf5ef; color: #244b30; padding: 6px 10px; font-size: .88rem; font-weight: 650; }
@@ -145,6 +149,7 @@ pre { overflow: auto; white-space: pre-wrap; word-break: break-all; background: 
 .punch-table th:first-child, .punch-table td:first-child { text-align: center; }
 .punch-table td:nth-child(2) { font-weight: 750; }
 .punch-table .invalid-punch td { background: #fff0ee; color: #b42318; }
+.punch-table .extra-punch td { color: #7a8494; }
 .punch-table .invalid-punch td:nth-child(2) { font-size: 1.05rem; }
 .punch-table td:last-child { min-width: 90px; font-size: .78rem; font-weight: 700; }
 .result-error, .confirm-actions { grid-column: 1 / -1; }
