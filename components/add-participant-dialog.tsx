@@ -75,7 +75,7 @@ export function AddParticipantDialog({ eventId, courses, authHeaders, onSessionE
     let durationSeconds: number | null = null;
     if (duration.trim()) {
       durationSeconds = parseDuration(duration);
-      if (durationSeconds == null) { setError("Anna aika muodossa mm:ss tai h:mm:ss, esim. 38:42."); return; }
+      if (durationSeconds == null) { setError("Anna aika muodossa mm:ss tai h:mm:ss (sekunnit kahdella numerolla, 00–59), esim. 38:42 tai 1:05:09. Enintään 24 tuntia."); return; }
     }
     setSaving(true);
     try {
@@ -114,8 +114,14 @@ export function AddParticipantDialog({ eventId, courses, authHeaders, onSessionE
 
 function parseDuration(value: string) {
   const parts = value.trim().split(":");
-  if (parts.length < 2 || parts.length > 3 || parts.some((part) => !/^\d+$/.test(part))) return null;
+  // The first part is minutes (mm:ss, may exceed 59, e.g. 75:30) or hours
+  // (h:mm:ss); the rest are two-digit minutes/seconds 00–59, so a typo like
+  // 38:75 or the ambiguous 38:5 is rejected instead of silently shifted.
+  if (parts.length < 2 || parts.length > 3 || !/^\d{1,4}$/.test(parts[0]) || parts.slice(1).some((part) => !/^[0-5]\d$/.test(part))) return null;
   const numbers = parts.map(Number);
-  const seconds = numbers.length === 3 ? numbers[0] * 3600 + numbers[1] * 60 + numbers[2] : numbers[0] * 60 + numbers[1];
-  return seconds > 0 && seconds <= 24 * 60 * 60 ? seconds : null;
+  const seconds = numbers.length === 3
+    ? numbers[0] * 3600 + numbers[1] * 60 + numbers[2]
+    : numbers[0] * 60 + numbers[1];
+  // Same range the API accepts (1 s – 24 h).
+  return seconds >= 1 && seconds <= 24 * 60 * 60 ? seconds : null;
 }

@@ -17,6 +17,9 @@ pub struct Database {
 /// client; manual results sync to the API without a card number.
 const MANUAL_CARD_NUMBER_BASE: u32 = 900_000_000;
 
+/// Upper limit of a hand-entered time, the same the API accepts (24 h).
+const MAX_MANUAL_DURATION_SECONDS: i64 = 24 * 60 * 60;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,6 +223,8 @@ mod tests {
         let pekka = history.iter().find(|item| item.id == second_id).unwrap();
         assert_eq!(pekka.result_status, "OK");
         assert_eq!(pekka.manual_duration_seconds, Some(2322));
+        assert!(database.add_manual_result("event-1", Some("course-1"), "Liian", "Pitkä", None, None, Some(MAX_MANUAL_DURATION_SECONDS + 1)).is_err());
+        assert!(database.add_manual_result("event-1", Some("course-1"), "Nolla", "Aika", None, None, Some(0)).is_err());
         drop(database);
         let _ = std::fs::remove_file(path);
     }
@@ -703,6 +708,10 @@ impl Database {
     pub fn add_manual_result(&self, event_id: &str, course_id: Option<&str>, first_name: &str, last_name: &str, club: Option<&str>, person_id: Option<&str>, duration_seconds: Option<i64>) -> Result<i64, String> {
         if first_name.trim().is_empty() || last_name.trim().is_empty() {
             return Err("Etunimi ja sukunimi ovat pakollisia.".into());
+        }
+        // The API rejects anything else, which would leave the read unsyncable.
+        if duration_seconds.is_some_and(|seconds| !(1..=MAX_MANUAL_DURATION_SECONDS).contains(&seconds)) {
+            return Err("Ajan pitää olla 1 sekunnin ja 24 tunnin välillä.".into());
         }
         let result_status = if duration_seconds.is_some() { "OK" } else { "NO_TIME" };
         let mut connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
