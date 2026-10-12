@@ -95,6 +95,7 @@ export default function InstructionsPage() {
           <ul className="ml-5 list-disc space-y-1.5">
             <li><b>Kuntorastit Client</b> (suositus): toimii myös ilman verkkoyhteyttä ja sisältää paikallisen henkilörekisterin. Katso ohjeet alta.</li>
             <li><b>Tulospalvelu selaimessa</b> (ylävalikko): liitä EMIT 250 -lukija koneeseen, Käynnistä tulospalvelu ja paina <b>Yhdistä lukijaan</b>. Kortinluku toimii vain Chromessa tai Edgessä https-osoitteesta, ja vaatii jatkuvan verkkoyhteyden. Kuittaa jokainen luettu kortti ennen sivun sulkemista. <b>Lisää osanottaja</b> lisää osallistujan käsin (ei korttia tai luenta epäonnistui): hae henkilö tai kirjoita nimi, valitse rata ja anna halutessasi aika.</li>
+            <li><b>Tulokset</b> (tapahtumakortin nappi): tapahtuman tulokset radoittain. Korjaa tulosta (rata, tulos, aika; EMIT-tuloksella leimat näkyvät ja tarkistetaan valittua rataa vasten) tai poista virheellinen tulos. Toimii myös menneille tapahtumille. Huom. jos samaa tulosta muokataan myöhemmin lukijaohjelmassa, sen versio korvaa korjauksen.</li>
           </ul>
           <p>Tulokset näkyvät julkisella tulossivulla (kalenteri → tapahtuma → <b>Tulokset</b>) ja päivittyvät automaattisesti sitä mukaa kuin kortteja luetaan.</p>
           <p>Kun tapahtuma on pidetty, vaihda sen tilaksi <b>Päättynyt</b>.</p>

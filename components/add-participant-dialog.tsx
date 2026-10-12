@@ -7,6 +7,7 @@ import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/co
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { DURATION_FORMAT_HINT, parseDuration } from "@/lib/duration";
 import { API_BASE } from "@/lib/site";
 
 type PersonMatch = { id: string; firstName: string; lastName: string; clubName: string | null };
@@ -75,7 +76,7 @@ export function AddParticipantDialog({ eventId, courses, authHeaders, onSessionE
     let durationSeconds: number | null = null;
     if (duration.trim()) {
       durationSeconds = parseDuration(duration);
-      if (durationSeconds == null) { setError("Anna aika muodossa mm:ss tai h:mm:ss (sekunnit kahdella numerolla, 00–59), esim. 38:42 tai 1:05:09. Enintään 24 tuntia."); return; }
+      if (durationSeconds == null) { setError(DURATION_FORMAT_HINT); return; }
     }
     setSaving(true);
     try {
@@ -110,18 +111,4 @@ export function AddParticipantDialog({ eventId, courses, authHeaders, onSessionE
       <DialogFooter><Button type="button" variant="ghost" className="rounded-full" onClick={onClose}>Peruuta</Button><Button type="submit" className="rounded-full" disabled={saving}>{saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : <UserPlus className="mr-2 size-4" />}{duration.trim() ? "Tallenna tulos" : "Tallenna ilman aikaa"}</Button></DialogFooter>
     </form>
   </>;
-}
-
-function parseDuration(value: string) {
-  const parts = value.trim().split(":");
-  // The first part is minutes (mm:ss, may exceed 59, e.g. 75:30) or hours
-  // (h:mm:ss); the rest are two-digit minutes/seconds 00–59, so a typo like
-  // 38:75 or the ambiguous 38:5 is rejected instead of silently shifted.
-  if (parts.length < 2 || parts.length > 3 || !/^\d{1,4}$/.test(parts[0]) || parts.slice(1).some((part) => !/^[0-5]\d$/.test(part))) return null;
-  const numbers = parts.map(Number);
-  const seconds = numbers.length === 3
-    ? numbers[0] * 3600 + numbers[1] * 60 + numbers[2]
-    : numbers[0] * 60 + numbers[1];
-  // Same range the API accepts (1 s – 24 h).
-  return seconds >= 1 && seconds <= 24 * 60 * 60 ? seconds : null;
 }
