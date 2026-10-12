@@ -170,7 +170,9 @@ export default function InstructionsPage() {
         </Section>
 
         <Section id="client-korjaus" title="6. Tulosten korjaaminen">
-          <p>Tulokset-taulukko näyttää tapahtuman luetut ja syötetyt tulokset. Hakukentällä voi hakea nimen, seuran tai kortin numeron perusteella. Klikkaa nimeä avataksesi <b>Muokkaa lukutulosta</b>, jossa voit korjata nimen tai seuran tai kuitata tuloksen uudelleen eri tilalla. Korjaus lähetetään tulospalveluun samalla tavalla kuin alkuperäinen tulos.</p>
+          <p>Tulokset-taulukko näyttää tapahtuman luetut ja syötetyt tulokset. Hakukentällä voi hakea nimen, seuran tai kortin numeron perusteella. Klikkaa nimeä avataksesi <b>Muokkaa lukutulosta</b>, jossa voit korjata nimen tai seuran tai kuitata tuloksen uudelleen eri tilalla. Korjaus lähetetään tulospalveluun samalla tavalla kuin alkuperäinen tulos, ja se korvaa palvelimella aiemman version.</p>
+          <p>Osallistuja voi kiertää tapahtumassa useamman radan samalla tai eri EMIT-kortilla, ja jokainen rata saa oman tuloksensa. Samalla kortilla samalle radalle kirjataan kuitenkin vain yksi tulos: jos kortti luetaan uudelleen samalle radalle (myös toisella koneella tai selaimen Tulospalvelussa), uusin luenta korvaa aiemman. Uusin ratkaistaan lukuhetken mukaan, joten offline-tilassa olleen koneen myöhässä lähettämä vanha luenta ei korvaa uudempaa. Käsin syötetty tulos korvaa saman osallistujan aiemman käsin syötetyn tuloksen samalla radalla.</p>
+          <Note>Jos kortti kirjattiin väärälle radalle, korjaa se avaamalla tulos Tulokset-taulukosta ja vaihtamalla rata. Kortin lukeminen uudelleen toiselle radalle lisää uuden tuloksen eikä poista väärää.</Note>
         </Section>
 
         <Section id="client-offline" title="7. Kun verkkoyhteys katkeilee">

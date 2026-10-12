@@ -21,6 +21,8 @@ export function findEmit250Frame(raw: Uint8Array): { card: EmitCard; end: number
   return null;
 }
 
+const READOUT_UNIT_CODE = 250;
+
 function decodeFrame(frame: Uint8Array): EmitCard {
   const punches: EmitPunch[] = [];
   for (let index = 0; index < 50; index += 1) {
@@ -29,6 +31,9 @@ function decodeFrame(frame: Uint8Array): EmitCard {
     const timeSeconds = frame[offset + 1] | (frame[offset + 2] << 8);
     if (controlCode !== 0 || timeSeconds !== 0) punches.push({ controlCode, timeSeconds });
   }
+  // The readout unit writes its own code as the last punch when the card is
+  // read; it is not a control.
+  if (punches.at(-1)?.controlCode === READOUT_UNIT_CODE) punches.pop();
   return {
     cardNumber: frame[2] | (frame[3] << 8) | (frame[4] << 16),
     punches,
@@ -43,51 +48,76 @@ export type CourseForValidation = { id: string; name: string; controls?: { type:
 export type CourseValidation = {
   status: "ACCEPTED" | "MISSING_CONTROL" | "DISQUALIFIED" | "UNAVAILABLE";
   courseId?: string;
-  expectedCodes: number[];
-  invalidIndices: number[];
+  matchedIndices: number[]; // punch index of each course control found, in course order
+  missingCodes: number[];
+  finishIndex: number | null; // punch whose time is the result
+  resultSeconds: number | null;
 };
 
-/** Picks the course the punches fit best: exact match, then missing
- * control(s), else the closest course as disqualified. */
+// EMIT punch times are seconds from the start (cumulative), not leg times.
+export function splitSeconds(punches: EmitPunch[], index: number) {
+  return punches[index].timeSeconds - (index > 0 ? punches[index - 1].timeSeconds : 0);
+}
+
+/** Codes a card must contain in order: the course's controls, plus its
+ * FINISH when that is a numbered punch unit (e.g. "100"). START is never
+ * punched, and a symbolic finish ("M") has no punch of its own. */
+function courseCodes(course: CourseForValidation) {
+  const numbered = (course.controls ?? [])
+    .filter((item) => item.type !== "START")
+    .map((item) => ({ type: item.type, code: Number(item.controlCodes[0] || item.control.code) }))
+    .filter((item) => Number.isFinite(item.code));
+  return { codes: numbered.map((item) => item.code), finishPunched: numbered.at(-1)?.type === "FINISH" };
+}
+
+/** Checks a card against one course the way orienteering rules do: every
+ * course control must be found in order, extra punches (a finish or readout
+ * unit, a control visited by mistake) are allowed. The result time is the
+ * finish punch: the course's numbered finish, or else the first punch after
+ * the last control; without one, the last punch. */
+function checkCard(punches: EmitPunch[], codes: number[], finishPunched: boolean): Omit<CourseValidation, "courseId"> {
+  const matchedIndices: number[] = [];
+  const missingCodes: number[] = [];
+  let from = 0;
+  for (const code of codes) {
+    const index = punches.findIndex((punch, punchIndex) => punchIndex >= from && punch.controlCode === code);
+    if (index === -1) { missingCodes.push(code); continue; }
+    matchedIndices.push(index);
+    from = index + 1;
+  }
+  const status = missingCodes.length === 0 ? "ACCEPTED" : matchedIndices.length * 2 >= codes.length ? "MISSING_CONTROL" : "DISQUALIFIED";
+  const lastMatched = matchedIndices.at(-1);
+  const finishIndex = status !== "ACCEPTED" || lastMatched == null ? null
+    : finishPunched ? lastMatched
+    : lastMatched + 1 < punches.length ? lastMatched + 1 : null;
+  const resultPunch = finishIndex != null ? punches[finishIndex] : punches.at(-1);
+  return { status, matchedIndices, missingCodes, finishIndex, resultSeconds: resultPunch?.timeSeconds ?? null };
+}
+
+function unavailable(punches: EmitPunch[]): CourseValidation {
+  return { status: "UNAVAILABLE", matchedIndices: [], missingCodes: [], finishIndex: null, resultSeconds: punches.at(-1)?.timeSeconds ?? null };
+}
+
+/** Picks the course the card fits best: an accepted course with the most
+ * controls (a card that completes C also contains the shorter D), else the
+ * one with the largest share of its controls found. */
 export function validateCourse(punches: EmitPunch[], courses: CourseForValidation[]): CourseValidation {
   const candidates = courses
-    .filter((course) => course.controls?.length)
-    .map((course) => ({
-      course,
-      // START is never an EMIT punch; a numbered FINISH unit (e.g. "100") is.
-      codes: course.controls!
-        .filter((item) => item.type !== "START")
-        .map((item) => Number(item.controlCodes[0] || item.control.code))
-        .filter(Number.isFinite),
-    }));
-  if (candidates.length === 0) return { status: "UNAVAILABLE", expectedCodes: [], invalidIndices: [] };
-  const actual = punches.map((punch) => punch.controlCode);
-  const exact = candidates.find(({ codes }) => codes.length === actual.length && codes.every((code, index) => code === actual[index]));
-  if (exact) return { status: "ACCEPTED", courseId: exact.course.id, expectedCodes: exact.codes, invalidIndices: [] };
-  const missing = candidates.find(({ codes }) => actual.length < codes.length && isSubsequence(actual, codes));
-  if (missing) return { status: "MISSING_CONTROL", courseId: missing.course.id, expectedCodes: missing.codes, invalidIndices: [] };
-  const closest = candidates.reduce((best, candidate) => {
-    const matches = candidate.codes.filter((code, index) => actual[index] === code).length;
-    return matches > best.matches ? { candidate, matches } : best;
-  }, { candidate: candidates[0], matches: -1 }).candidate;
-  return {
-    status: "DISQUALIFIED",
-    courseId: closest.course.id,
-    expectedCodes: closest.codes,
-    invalidIndices: actual.flatMap((code, index) => code === closest.codes[index] ? [] : [index]),
-  };
+    .map((course) => ({ course, ...courseCodes(course) }))
+    .filter((candidate) => candidate.codes.length > 0)
+    .map((candidate) => ({ ...candidate, check: checkCard(punches, candidate.codes, candidate.finishPunched) }));
+  if (candidates.length === 0) return unavailable(punches);
+  const score = (candidate: (typeof candidates)[number]) => candidate.check.status === "ACCEPTED"
+    ? 2 + candidate.codes.length / 1000
+    : candidate.check.matchedIndices.length / candidate.codes.length;
+  const best = candidates.reduce((winner, candidate) => score(candidate) > score(winner) ? candidate : winner);
+  return { ...best.check, courseId: best.course.id };
 }
 
 /** Re-checks the punches against one specific course (when the admin picks
  * the course by hand). */
 export function validateAgainstCourse(punches: EmitPunch[], course: CourseForValidation | undefined): CourseValidation {
-  return course ? { ...validateCourse(punches, [course]), courseId: course.id } : { status: "UNAVAILABLE", expectedCodes: [], invalidIndices: [] };
-}
-
-function isSubsequence(actual: number[], expected: number[]) {
-  let actualIndex = 0;
-  for (const code of expected) if (actual[actualIndex] === code) actualIndex += 1;
-  return actualIndex === actual.length;
+  return course ? { ...validateCourse(punches, [course]), courseId: course.id } : unavailable(punches);
 }
 
 // --- Web Serial (Chrome/Edge, secure context only) ---

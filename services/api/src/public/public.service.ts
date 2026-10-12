@@ -1,8 +1,35 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { CreateRegistrationDto } from "./create-registration.dto.js";
 import { CreateReaderResultDto } from "./create-reader-result.dto.js";
 import { CreateManualResultDto } from "./create-manual-result.dto.js";
+import { cardTiming, withoutReadoutPunch } from "./emit-timing.js";
+
+/** A result is identified by person (attendance), course and EMIT card
+ * (null for a manual entry): a person may run several courses in an event,
+ * with the same card or different ones, but has one result per course and
+ * card. */
+export type ResultKey = { attendanceId: string; courseId: string; punchCardId: string | null };
+
+/** A new card read or manual entry replaces the earlier result with the same
+ * key (the earlier card read keeps its raw data, unlinked). The read time
+ * decides, not arrival order, so an older read sent late by an offline client
+ * does not replace a newer result: then the newer result's id is returned and
+ * nothing is replaced. */
+export async function replaceEarlierResults(tx: Prisma.TransactionClient, key: ResultKey, readAt: Date) {
+  const results = await tx.performance.findMany({ where: key, select: { id: true, readAt: true } });
+  const newer = results.find((result) => result.readAt != null && result.readAt > readAt);
+  if (newer) return newer.id;
+  if (results.length > 0) await tx.performance.deleteMany({ where: { id: { in: results.map((result) => result.id) } } });
+  return null;
+}
+
+/** An edit that moves a result to another course replaces the result already
+ * there with the same key: the edit is the operator's decision. */
+async function removeOtherResults(tx: Prisma.TransactionClient, key: ResultKey, keepId: string) {
+  await tx.performance.deleteMany({ where: { ...key, id: { not: keepId } } });
+}
 
 @Injectable()
 export class PublicService {
@@ -107,7 +134,7 @@ export class PublicService {
   async saveReaderResult(eventId: string, input: CreateReaderResultDto) {
     const existingRead = await this.prisma.cardRead.findUnique({
       where: { clientReference: input.clientReference },
-      select: { id: true, performanceId: true },
+      select: { id: true, performanceId: true, performance: { select: { attendanceId: true, punchCardId: true } } },
     });
     const course = await this.prisma.course.findFirst({
       where: { id: input.courseId, eventId },
@@ -117,11 +144,13 @@ export class PublicService {
     const event = await this.prisma.event.findUnique({ where: { id: eventId }, select: { id: true, status: true } });
     if (!event || event.status === "DRAFT") throw new NotFoundException("Tapahtumaa ei löytynyt.");
     const readAt = new Date(input.readAt);
-    const durationMs = input.punches.reduce((sum, punch) => sum + punch.timeSeconds * 1000, 0);
-    const startedAt = new Date(readAt.getTime() - durationMs);
-    const expectedCodes = course.controls
-      .filter((item) => item.type !== "START" && item.type !== "FINISH")
-      .map((item) => item.controlCodes[0] || item.control.code);
+    // EMIT punch times are seconds from the start; the result is the finish punch.
+    const cardPunches = withoutReadoutPunch(input.punches);
+    const timing = cardTiming(cardPunches, course.controls);
+    const durationMs = (timing.resultSeconds ?? 0) * 1000;
+    // The card is read right after its last punch, so the start is that long before the read.
+    const startedAt = new Date(readAt.getTime() - (cardPunches.at(-1)?.timeSeconds ?? 0) * 1000);
+    const finishedAt = new Date(startedAt.getTime() + durationMs);
     const status = input.resultStatus === "OK" ? "ACCEPTED"
       : input.resultStatus === "NO_TIME" ? "NO_TIME"
       : input.resultStatus === "DID_NOT_FINISH" ? "DID_NOT_FINISH"
@@ -129,14 +158,14 @@ export class PublicService {
     // No time is published for a result without time or a retirement; the
     // punches of a retirement still keep their times.
     const timed = input.resultStatus !== "NO_TIME" && input.resultStatus !== "DID_NOT_FINISH";
-    const punches = input.punches.map((punch, index) => {
-      const elapsedMs = input.punches.slice(0, index + 1).reduce((sum, item) => sum + item.timeSeconds * 1000, 0);
+    const punches = cardPunches.map((punch, index) => {
+      const elapsedMs = punch.timeSeconds * 1000;
       return {
         controlCode: String(punch.controlCode),
         punchedAt: input.resultStatus === "NO_TIME" ? null : new Date(startedAt.getTime() + elapsedMs),
         elapsedMs: BigInt(elapsedMs),
         sequenceNumber: index + 1,
-        status: expectedCodes[index] === String(punch.controlCode) ? "VALID" as const : "EXTRA" as const,
+        status: timing.matchedIndices.includes(index) ? "VALID" as const : "EXTRA" as const,
       };
     });
     const rawData = {
@@ -145,14 +174,15 @@ export class PublicService {
     };
 
     return this.prisma.$transaction(async (tx) => {
-      if (existingRead?.performanceId) {
+      if (existingRead?.performanceId && existingRead.performance) {
+        await removeOtherResults(tx, { attendanceId: existingRead.performance.attendanceId, courseId: course.id, punchCardId: existingRead.performance.punchCardId }, existingRead.performanceId);
         await tx.performance.update({
           where: { id: existingRead.performanceId },
           data: {
             courseId: course.id,
             status,
             startedAt: timed ? startedAt : null,
-            finishedAt: timed ? readAt : null,
+            finishedAt: timed ? finishedAt : null,
             durationMs: timed ? BigInt(durationMs) : null,
             readAt,
             disqualificationReason: input.resultStatus === "MISSING_CONTROL" ? "MISSING_CONTROL" : input.resultStatus === "DISQUALIFIED" ? "WRONG_CONTROL" : null,
@@ -161,6 +191,12 @@ export class PublicService {
         });
         await tx.cardRead.update({ where: { id: existingRead.id }, data: { readAt, rawData, processingStatus: "PROCESSED" } });
         return { cardReadId: existingRead.id, performanceId: existingRead.performanceId, duplicate: true };
+      }
+      if (existingRead) {
+        // This read's result was replaced by a newer read of the same card on
+        // the same course: an edit of it is kept as raw data only.
+        await tx.cardRead.update({ where: { id: existingRead.id }, data: { readAt, rawData } });
+        return { cardReadId: existingRead.id, performanceId: null, duplicate: true, superseded: true };
       }
       const card = await tx.punchCard.upsert({
         where: { system_cardNumber: { system: "EMIT", cardNumber: input.cardNumber } },
@@ -191,7 +227,8 @@ export class PublicService {
         update: {},
         create: { eventId, personId: person.id },
       });
-      const performance = await tx.performance.create({
+      const newerResultId = await replaceEarlierResults(tx, { attendanceId: attendance.id, courseId: course.id, punchCardId: card.id }, readAt);
+      const performance = newerResultId ? null : await tx.performance.create({
         data: {
           attendanceId: attendance.id,
           courseId: course.id,
@@ -199,7 +236,7 @@ export class PublicService {
           source: "ONSITE",
           status,
           startedAt: timed ? startedAt : null,
-          finishedAt: timed ? readAt : null,
+          finishedAt: timed ? finishedAt : null,
           durationMs: timed ? BigInt(durationMs) : null,
           readAt,
           disqualificationReason: input.resultStatus === "MISSING_CONTROL" ? "MISSING_CONTROL" : input.resultStatus === "DISQUALIFIED" ? "WRONG_CONTROL" : null,
@@ -215,11 +252,11 @@ export class PublicService {
           readerSerial: input.readerSerial,
           readAt,
           processingStatus: "PROCESSED",
-          performanceId: performance.id,
+          performanceId: performance?.id ?? null,
           rawData,
         },
       });
-      return { cardReadId: cardRead.id, performanceId: performance.id, duplicate: false };
+      return { cardReadId: cardRead.id, performanceId: performance?.id ?? newerResultId, duplicate: false, superseded: newerResultId != null };
     });
   }
 
@@ -230,7 +267,7 @@ export class PublicService {
     if (!event || event.status === "DRAFT") throw new NotFoundException("Tapahtumaa ei löytynyt.");
     const existing = await this.prisma.performance.findUnique({
       where: { clientReference: input.clientReference },
-      select: { id: true, attendance: { select: { person: { select: { firstName: true, lastName: true } } } } },
+      select: { id: true, attendanceId: true, attendance: { select: { person: { select: { firstName: true, lastName: true } } } } },
     });
 
     // Entered offline, a result can reach the API long after it was typed in;
@@ -239,6 +276,7 @@ export class PublicService {
 
     return this.prisma.$transaction(async (tx) => {
       if (existing) {
+        await removeOtherResults(tx, { attendanceId: existing.attendanceId, courseId: course.id, punchCardId: null }, existing.id);
         const durationMs = input.durationSeconds != null ? input.durationSeconds * 1000 : null;
         const performance = await tx.performance.update({
           where: { id: existing.id },
@@ -273,6 +311,8 @@ export class PublicService {
         update: {},
         create: { eventId, personId: person.id },
       });
+      const newerResultId = await replaceEarlierResults(tx, { attendanceId: attendance.id, courseId: course.id, punchCardId: null }, readAt);
+      if (newerResultId) return { performanceId: newerResultId, participant: `${person.firstName} ${person.lastName}`, superseded: true };
       const durationMs = input.durationSeconds != null ? input.durationSeconds * 1000 : null;
       const performance = await tx.performance.create({
         data: {

@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { type CourseForValidation, type EmitCard, startEmitReader, validateAgainstCourse, validateCourse, webSerialSupport } from "@/lib/emit250";
+import { type CourseForValidation, type EmitCard, splitSeconds, startEmitReader, validateAgainstCourse, validateCourse, webSerialSupport } from "@/lib/emit250";
 import { API_BASE } from "@/lib/site";
 
 type ResultStatus = "OK" | "MISSING_CONTROL" | "DISQUALIFIED" | "DID_NOT_FINISH" | "NO_TIME";
@@ -113,7 +113,8 @@ function CardConfirm({ card, courses, eventId, authHeaders, onSessionExpired, on
   const [clubName, setClubName] = useState(card.person?.clubName ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const totalSeconds = card.punches.reduce((sum, punch) => sum + punch.timeSeconds, 0);
+
+  const totalSeconds = validation.resultSeconds ?? 0;
 
   function chooseCourse(id: string) {
     setCourseId(id);
@@ -147,13 +148,12 @@ function CardConfirm({ card, courses, eventId, authHeaders, onSessionExpired, on
     finally { setSaving(false); }
   }
 
-  const cumulative = card.punches.map((_, index) => card.punches.slice(0, index + 1).reduce((sum, punch) => sum + punch.timeSeconds, 0));
   return <div className="space-y-4 rounded-2xl border p-4">
-    <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-lg font-extrabold">Kortti {card.cardNumber}</p><div className="flex items-center gap-2"><Badge variant={validation.status === "ACCEPTED" ? "default" : "secondary"}>{validation.status === "ACCEPTED" ? "Leimat OK" : validation.status === "MISSING_CONTROL" ? "Rasti puuttuu" : validation.status === "DISQUALIFIED" ? "Väärä rasti" : "Ei rataa tarkistettavaksi"}</Badge><span className="font-mono text-lg font-bold">{formatSeconds(totalSeconds)}</span></div></div>
+    <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-lg font-extrabold">Kortti {card.cardNumber}</p><div className="flex items-center gap-2"><Badge variant={validation.status === "ACCEPTED" ? "default" : "secondary"}>{validation.status === "ACCEPTED" ? "Leimat OK" : validation.status === "MISSING_CONTROL" ? `Rasti puuttuu (${validation.missingCodes.join(", ")})` : validation.status === "DISQUALIFIED" ? `Ei vastaa rataa (puuttuu ${validation.missingCodes.join(", ")})` : "Ei rataa tarkistettavaksi"}</Badge><span className="font-mono text-lg font-bold">{formatSeconds(totalSeconds)}</span></div></div>
     {!card.person && <p className="text-sm text-muted-foreground">Korttia ei tunneta: täytä osallistujan tiedot.</p>}
     <div className="grid gap-3 sm:grid-cols-3"><div><Label htmlFor="emit-first">Etunimi</Label><Input id="emit-first" className="mt-1.5" value={firstName} onChange={(changeEvent) => setFirstName(changeEvent.target.value)} /></div><div><Label htmlFor="emit-last">Sukunimi</Label><Input id="emit-last" className="mt-1.5" value={lastName} onChange={(changeEvent) => setLastName(changeEvent.target.value)} /></div><div><Label htmlFor="emit-club">Seura</Label><Input id="emit-club" className="mt-1.5" value={clubName} onChange={(changeEvent) => setClubName(changeEvent.target.value)} /></div></div>
     <div className="grid gap-3 sm:grid-cols-2"><div><Label htmlFor="emit-course">Rata</Label><NativeSelect id="emit-course" className="mt-1.5 w-full" value={courseId} onChange={(changeEvent) => chooseCourse(changeEvent.target.value)}>{courses.length === 0 && <NativeSelectOption value="">Tapahtumalla ei ole ratoja</NativeSelectOption>}{courses.map((course) => <NativeSelectOption key={course.id} value={course.id}>{course.name}</NativeSelectOption>)}</NativeSelect></div><div><Label htmlFor="emit-status">Tulos</Label><NativeSelect id="emit-status" className="mt-1.5 w-full" value={status} onChange={(changeEvent) => setStatus(changeEvent.target.value as ResultStatus)}>{(Object.keys(statusLabels) as ResultStatus[]).map((key) => <NativeSelectOption key={key} value={key}>{statusLabels[key]}</NativeSelectOption>)}</NativeSelect></div></div>
-    {card.punches.length > 0 && <div className="max-h-56 overflow-y-auto"><Table><TableHeader><TableRow><TableHead className="w-12">#</TableHead><TableHead>Rasti</TableHead><TableHead>Odotettu</TableHead><TableHead>Väliaika</TableHead><TableHead>Yhteensä</TableHead></TableRow></TableHeader><TableBody>{card.punches.map((punch, index) => { const wrong = validation.invalidIndices.includes(index); return <TableRow key={index} className={wrong ? "bg-destructive/5 text-destructive" : undefined}><TableCell>{index + 1}</TableCell><TableCell className="font-mono">{punch.controlCode}</TableCell><TableCell className="font-mono text-muted-foreground">{validation.expectedCodes[index] ?? "–"}</TableCell><TableCell className="font-mono">{formatSeconds(punch.timeSeconds)}</TableCell><TableCell className="font-mono">{formatSeconds(cumulative[index])}</TableCell></TableRow>; })}</TableBody></Table></div>}
+    {card.punches.length > 0 && <div className="max-h-56 overflow-y-auto"><Table><TableHeader><TableRow><TableHead className="w-12">#</TableHead><TableHead>Koodi</TableHead><TableHead>Huomio</TableHead><TableHead>Väliaika</TableHead><TableHead>Lähdöstä</TableHead></TableRow></TableHeader><TableBody>{card.punches.map((punch, index) => { const controlNumber = validation.matchedIndices.indexOf(index); const isFinish = validation.finishIndex === index; const extra = validation.status !== "UNAVAILABLE" && controlNumber === -1 && !isFinish; return <TableRow key={index} className={extra ? "text-muted-foreground" : undefined}><TableCell>{index + 1}</TableCell><TableCell className="font-mono">{punch.controlCode}</TableCell><TableCell>{isFinish ? "Maali" : controlNumber >= 0 ? `Rasti ${controlNumber + 1}` : extra ? "Ylimääräinen" : ""}</TableCell><TableCell className="font-mono">{formatSeconds(splitSeconds(card.punches, index))}</TableCell><TableCell className="font-mono">{formatSeconds(punch.timeSeconds)}</TableCell></TableRow>; })}</TableBody></Table></div>}
     {error && <p role="alert" className="text-sm font-medium text-destructive">{error}</p>}
     <div className="flex flex-wrap justify-end gap-2"><Button variant="ghost" className="rounded-full" disabled={saving} onClick={() => onDone(null)}>Ohita kortti</Button><Button className="rounded-full" disabled={saving} onClick={() => void save()}>{saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : <CheckCircle2 className="mr-2 size-4" />}Tallenna: {statusLabels[status]}</Button></div>
   </div>;
