@@ -1,6 +1,6 @@
 [package]
 name = "pc-client"
-version = "0.3.1"
+version = "0.3.2"
 license = "AGPL-3.0-or-later"
 description = "Kuntorastien EMIT 250 -lukijaclient"
 edition = "2021"
