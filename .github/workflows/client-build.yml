@@ -139,13 +139,13 @@ jobs:
               gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
             else
               gh release create "$GITHUB_REF_NAME" "${files[@]}" \
-                --title "PC client ${GITHUB_REF_NAME#pc-client-v}" --notes "$notes" --generate-notes
+                --title "Kuntorastit Client ${GITHUB_REF_NAME#pc-client-v}" --notes "$notes" --generate-notes
             fi
           else
             # Rolling build of master: recreate so the tag points at this commit.
             gh release delete pc-client-latest --cleanup-tag --yes 2>/dev/null || true
             gh release create pc-client-latest "${files[@]}" \
               --target "$GITHUB_SHA" --prerelease \
-              --title "PC client (uusin master-build)" \
+              --title "Kuntorastit Client (uusin master-build)" \
               --notes "Automaattinen build commitista ${GITHUB_SHA::7}. $notes"
           fi

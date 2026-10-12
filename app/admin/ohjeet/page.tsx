@@ -8,8 +8,8 @@ import { API_BASE, CLIENT_DOWNLOAD_URL, LOGO_URL, SITE_NAME, SOURCE_URL, withBas
 
 const apiBase = API_BASE;
 
-// Usage instructions for the admin UI and the PC client (Kuntorastit PC
-// Client, clients/pc-client). Static content; keep the button and field names
+// Usage instructions for the admin UI and the Kuntorastit Client
+// (clients/pc-client). Static content; keep the button and field names
 // in sync with the pages they describe.
 export default function InstructionsPage() {
   const [checking, setChecking] = useState(true);
@@ -40,11 +40,11 @@ export default function InstructionsPage() {
   return <main className="min-h-screen bg-muted/30">
     <header className="border-b bg-background"><div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4"><div className="flex items-center gap-3"><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src={LOGO_URL} alt="" className="size-8 object-contain" /></span><div><b className="block">{SITE_NAME}</b><span className="text-xs text-muted-foreground">Ylläpito</span></div></div><Button asChild variant="ghost" className="rounded-full"><a href={withBasePath("/admin")}><ArrowLeft className="mr-2 size-4" />Tapahtumat</a></Button></div></header>
     <div className="mx-auto max-w-4xl px-5 py-10">
-      <div className="mb-8"><p className="text-sm font-bold uppercase tracking-wider text-primary">Hallinta</p><h1 className="mt-2 text-3xl font-black tracking-tight">Ohjeet</h1><p className="mt-2 text-muted-foreground">Miten tulospalvelua ylläpidetään ja miten tapahtumapäivän luenta hoidetaan PC-clientillä. Tulospalvelu on avointa lähdekoodia: <a href={SOURCE_URL} target="_blank" rel="noreferrer" className="font-medium text-primary underline-offset-4 hover:underline">lähdekoodi GitHubissa</a>.</p></div>
+      <div className="mb-8"><p className="text-sm font-bold uppercase tracking-wider text-primary">Hallinta</p><h1 className="mt-2 text-3xl font-black tracking-tight">Ohjeet</h1><p className="mt-2 text-muted-foreground">Miten tulospalvelua ylläpidetään ja miten tapahtumapäivän luenta hoidetaan Kuntorastit Clientillä. Tulospalvelu on avointa lähdekoodia: <a href={SOURCE_URL} target="_blank" rel="noreferrer" className="font-medium text-primary underline-offset-4 hover:underline">lähdekoodi GitHubissa</a>.</p></div>
 
       <Card className="mb-8 rounded-2xl"><CardContent className="grid gap-6 p-5 sm:grid-cols-2">
         <Toc title="Web-sovellus" items={[["kausi", "1. Sarjat ja kaudet"], ["tapahtumat", "2. Tapahtumat"], ["radat", "3. Radat ja XML-tuonti"], ["ilmoittautumiset", "4. Ilmoittautuminen ja osanottajat"], ["tapahtumapaiva", "5. Tapahtumapäivä ja tulokset"], ["osallistumiskerrat", "6. Osallistumiskerrat ja palkinnot"], ["lukijalaitteet", "7. Lukijalaitteet"], ["tili", "8. Salasana ja kirjautuminen"]]} />
-        <Toc title="PC-client" items={[["client-asennus", "1. Asennus"], ["client-kayttoonotto", "2. Käyttöönotto"], ["client-henkilot", "3. Henkilörekisteri (HenkilöDB)"], ["client-luenta", "4. Kortin luenta"], ["client-kasin", "5. Käsin syötetyt tulokset"], ["client-korjaus", "6. Tulosten korjaaminen"], ["client-offline", "7. Verkkoyhteys katkeilee"], ["client-vianetsinta", "8. Vianetsintä"]]} />
+        <Toc title="Kuntorastit Client" items={[["client-asennus", "1. Asennus"], ["client-kayttoonotto", "2. Käyttöönotto"], ["client-henkilot", "3. Henkilörekisteri (HenkilöDB)"], ["client-luenta", "4. Kortin luenta"], ["client-kasin", "5. Käsin syötetyt tulokset"], ["client-korjaus", "6. Tulosten korjaaminen"], ["client-offline", "7. Verkkoyhteys katkeilee"], ["client-vianetsinta", "8. Vianetsintä"]]} />
       </CardContent></Card>
 
       <h2 className="mb-4 flex items-center gap-2 text-2xl font-black tracking-tight"><BookOpen className="size-6 text-primary" />Web-sovellus</h2>
@@ -69,7 +69,7 @@ export default function InstructionsPage() {
             <>Uusi tapahtuma tallentuu <b>luonnoksena</b>, eikä se näy julkisella sivulla. Lisää tapahtumalle radat (kohta 3) ja vaihda sen jälkeen <b>Muokkaa</b>-ikkunassa tilaksi <b>Julkaistu</b>.</>,
             <>Ruksi <b>Ilmoittautuminen avoinna</b>, kun ennakkoilmoittautuminen saa alkaa.</>,
           ]} />
-          <Definitions items={[["Luonnos", "Näkyy vain ylläpidossa. Tuloksia ei voi tallentaa."], ["Julkaistu", "Näkyy kalenterissa ja PC-clientissä. Tuloksia voi tallentaa."], ["Päättynyt", "Tapahtuma on pidetty. Tulokset näkyvät edelleen."]]} />
+          <Definitions items={[["Luonnos", "Näkyy vain ylläpidossa. Tuloksia ei voi tallentaa."], ["Julkaistu", "Näkyy kalenterissa ja Kuntorastit Clientissä. Tuloksia voi tallentaa."], ["Päättynyt", "Tapahtuma on pidetty. Tulokset näkyvät edelleen."]]} />
           <p><b>Excel:</b> <b>Lataa Excel</b> antaa kaikki tapahtumat taulukkona, ja samaa tiedostoa voi käyttää tuonnin pohjana. <b>Tuo Excel</b> näyttää ensin esikatselun (uudet, päivitettävät ja virheelliset rivit) ja tallentaa vasta vahvistuksen jälkeen. Rivi, jolla on ID, päivittää olemassa olevan tapahtuman, ja tyhjä ID luo uuden. Excelistä puuttuvia tapahtumia ei poisteta.</p>
           <Note>Tapahtuman poistaminen (roskakori) poistaa myös sen radat, ilmoittautumiset ja tulokset pysyvästi.</Note>
         </Section>
@@ -93,7 +93,7 @@ export default function InstructionsPage() {
         <Section id="tapahtumapaiva" title="5. Tapahtumapäivä ja tulokset">
           <p>Maalissa EMIT-kortit luetaan jommallakummalla tavalla:</p>
           <ul className="ml-5 list-disc space-y-1.5">
-            <li><b>PC-client</b> (suositus): toimii myös ilman verkkoyhteyttä ja sisältää paikallisen henkilörekisterin. Katso ohjeet alta.</li>
+            <li><b>Kuntorastit Client</b> (suositus): toimii myös ilman verkkoyhteyttä ja sisältää paikallisen henkilörekisterin. Katso ohjeet alta.</li>
             <li><b>Tulospalvelu selaimessa</b> (ylävalikko): liitä EMIT 250 -lukija koneeseen, valitse tapahtuma ja paina <b>Yhdistä lukijaan</b>. Kortinluku toimii vain Chromessa tai Edgessä https-osoitteesta, ja vaatii jatkuvan verkkoyhteyden. Kuittaa jokainen luettu kortti ennen sivun sulkemista. <b>Lisää osanottaja</b> lisää osallistujan käsin (ei korttia tai luenta epäonnistui): hae henkilö tai kirjoita nimi, valitse rata ja anna halutessasi aika.</li>
           </ul>
           <p>Tulokset näkyvät julkisella tulossivulla (kalenteri → tapahtuma → <b>Tulokset</b>) ja päivittyvät automaattisesti sitä mukaa kuin kortteja luetaan.</p>
@@ -110,7 +110,7 @@ export default function InstructionsPage() {
         </Section>
 
         <Section id="lukijalaitteet" title="7. Lukijalaitteet">
-          <p>PC-client saa lähettää tuloksia vasta, kun ylläpitäjä on hyväksynyt laitteen. Avaa <b>Lukijalaitteet</b>: uusi laite näkyy tilassa <b>Odottaa hyväksyntää</b> sillä nimellä, jonka client-käyttäjä sille antoi. Paina <b>Hyväksy</b>. Client huomaa hyväksynnän itsestään muutamassa sekunnissa.</p>
+          <p>Kuntorastit Client saa lähettää tuloksia vasta, kun ylläpitäjä on hyväksynyt laitteen. Avaa <b>Lukijalaitteet</b>: uusi laite näkyy tilassa <b>Odottaa hyväksyntää</b> sillä nimellä, jonka client-käyttäjä sille antoi. Paina <b>Hyväksy</b>. Client huomaa hyväksynnän itsestään muutamassa sekunnissa.</p>
           <p>Jos kone katoaa tai vaihtaa käyttäjää, paina <b>Peru pääsy</b>. Laite ei voi sen jälkeen lähettää tuloksia, ennen kuin se rekisteröidään ja hyväksytään uudelleen. <b>Viimeksi käytetty</b> kertoo, milloin laite on viimeksi ottanut yhteyttä.</p>
         </Section>
 
@@ -119,11 +119,11 @@ export default function InstructionsPage() {
         </Section>
       </div>
 
-      <h2 className="mt-12 mb-4 flex items-center gap-2 text-2xl font-black tracking-tight"><MonitorDown className="size-6 text-primary" />PC-client</h2>
-      <p className="mb-4 text-muted-foreground">Kuntorastit PC Client on Windows- ja Linux-koneelle asennettava lukijaohjelma. Se lukee EMIT 250 -lukijaa sarjaportin kautta, tarkistaa kortin radan rasteja vasten ja lähettää tuloksen tulospalveluun. Tulokset tallentuvat ensin koneelle, joten luenta jatkuu, vaikka verkkoyhteys katkeaisi.</p>
+      <h2 className="mt-12 mb-4 flex items-center gap-2 text-2xl font-black tracking-tight"><MonitorDown className="size-6 text-primary" />Kuntorastit Client</h2>
+      <p className="mb-4 text-muted-foreground">Kuntorastit Client on Windows-, macOS- ja Linux-koneelle asennettava lukijaohjelma. Se lukee EMIT 250 -lukijaa sarjaportin kautta, tarkistaa kortin radan rasteja vasten ja lähettää tuloksen tulospalveluun. Tulokset tallentuvat ensin koneelle, joten luenta jatkuu, vaikka verkkoyhteys katkeaisi.</p>
       <div className="grid gap-4">
         <Section id="client-asennus" title="1. Asennus">
-          {CLIENT_DOWNLOAD_URL ? <p><Button asChild className="rounded-full"><a href={CLIENT_DOWNLOAD_URL} target="_blank" rel="noreferrer"><Download className="mr-2 size-4" />Lataa PC-client</a></Button></p> : <p>Pyydä asennuspaketti järjestelmän ylläpitäjältä.</p>}
+          {CLIENT_DOWNLOAD_URL ? <p><Button asChild className="rounded-full"><a href={CLIENT_DOWNLOAD_URL} target="_blank" rel="noreferrer"><Download className="mr-2 size-4" />Lataa Kuntorastit Client</a></Button></p> : <p>Pyydä asennuspaketti järjestelmän ylläpitäjältä.</p>}
           <ul className="ml-5 list-disc space-y-1.5">
             <li><b>Windows:</b> aja <code>…_x64-setup.exe</code> (tai <code>.msi</code>). Jos Windows varoittaa tuntemattomasta julkaisijasta, valitse <b>Lisätietoja → Suorita silti</b>.</li>
             <li><b>macOS</b> (Apple Silicon ja Intel): avaa <code>.dmg</code> ja vedä sovellus Ohjelmat-kansioon. Sovellus ei ole Applen notarisoima: jos macOS estää avaamisen, valitse <b>Järjestelmäasetukset → Tietosuoja ja suojaus → Avaa silti</b>.</li>
@@ -193,7 +193,7 @@ export default function InstructionsPage() {
 
       <h2 className="mt-12 mb-4 flex items-center gap-2 text-2xl font-black tracking-tight"><Code className="size-6 text-primary" />Avoin lähdekoodi</h2>
       <Section id="lahdekoodi" title="Lähdekoodi ja lisenssi">
-        <p>Tulospalvelu ja PC-client ovat avointa lähdekoodia. Kuka tahansa saa käyttää, muokata ja levittää niitä maksutta GNU Affero General Public License v3 -lisenssin (AGPL-3.0) ehdoilla. Lisenssi pitää ohjelmiston vapaana: muokattua versiota levittävän tai verkkopalveluna tarjoavan pitää julkaista muutostensa lähdekoodi samalla lisenssillä.</p>
+        <p>Tulospalvelu ja Kuntorastit Client ovat avointa lähdekoodia. Kuka tahansa saa käyttää, muokata ja levittää niitä maksutta GNU Affero General Public License v3 -lisenssin (AGPL-3.0) ehdoilla. Lisenssi pitää ohjelmiston vapaana: muokattua versiota levittävän tai verkkopalveluna tarjoavan pitää julkaista muutostensa lähdekoodi samalla lisenssillä.</p>
         <p>Lähdekoodista löytyvät myös asennusohjeet omalle palvelimelle. Virheilmoitukset ja kehitysideat voi kirjata GitHubin Issues-osioon.</p>
         <p><Button asChild variant="outline" className="rounded-full"><a href={SOURCE_URL} target="_blank" rel="noreferrer"><ExternalLink className="mr-2 size-4" />Lähdekoodi GitHubissa</a></Button></p>
       </Section>

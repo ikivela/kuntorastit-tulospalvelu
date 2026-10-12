@@ -890,7 +890,7 @@ function App() {
 
   return (
     <main>
-      <h4>Kuntorastit client</h4>
+      <h4>Kuntorastit Client</h4>
       <p className="build-version">Build: {new Date(__BUILD_DATE__).toLocaleString("fi-FI")}</p>
 
       <section>

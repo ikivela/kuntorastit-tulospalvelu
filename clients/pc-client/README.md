@@ -1,4 +1,4 @@
-# Kuntorastit PC Client
+# Kuntorastit Client
 
 Desktop-client (Tauri 2 + React) rastihenkilökunnalle: lukee EMIT 250
 -leimauskortteja natiivin sarjaportin kautta Windowsissa, Linuxissa ja
@@ -142,6 +142,21 @@ suojaus → Avaa silti. Paikallisesti saman buildin tekee
   pitää vastata `tauri.conf.json`:n versiota
 
 Kaikki bundle-tiedostot löytyvät lisäksi ajon liitteistä (artifacts).
+
+### Nimenvaihto: Kuntorastit PC Client → Kuntorastit Client
+
+Sovellus nimettiin uudelleen versiossa 0.3.3. Paikallinen kanta
+(henkilörekisteri, tulokset, asetukset) säilyy, koska sen kansio määräytyy
+sovelluksen tunnisteesta `fi.kuntorastit.client`, joka ei muuttunut.
+
+- **Windows `.msi`**: päivittää vanhan asennuksen suoraan
+  (`bundle.windows.wix.upgradeCode` on kiinnitetty vanhan nimen arvoon).
+- **Windows `.exe`**: asentuu vanhan rinnalle uutena sovelluksena. Poista vanha
+  "Kuntorastit PC Client" (Asetukset → Sovellukset) ja jätä poistossa kohta
+  sovellustietojen poistamisesta **valitsematta**: se poistaisi myös uuden
+  sovelluksen käyttämän kannan.
+- **macOS**: vedä uusi sovellus Ohjelmat-kansioon ja poista vanha
+  "Kuntorastit PC Client.app".
 
 Sovelluksen kuvake (rastilippu) on piirretty tiedostoon
 `src-tauri/icons/icon.svg`; muokkauksen jälkeen kaikki koot (`.ico`, `.icns`,
