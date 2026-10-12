@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, Loader2, Unplug, Usb } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2, Unplug, Usb, UserPlus } from "lucide-react";
+import { AddParticipantDialog } from "@/components/add-participant-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
@@ -11,16 +13,17 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { type CourseForValidation, type EmitCard, startEmitReader, validateAgainstCourse, validateCourse, webSerialSupport } from "@/lib/emit250";
 import { API_BASE } from "@/lib/site";
 
-type ResultStatus = "OK" | "MISSING_CONTROL" | "DISQUALIFIED" | "NO_TIME";
+type ResultStatus = "OK" | "MISSING_CONTROL" | "DISQUALIFIED" | "DID_NOT_FINISH" | "NO_TIME";
 type Course = CourseForValidation & { lengthMeters: number };
 type PendingCard = EmitCard & { readAt: string; person: { firstName: string; lastName: string; clubName: string } | null };
-type SavedRead = { key: string; cardNumber: number; name: string; status: ResultStatus; seconds: number; courseName: string };
+type SavedRead = { key: string; cardNumber: number | null; name: string; status: ResultStatus; seconds: number; courseName: string };
 
-const statusLabels: Record<ResultStatus, string> = { OK: "Tulos OK", MISSING_CONTROL: "Rasti puuttuu", DISQUALIFIED: "Hylätty", NO_TIME: "Ilman aikaa" };
+const statusLabels: Record<ResultStatus, string> = { OK: "Tulos OK", MISSING_CONTROL: "Rasti puuttuu", DISQUALIFIED: "Hylätty", DID_NOT_FINISH: "Keskeytti", NO_TIME: "Ilman aikaa" };
 const validationToStatus = { ACCEPTED: "OK", MISSING_CONTROL: "MISSING_CONTROL", DISQUALIFIED: "DISQUALIFIED", UNAVAILABLE: "OK" } as const;
 
-/** Admin-side EMIT 250 reader: reads cards over Web Serial and saves them
- * through the same endpoint as the pc-client (POST .../reader-results).
+/** Admin-side result service: reads EMIT 250 cards over Web Serial and saves
+ * them through the same endpoint as the pc-client (POST .../reader-results),
+ * and adds participants by hand ("Lisää osanottaja", POST .../manual-results).
  * Reports connection and unconfirmed-card state so the page can lock the
  * event choice and warn before leaving. */
 export function EmitReader({ event, token, onSessionExpired, onStateChange }: { event: { id: string; name: string; status: string }; token: string; onSessionExpired: () => void; onStateChange?: (state: { connected: boolean; pendingCards: number }) => void }) {
@@ -31,6 +34,7 @@ export function EmitReader({ event, token, onSessionExpired, onStateChange }: { 
   const [queue, setQueue] = useState<PendingCard[]>([]);
   const [saved, setSaved] = useState<SavedRead[]>([]);
   const [error, setError] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
   const stopRef = useRef<(() => Promise<void>) | null>(null);
   const authHeaders = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
@@ -78,18 +82,24 @@ export function EmitReader({ event, token, onSessionExpired, onStateChange }: { 
   }
 
   const current = queue[0];
+  // Manual entry works without a reader, so it stays available even when
+  // Web Serial is not supported.
+  const addButton = <Button variant="outline" className="rounded-full" disabled={courses.length === 0} onClick={() => setAddOpen(true)}><UserPlus className="mr-2 size-4" />Lisää osanottaja</Button>;
   return <div className="space-y-5">
-    {support !== "ok" ? <p role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{support === "insecure" ? "Web Serial toimii vain suojatulla yhteydellä (https:// tai localhost). Avaa ylläpito https-osoitteesta." : "Tämä selain ei tue Web Serialia. Käytä Chromea tai Edgeä tietokoneella."}</p>
+    {support !== "ok" ? <><p role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{support === "insecure" ? "Web Serial toimii vain suojatulla yhteydellä (https:// tai localhost). Avaa ylläpito https-osoitteesta, jotta voit lukea kortteja." : "Tämä selain ei tue Web Serialia. Käytä Chromea tai Edgeä tietokoneella, jotta voit lukea kortteja."}</p><div className="flex flex-wrap items-center gap-3">{addButton}</div></>
       : <div className="flex flex-wrap items-center gap-3">
         {connected ? <><Badge variant="outline" className="gap-1.5 py-1"><span className="size-2 animate-pulse rounded-full bg-primary" />Yhdistetty · odotetaan korttia</Badge><Button variant="ghost" className="rounded-full" onClick={() => void disconnect()}><Unplug className="mr-2 size-4" />Katkaise</Button></>
           : <Button className="rounded-full" disabled={connecting} onClick={() => void connect()}>{connecting ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Usb className="mr-2 size-4" />}Yhdistä lukijaan</Button>}
+        {addButton}
         {queue.length > 1 && <span className="text-sm text-muted-foreground">{queue.length - 1} korttia jonossa</span>}
       </div>}
+    <Dialog open={addOpen} onOpenChange={setAddOpen}><DialogContent className="rounded-3xl sm:max-w-lg">{addOpen && <AddParticipantDialog eventId={event.id} courses={courses} authHeaders={authHeaders} onSessionExpired={onSessionExpired} onClose={() => setAddOpen(false)}
+      onSaved={(participant) => { setAddOpen(false); setSaved((items) => [{ key: `manual-${Date.now()}`, cardNumber: null, name: participant.name, status: participant.durationSeconds != null ? "OK" : "NO_TIME", seconds: participant.durationSeconds ?? 0, courseName: participant.courseName }, ...items]); }} />}</DialogContent></Dialog>
     {event.status === "DRAFT" && <p className="flex items-center gap-2 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm"><AlertCircle className="size-4 text-amber-600" />Tapahtuma on luonnos: tuloksia ei voi tallentaa ennen kuin tapahtuma julkaistaan.</p>}
     {error && <p role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}
     {current && <CardConfirm key={`${current.signature}-${current.readAt}`} card={current} courses={courses} eventId={event.id} authHeaders={authHeaders} onSessionExpired={onSessionExpired}
       onDone={(result) => { setQueue((items) => items.slice(1)); if (result) setSaved((items) => [result, ...items]); }} />}
-    {saved.length > 0 && <div><p className="mb-2 text-sm font-bold">Tallennetut tällä kertaa ({saved.length})</p><Table><TableHeader><TableRow><TableHead>Nimi</TableHead><TableHead>Kortti</TableHead><TableHead>Rata</TableHead><TableHead>Aika</TableHead><TableHead>Tila</TableHead></TableRow></TableHeader><TableBody>{saved.map((item) => <TableRow key={item.key}><TableCell className="font-medium">{item.name}</TableCell><TableCell>{item.cardNumber}</TableCell><TableCell>{item.courseName}</TableCell><TableCell>{item.status === "NO_TIME" ? "–" : formatSeconds(item.seconds)}</TableCell><TableCell>{statusLabels[item.status]}</TableCell></TableRow>)}</TableBody></Table></div>}
+    {saved.length > 0 && <div><p className="mb-2 text-sm font-bold">Tallennetut tällä kertaa ({saved.length})</p><Table><TableHeader><TableRow><TableHead>Nimi</TableHead><TableHead>Kortti</TableHead><TableHead>Rata</TableHead><TableHead>Aika</TableHead><TableHead>Tila</TableHead></TableRow></TableHeader><TableBody>{saved.map((item) => <TableRow key={item.key}><TableCell className="font-medium">{item.name}</TableCell><TableCell>{item.cardNumber ?? "–"}</TableCell><TableCell>{item.courseName}</TableCell><TableCell>{item.status === "NO_TIME" || item.status === "DID_NOT_FINISH" ? "–" : formatSeconds(item.seconds)}</TableCell><TableCell>{statusLabels[item.status]}</TableCell></TableRow>)}</TableBody></Table></div>}
   </div>;
 }
 

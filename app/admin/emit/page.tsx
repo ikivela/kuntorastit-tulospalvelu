@@ -10,7 +10,8 @@ import { API_BASE, LOGO_URL, SITE_NAME, withBasePath } from "@/lib/site";
 
 type EventOption = { id: string; name: string; status: string; startsAt: string; endsAt: string };
 
-// EMIT card reading in the browser (Web Serial) for one event:
+// "Tulospalvelu": EMIT card reading in the browser (Web Serial) and manual
+// participant entry for one event:
 // /admin/emit?tapahtuma=<event id>, defaulting to the event nearest to now.
 export default function EmitReadingPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -60,7 +61,7 @@ export default function EmitReadingPage() {
   return <main className="min-h-screen bg-muted/30">
     <header className="border-b bg-background"><div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4"><div className="flex items-center gap-3"><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src={LOGO_URL} alt="" className="size-8 object-contain" /></span><div><b className="block">{SITE_NAME}</b><span className="text-xs text-muted-foreground">Ylläpito</span></div></div><Button asChild variant="ghost" className="rounded-full"><a href={withBasePath("/admin")}><ArrowLeft className="mr-2 size-4" />Tapahtumat</a></Button></div></header>
     <div className="mx-auto max-w-4xl px-5 py-10">
-      <div className="mb-8"><p className="text-sm font-bold uppercase tracking-wider text-primary">Hallinta</p><h1 className="mt-2 text-3xl font-black tracking-tight">EMIT-luenta</h1><p className="mt-2 text-muted-foreground">Liitä EMIT 250 -lukija tähän koneeseen ja yhdistä. Luetut kortit tallentuvat tapahtuman tuloksiin samoin kuin lukijaohjelmalla.</p></div>
+      <div className="mb-8"><p className="text-sm font-bold uppercase tracking-wider text-primary">Hallinta</p><h1 className="mt-2 text-3xl font-black tracking-tight">Tulospalvelu</h1><p className="mt-2 text-muted-foreground">Liitä EMIT 250 -lukija tähän koneeseen ja yhdistä, tai lisää osanottajia käsin. Tulokset tallentuvat tapahtuman tuloksiin samoin kuin PC-clientillä.</p></div>
       {error && <p role="alert" className="mb-5 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}
       {!events ? !error && <div className="grid place-items-center py-20"><Loader2 className="size-7 animate-spin text-primary" /></div>
         : events.length === 0 ? <p className="text-muted-foreground">Ei tapahtumia. Luo tapahtuma ensin ylläpidossa.</p>

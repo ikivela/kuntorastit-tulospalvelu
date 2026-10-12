@@ -68,12 +68,14 @@ leimauksia ja tavoitepalkintoja. Leimauskortti on mallinnettu yleisenä
   rivinumeroineen; mitään ei tallenneta ennen vahvistusta, ja jos yksikin rivi
   on virheellinen, koko tuonti hylätään. Excelistä puuttuvia tapahtumia ei
   poisteta. Tiedoston "Ohje"-välilehdellä on sarakkeiden kuvaus.
-- **EMIT-luenta** (yläpalkin nappi, sivu `/admin/emit`; avautuu ajallisesti
+- **Tulospalvelu** (yläpalkin nappi, sivu `/admin/emit`; avautuu ajallisesti
   lähimpään tapahtumaan, jonka voi vaihtaa sivulla): lukee EMIT 250 -kortit suoraan selaimesta Web Serialilla ilman
-  pc-clientiä. Liitä lukija koneeseen, paina "Yhdistä lukijaan" ja valitse
+  pc-clientiä, ja **Lisää osanottaja** -toiminnolla osallistujan voi lisätä
+  käsin (henkilöhaku, rata, valinnainen aika; ilman aikaa "ilman aikaa"). Liitä lukija koneeseen, paina "Yhdistä lukijaan" ja valitse
   sarjaportti. Kortin haltija haetaan aiempien
   luentojen/ilmoittautumisten perusteella, rata ja tulos (OK / rasti puuttuu /
-  hylätty) päätellään leimoista samoin kuin pc-clientissä, ja tulos
+  hylätty) päätellään leimoista samoin kuin pc-clientissä (molemmat voi
+  vaihtaa, myös keskeytykseksi tai ilman aikaa), ja tulos
   tallennetaan kuittauksella. Vaatii Chromen tai Edgen tietokoneella sekä
   suojatun yhteyden (https:// tai localhost). Toisin kuin pc-client, selain
   ei toimi offline-tilassa.

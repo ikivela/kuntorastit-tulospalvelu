@@ -94,7 +94,7 @@ export default function InstructionsPage() {
           <p>Maalissa EMIT-kortit luetaan jommallakummalla tavalla:</p>
           <ul className="ml-5 list-disc space-y-1.5">
             <li><b>PC-client</b> (suositus): toimii myös ilman verkkoyhteyttä ja sisältää paikallisen henkilörekisterin. Katso ohjeet alta.</li>
-            <li><b>EMIT-luenta selaimessa</b> (ylävalikko): liitä EMIT 250 -lukija koneeseen, valitse tapahtuma ja paina <b>Yhdistä lukijaan</b>. Toimii vain Chromessa tai Edgessä https-osoitteesta, ja vaatii jatkuvan verkkoyhteyden. Kuittaa jokainen luettu kortti ennen sivun sulkemista.</li>
+            <li><b>Tulospalvelu selaimessa</b> (ylävalikko): liitä EMIT 250 -lukija koneeseen, valitse tapahtuma ja paina <b>Yhdistä lukijaan</b>. Kortinluku toimii vain Chromessa tai Edgessä https-osoitteesta, ja vaatii jatkuvan verkkoyhteyden. Kuittaa jokainen luettu kortti ennen sivun sulkemista. <b>Lisää osanottaja</b> lisää osallistujan käsin (ei korttia tai luenta epäonnistui): hae henkilö tai kirjoita nimi, valitse rata ja anna halutessasi aika.</li>
           </ul>
           <p>Tulokset näkyvät julkisella tulossivulla (kalenteri → tapahtuma → <b>Tulokset</b>) ja päivittyvät automaattisesti sitä mukaa kuin kortteja luetaan.</p>
           <p>Kun tapahtuma on pidetty, vaihda sen tilaksi <b>Päättynyt</b>.</p>
