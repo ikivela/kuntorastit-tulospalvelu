@@ -7,7 +7,7 @@ use serde::Serialize;
 use serialport::{DataBits, Parity, SerialPort, SerialPortType, StopBits};
 use std::io::Read;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
 };
 use std::time::{Duration, Instant};
@@ -62,6 +62,12 @@ struct Emit250Status {
 struct ReaderState {
     listening: Arc<AtomicBool>,
     latest_read: Arc<Mutex<Option<Emit250Read>>>,
+    /// True while a reader thread holds the port (until it has exited).
+    thread_running: Arc<AtomicBool>,
+    /// Incremented per listening session; only the current session's end is
+    /// reported to the UI, so a session stopped for a restart cannot make the
+    /// UI think the new one stopped.
+    session: Arc<AtomicU64>,
 }
 
 #[tauri::command]
@@ -117,8 +123,20 @@ fn start_emit250(
     state: State<'_, ReaderState>,
     port_name: String,
 ) -> Result<(), String> {
-    if state.listening.load(Ordering::SeqCst) {
-        return Err("EMIT-kuuntelu on jo käynnissä.".into());
+    if state.thread_running.load(Ordering::SeqCst) {
+        // A session left over, e.g. after the UI was reloaded while listening:
+        // stop it and wait until it has released the port.
+        state.listening.store(false, Ordering::SeqCst);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while state.thread_running.load(Ordering::SeqCst) {
+            if Instant::now() > deadline {
+                let message = "Edellinen EMIT-kuuntelu ei pysähtynyt. Yritä uudelleen.".to_string();
+                app.state::<Logger>().error("serial", &message);
+                return Err(message);
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        app.state::<Logger>().info("serial", "Edellinen kuuntelu pysäytettiin ennen uutta");
     }
     *state
         .latest_read
@@ -137,11 +155,23 @@ fn start_emit250(
         })?;
     app.state::<Logger>().info("serial", &format!("Kuuntelu alkoi portissa {port_name}"));
     state.listening.store(true, Ordering::SeqCst);
+    state.thread_running.store(true, Ordering::SeqCst);
+    let session = state.session.fetch_add(1, Ordering::SeqCst) + 1;
     let listening = Arc::clone(&state.listening);
     let latest_read = Arc::clone(&state.latest_read);
+    let thread_running = Arc::clone(&state.thread_running);
+    let current_session = Arc::clone(&state.session);
     std::thread::spawn(move || {
         let outcome = read_emit250_loop(&app, &port_name, port, &listening, &latest_read);
-        listening.store(false, Ordering::SeqCst);
+        let superseded = current_session.load(Ordering::SeqCst) != session;
+        if !superseded {
+            listening.store(false, Ordering::SeqCst);
+        }
+        // The port is closed when `port` drops inside read_emit250_loop.
+        thread_running.store(false, Ordering::SeqCst);
+        if superseded {
+            return;
+        }
         match outcome {
             // A card was read: the UI picks it up from latest_emit250_read and
             // restarts listening after the confirmation. A "stopped" event here
@@ -621,6 +651,8 @@ pub fn run() {
         .manage(ReaderState {
             listening: Arc::new(AtomicBool::new(false)),
             latest_read: Arc::new(Mutex::new(None)),
+            thread_running: Arc::new(AtomicBool::new(false)),
+            session: Arc::new(AtomicU64::new(0)),
         })
         .invoke_handler(tauri::generate_handler![
             list_serial_devices,

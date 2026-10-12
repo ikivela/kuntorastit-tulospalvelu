@@ -118,6 +118,9 @@ pre { overflow: auto; white-space: pre-wrap; word-break: break-all; background: 
 .editing-row td { padding-top: 6px; padding-bottom: 6px; }
 .editing-row input { width: 100%; min-width: 0; box-sizing: border-box; }
 .card-number-input { width: 100%; min-width: 0; box-sizing: border-box; }
+.modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.modal-close { flex: none; width: 2.2em; height: 2.2em; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #5b6578; font-size: 1.5rem; line-height: 1; }
+.modal-close:hover, .modal-close:focus-visible { background: #f1f3f5; color: #172033; }
 .modal form { display: grid; gap: 14px; }
 .modal label { display: grid; gap: 6px; font-weight: 600; }
 .modal input { width: 100%; box-sizing: border-box; font-weight: 400; }
