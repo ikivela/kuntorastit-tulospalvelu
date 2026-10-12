@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" rx="224" fill="#172033"/>
+  <!-- stake -->
+  <rect x="262" y="170" width="36" height="700" rx="18" fill="#c9d0da"/>
+  <!-- control flag: three-sided prism, front face and right face visible -->
+  <polygon points="298,250 668,250 298,620" fill="#ffffff"/>
+  <polygon points="668,250 668,620 298,620" fill="#f26b21"/>
+  <polygon points="668,250 790,200 668,620" fill="#d9dee6"/>
+  <polygon points="790,200 790,570 668,620" fill="#c4520f"/>
+  <!-- top edge of the prism -->
+  <polygon points="298,250 420,200 790,200 668,250" fill="#eef1f5"/>
+</svg>

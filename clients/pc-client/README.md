@@ -124,6 +124,11 @@ GitHubin **Releases**-osioon:
 
 Kaikki bundle-tiedostot löytyvät lisäksi ajon liitteistä (artifacts).
 
+Sovelluksen kuvake (rastilippu) on piirretty tiedostoon
+`src-tauri/icons/icon.svg`; muokkauksen jälkeen kaikki koot (`.ico`, `.icns`,
+PNG:t) generoidaan siitä komennolla
+`npx tauri icon src-tauri/icons/icon.svg -o src-tauri/icons`.
+
 ## Testidatan generointi
 
 `tools/generate_dummy.py` lisää satunnaisia osallistujia paikalliseen
