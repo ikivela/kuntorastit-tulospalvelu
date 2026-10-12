@@ -94,7 +94,7 @@ export default function InstructionsPage() {
           <p>Maalissa EMIT-kortit luetaan jommallakummalla tavalla:</p>
           <ul className="ml-5 list-disc space-y-1.5">
             <li><b>Kuntorastit Client</b> (suositus): toimii myös ilman verkkoyhteyttä ja sisältää paikallisen henkilörekisterin. Katso ohjeet alta.</li>
-            <li><b>Tulospalvelu selaimessa</b> (ylävalikko): liitä EMIT 250 -lukija koneeseen, valitse tapahtuma ja paina <b>Yhdistä lukijaan</b>. Kortinluku toimii vain Chromessa tai Edgessä https-osoitteesta, ja vaatii jatkuvan verkkoyhteyden. Kuittaa jokainen luettu kortti ennen sivun sulkemista. <b>Lisää osanottaja</b> lisää osallistujan käsin (ei korttia tai luenta epäonnistui): hae henkilö tai kirjoita nimi, valitse rata ja anna halutessasi aika.</li>
+            <li><b>Tulospalvelu selaimessa</b> (ylävalikko): liitä EMIT 250 -lukija koneeseen, Käynnistä tulospalvelu ja paina <b>Yhdistä lukijaan</b>. Kortinluku toimii vain Chromessa tai Edgessä https-osoitteesta, ja vaatii jatkuvan verkkoyhteyden. Kuittaa jokainen luettu kortti ennen sivun sulkemista. <b>Lisää osanottaja</b> lisää osallistujan käsin (ei korttia tai luenta epäonnistui): hae henkilö tai kirjoita nimi, valitse rata ja anna halutessasi aika.</li>
           </ul>
           <p>Tulokset näkyvät julkisella tulossivulla (kalenteri → tapahtuma → <b>Tulokset</b>) ja päivittyvät automaattisesti sitä mukaa kuin kortteja luetaan.</p>
           <p>Kun tapahtuma on pidetty, vaihda sen tilaksi <b>Päättynyt</b>.</p>
@@ -154,7 +154,7 @@ export default function InstructionsPage() {
 
         <Section id="client-luenta" title="4. Kortin luenta tapahtumapäivänä">
           <Steps items={[
-            <>Valitse alasvetovalikosta päivän tapahtuma ja paina <b>Valitse tapahtuma</b>. Listassa näkyvät kuluvan vuoden <b>julkaistut</b> tapahtumat.</>,
+            <>Valitse alasvetovalikosta päivän tapahtuma ja paina <b>Käynnistä tulospalvelu</b>. Listassa näkyvät kuluvan vuoden <b>julkaistut</b> tapahtumat.</>,
             <>Varmista, että tila näyttää <b>Lukija OK</b> ja että tapahtuman radat näkyvät.</>,
             <>Lue kortti lukijassa. Jos kortti on rekisterissä, avautuu <b>Kuittaa lukutulos</b>: nimi, rata, rastit ja aika. Väärä tai puuttuva leima näkyy punaisella.</>,
             <>Tarkista rata: client valitsee radan, jota leimat vastaavat parhaiten. Vaihda se tarvittaessa <b>Rata</b>-valinnasta, jolloin leimat tarkistetaan valittua rataa vasten ja tulos kirjataan sille.</>,
