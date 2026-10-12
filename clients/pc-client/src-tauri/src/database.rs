@@ -181,11 +181,13 @@ mod tests {
         let sent = &database.pending_reads(0, None, 10).unwrap()[0];
         assert_eq!(sent.sync_revision, 0);
 
-        database.update_read_status(read_id, "OK").unwrap();
+        database.update_read_status(read_id, Some("course-2"), "DID_NOT_FINISH").unwrap();
         assert!(!database.mark_read_sync(read_id, sent.sync_revision, true, None).unwrap());
         let pending = database.pending_reads(0, None, 10).unwrap();
         assert_eq!(pending[0].sync_status, "PENDING");
         assert_eq!(pending[0].sync_revision, 1);
+        assert_eq!(pending[0].course_id.as_deref(), Some("course-2"));
+        assert_eq!(pending[0].result_status, "DID_NOT_FINISH");
 
         assert!(database.mark_read_sync(read_id, 1, true, None).unwrap());
         assert!(database.pending_reads(0, None, 10).unwrap().is_empty());
@@ -252,6 +254,7 @@ pub struct StoredCardRead {
 }
 
 const CALENDAR_CACHE_KEY: &str = "reader.calendar_cache";
+const RESULT_STATUSES: &[&str] = &["OK", "NO_TIME", "DISQUALIFIED", "MISSING_CONTROL", "DID_NOT_FINISH"];
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -736,7 +739,7 @@ impl Database {
     }
 
     pub fn save_read(&self, read: &Emit250Read, participant_id: i64, event_id: &str, course_id: Option<&str>, result_status: &str) -> Result<i64, String> {
-        if !matches!(result_status, "OK" | "NO_TIME" | "DISQUALIFIED" | "MISSING_CONTROL") {
+        if !RESULT_STATUSES.contains(&result_status) {
             return Err("Tuntematon tuloksen tila.".into());
         }
         let mut connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
@@ -781,16 +784,19 @@ impl Database {
         Ok(read_id)
     }
 
-    pub fn update_read_status(&self, read_id: i64, result_status: &str) -> Result<(), String> {
-        if !matches!(result_status, "OK" | "NO_TIME" | "DISQUALIFIED" | "MISSING_CONTROL") {
+    /// Edits a stored read's status and, when given, the course it is recorded
+    /// on (`None` keeps the current course).
+    pub fn update_read_status(&self, read_id: i64, course_id: Option<&str>, result_status: &str) -> Result<(), String> {
+        if !RESULT_STATUSES.contains(&result_status) {
             return Err("Tuntematon tuloksen tila.".into());
         }
         let connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
         let changed = connection
             .execute(
-                "UPDATE card_reads SET result_status = ?1, sync_status = 'PENDING', sync_error = NULL, sync_revision = sync_revision + 1
+                "UPDATE card_reads SET result_status = ?1, course_id = COALESCE(?3, course_id), sync_status = 'PENDING',
+                        sync_error = NULL, sync_revision = sync_revision + 1
                  WHERE id = ?2",
-                params![result_status, read_id],
+                params![result_status, read_id, course_id],
             )
             .map_err(|error| error.to_string())?;
         if changed == 0 {

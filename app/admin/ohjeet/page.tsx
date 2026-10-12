@@ -156,11 +156,12 @@ export default function InstructionsPage() {
             <>Valitse alasvetovalikosta päivän tapahtuma ja paina <b>Valitse tapahtuma</b>. Listassa näkyvät kuluvan vuoden <b>julkaistut</b> tapahtumat.</>,
             <>Varmista, että tila näyttää <b>Lukija OK</b> ja että tapahtuman radat näkyvät.</>,
             <>Lue kortti lukijassa. Jos kortti on rekisterissä, avautuu <b>Kuittaa lukutulos</b>: nimi, rata, rastit ja aika. Väärä tai puuttuva leima näkyy punaisella.</>,
-            <>Kuittaa tulos: <b>Tulos OK</b>, <b>Ilman aikaa</b>, <b>Kuittaa: rasti puuttuu</b> tai <b>Kuittaa hylätty</b>. Nimeä ja seuraa voi korjata samassa ikkunassa.</>,
+            <>Tarkista rata: client valitsee radan, jota leimat vastaavat parhaiten. Vaihda se tarvittaessa <b>Rata</b>-valinnasta, jolloin leimat tarkistetaan valittua rataa vasten ja tulos kirjataan sille.</>,
+            <>Kuittaa tulos: <b>Tulos OK</b>, <b>Kuittaa: rasti puuttuu</b>, <b>Kuittaa hylätty</b>, <b>Keskeytti</b> tai <b>Ilman aikaa</b>. Nimeä ja seuraa voi korjata samassa ikkunassa.</>,
             <>Jos korttia ei tunneta, avautuu <b>Uusi osallistuja</b>. Täytä nimi ja seura ja paina <b>Tallenna osallistuja</b>, minkä jälkeen kuittaa tulos. <b>Ohita kortti</b> hylkää luennan tallentamatta mitään.</>,
             <>Lopuksi paina <b>Lopeta tapahtuma</b>. Tämä vapauttaa lukijan.</>,
           ]} />
-          <Definitions items={[["Hyväksytty", "Rastit ovat radan mukaisessa järjestyksessä."], ["Rasti puuttuu", "Radan rasti puuttuu kortilta."], ["Hylätty", "Leimat eivät vastaa rataa (esim. väärä rata)."], ["Ilman aikaa", "Osallistuminen kirjataan, mutta aikaa ei julkaista."]]} />
+          <Definitions items={[["Hyväksytty", "Rastit ovat radan mukaisessa järjestyksessä."], ["Rasti puuttuu", "Radan rasti puuttuu kortilta."], ["Hylätty", "Leimat eivät vastaa rataa (esim. väärä rata)."], ["Keskeytti", "Osallistuja ei kiertänyt rataa loppuun. Aikaa ei julkaista."], ["Ilman aikaa", "Osallistuminen kirjataan, mutta aikaa ei julkaista."]]} />
         </Section>
 
         <Section id="client-kasin" title="5. Käsin syötetyt tulokset">

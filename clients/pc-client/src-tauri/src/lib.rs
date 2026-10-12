@@ -511,9 +511,10 @@ fn mark_card_read_sync(
 fn update_card_read_status(
     database: State<'_, Database>,
     read_id: i64,
+    course_id: Option<String>,
     result_status: String,
 ) -> Result<(), String> {
-    database.update_read_status(read_id, &result_status)
+    database.update_read_status(read_id, course_id.as_deref(), &result_status)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

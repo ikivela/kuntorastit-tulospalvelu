@@ -122,7 +122,13 @@ export class PublicService {
     const expectedCodes = course.controls
       .filter((item) => item.type !== "START" && item.type !== "FINISH")
       .map((item) => item.controlCodes[0] || item.control.code);
-    const status = input.resultStatus === "OK" ? "ACCEPTED" : input.resultStatus === "NO_TIME" ? "NO_TIME" : "DISQUALIFIED";
+    const status = input.resultStatus === "OK" ? "ACCEPTED"
+      : input.resultStatus === "NO_TIME" ? "NO_TIME"
+      : input.resultStatus === "DID_NOT_FINISH" ? "DID_NOT_FINISH"
+      : "DISQUALIFIED";
+    // No time is published for a result without time or a retirement; the
+    // punches of a retirement still keep their times.
+    const timed = input.resultStatus !== "NO_TIME" && input.resultStatus !== "DID_NOT_FINISH";
     const punches = input.punches.map((punch, index) => {
       const elapsedMs = input.punches.slice(0, index + 1).reduce((sum, item) => sum + item.timeSeconds * 1000, 0);
       return {
@@ -145,9 +151,9 @@ export class PublicService {
           data: {
             courseId: course.id,
             status,
-            startedAt: input.resultStatus === "NO_TIME" ? null : startedAt,
-            finishedAt: input.resultStatus === "NO_TIME" ? null : readAt,
-            durationMs: input.resultStatus === "NO_TIME" ? null : BigInt(durationMs),
+            startedAt: timed ? startedAt : null,
+            finishedAt: timed ? readAt : null,
+            durationMs: timed ? BigInt(durationMs) : null,
             readAt,
             disqualificationReason: input.resultStatus === "MISSING_CONTROL" ? "MISSING_CONTROL" : input.resultStatus === "DISQUALIFIED" ? "WRONG_CONTROL" : null,
             punches: { deleteMany: {}, create: punches },
@@ -192,9 +198,9 @@ export class PublicService {
           punchCardId: card.id,
           source: "ONSITE",
           status,
-          startedAt: input.resultStatus === "NO_TIME" ? null : startedAt,
-          finishedAt: input.resultStatus === "NO_TIME" ? null : readAt,
-          durationMs: input.resultStatus === "NO_TIME" ? null : BigInt(durationMs),
+          startedAt: timed ? startedAt : null,
+          finishedAt: timed ? readAt : null,
+          durationMs: timed ? BigInt(durationMs) : null,
           readAt,
           disqualificationReason: input.resultStatus === "MISSING_CONTROL" ? "MISSING_CONTROL" : input.resultStatus === "DISQUALIFIED" ? "WRONG_CONTROL" : null,
           punches: { create: punches },

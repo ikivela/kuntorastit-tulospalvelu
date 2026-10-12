@@ -127,6 +127,7 @@ pre { overflow: auto; white-space: pre-wrap; word-break: break-all; background: 
 .result-person-edit { display: grid; gap: 10px; margin: 8px 0 20px; }
 .result-person-edit label { display: grid; gap: 4px; font-size: .72rem; font-weight: 700; color: #687386; text-transform: uppercase; letter-spacing: .04em; }
 .result-person-edit input { font-size: 1rem; font-weight: 700; color: #1a2233; }
+.result-person-edit select { width: 100%; min-width: 0; flex: none; font-size: 1rem; font-weight: 700; color: #1a2233; text-transform: none; letter-spacing: normal; }
 .result-person dl { grid-template-columns: 1fr; gap: 3px; }
 
 .result-person dd { margin-bottom: 12px; }

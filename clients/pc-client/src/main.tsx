@@ -65,7 +65,7 @@ type StoredCardRead = {
   lastName: string;
   participantName: string;
   club?: string;
-  resultStatus: "OK" | "NO_TIME" | "DISQUALIFIED" | "MISSING_CONTROL";
+  resultStatus: ResultStatus;
   syncStatus: "PENDING" | "SYNCED" | "ERROR";
   syncError?: string;
   source: "EMIT" | "MANUAL";
@@ -78,6 +78,7 @@ type CourseControl = { sequenceNumber: number; type: string; controlCodes: strin
 type Course = { id: string; name: string; lengthMeters: number; climbMeters?: number; controls?: CourseControl[] };
 type CalendarEvent = { id: string; name: string; locationName?: string; startsAt: string; endsAt: string; status: string; courses: Course[] };
 type CalendarSeason = { id: string; name: string; events: CalendarEvent[] };
+type ResultStatus = "OK" | "NO_TIME" | "DISQUALIFIED" | "MISSING_CONTROL" | "DID_NOT_FINISH";
 type CachedCalendar = { json: string; fetchedAtMs: number };
 type SyncState = { pending: number; error: string };
 
@@ -120,6 +121,8 @@ function App() {
   const [editingSource, setEditingSource] = useState<"EMIT" | "MANUAL" | null>(null);
   const [editingManualDurationSeconds, setEditingManualDurationSeconds] = useState<number | undefined>(undefined);
   const [resumeAfterEdit, setResumeAfterEdit] = useState(false);
+  // Course picked in the confirm dialog; null = the course the punches match.
+  const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [manualEntryOpen, setManualEntryOpen] = useState(false);
   const [manualQuery, setManualQuery] = useState("");
   const [manualFirstName, setManualFirstName] = useState("");
@@ -520,7 +523,7 @@ function App() {
         lastName,
         club: club || null,
         eventId: pendingEventId ?? activeEvent?.id ?? null,
-        courseId: cardValidation?.courseId ?? null,
+        courseId: resultCourseId ?? null,
       });
       setFirstName(""); setLastName(""); setClub("");
       setPendingParticipant(participant);
@@ -530,7 +533,7 @@ function App() {
     }
   }
 
-  async function confirmResult(resultStatus: "OK" | "NO_TIME" | "DISQUALIFIED" | "MISSING_CONTROL") {
+  async function confirmResult(resultStatus: ResultStatus) {
     if (!pendingParticipant || !pendingCard) return;
     setFormError("");
     if (!pendingParticipant.firstName.trim() || !pendingParticipant.lastName.trim()) {
@@ -545,15 +548,15 @@ function App() {
         club: pendingParticipant.club || null,
       });
       if (editingReadId != null) {
-        await invoke("update_card_read_status", { readId: editingReadId, resultStatus });
+        await invoke("update_card_read_status", { readId: editingReadId, courseId: resultCourseId ?? null, resultStatus });
       } else {
         const eventId = pendingEventId ?? activeEvent?.id;
         if (!eventId) throw new Error("Korttiluku ei ole sidottu tapahtumaan. Käynnistä tapahtuma uudelleen.");
-        if (!cardValidation?.courseId) throw new Error("Tulokselle ei löytynyt rataa, joten sitä ei voida synkronoida.");
+        if (!resultCourseId) throw new Error("Valitse rata, jolle tulos kirjataan.");
         await invoke("confirm_latest_emit250_read", {
           participantId: pendingParticipant.id,
           eventId,
-          courseId: cardValidation.courseId,
+          courseId: resultCourseId,
           resultStatus,
         });
       }
@@ -562,8 +565,9 @@ function App() {
       setPendingCard(null); setPendingParticipant(null); setResult(null);
       setPendingEventId(null);
       setEditingReadId(null); setEditingSource(null); setEditingManualDurationSeconds(undefined); setResumeAfterEdit(false);
+      setSelectedCourseId(null);
       await refreshHistory();
-      setStatus(`${name}: ${resultStatus === "OK" ? "OK" : resultStatus === "DISQUALIFIED" ? "hylätty" : resultStatus === "MISSING_CONTROL" ? "rasti puuttuu" : "ilman aikaa"}.`);
+      setStatus(`${name}: ${resultStatusLabel(resultStatus).toLocaleLowerCase("fi-FI")}.`);
       if (shouldResume && activeEvent) await startListening();
     } catch (error) {
       setFormError(String(error));
@@ -579,6 +583,7 @@ function App() {
     setPendingCard(null); setPendingParticipant(null); setResult(null);
     setPendingEventId(null);
     setEditingReadId(null); setEditingSource(null); setEditingManualDurationSeconds(undefined); setResumeAfterEdit(false);
+    setSelectedCourseId(null);
     setFirstName(""); setLastName(""); setClub(""); setFormError("");
     setStatus(cardNumber ? `Kortti ${cardNumber} ohitettu.` : "Ohitettu.");
     if (shouldResume && activeEvent) await startListening();
@@ -592,6 +597,7 @@ function App() {
     setEditingReadId(item.id);
     setEditingSource(item.source);
     setEditingManualDurationSeconds(item.manualDurationSeconds);
+    setSelectedCourseId(item.courseId ?? null);
     setPendingEventId(activeEvent?.id || selectedEventId || null);
     setFormError("");
     setPendingParticipant({ id: item.participantId, cardNumber: item.cardNumber ?? 0, firstName: item.firstName, lastName: item.lastName, club: item.club });
@@ -778,6 +784,7 @@ function App() {
             // an event-scoped lookup would call everyone "unknown".
             const participant = await invoke<Participant | null>("participant_by_card", { cardNumber: latest.cardNumber });
             setPendingCard(latest);
+            setSelectedCourseId(null);
             setPendingEventId(activeEvent.id);
             setPendingParticipant(participant);
             await invoke("stop_emit250");
@@ -810,7 +817,13 @@ function App() {
   // skip course validation for them — otherwise the empty punch list reads
   // as "missing control" against an arbitrary course and shows the wrong
   // confirm button.
-  const cardValidation = pendingCard && activeEvent && editingSource !== "MANUAL" ? validateCourse(pendingCard.punches, activeEvent.courses) : null;
+  // A course picked in the dialog is validated on its own, so the punch table
+  // and the confirm button show how the card compares with that course.
+  const chosenCourse = selectedCourseId ? activeEvent?.courses.find((course) => course.id === selectedCourseId) : undefined;
+  const cardValidation = pendingCard && activeEvent && editingSource !== "MANUAL"
+    ? validateCourse(pendingCard.punches, chosenCourse ? [chosenCourse] : activeEvent.courses)
+    : null;
+  const resultCourseId = chosenCourse?.id ?? cardValidation?.courseId;
   const filteredHistory = useMemo(() => {
     const query = historySearch.trim().toLocaleLowerCase("fi-FI");
     if (!query) return history;
@@ -880,14 +893,14 @@ function App() {
 
       <section>
         <div className="log-heading"><div><h2>Tulokset</h2><p>{history.length} viimeisintä tulosta</p>{syncState && (syncState.pending > 0 ? <p className="sync-summary pending">{syncState.pending} {syncState.pending === 1 ? "tulos odottaa" : "tulosta odottaa"} lähetystä{syncState.error ? ` · ${syncState.error}` : ""} <button type="button" className="link-button" onClick={() => void syncPending()}>Lähetä nyt</button></p> : <p className="sync-summary ok">✓ Kaikki tulokset lähetetty</p>)}</div><div className="log-heading-actions"><label className="log-search"><span className="sr-only">Hae tuloksista</span><input type="search" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Hae nimellä, seuralla tai kortilla…" /></label><button onClick={openManualEntry} disabled={!activeEvent}>+ Syötä osanottoja</button></div></div>
-        {history.length === 0 ? <p>Ei tallennettuja tuloksia.</p> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Seura</th><th>Rata</th><th>Aika</th><th><span className="sr-only">Lähetys</span></th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td className="log-read-at"><time>{new Date(item.readAtMs).toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="log-club">{item.club || "–"}</td><td className="log-course">{activeEvent?.courses.find((course) => course.id === item.courseId)?.name ?? "–"}</td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : formatDuration(item.source === "MANUAL" ? item.manualDurationSeconds : totalTime(item.punches))}</td><td className={`log-sync ${item.syncStatus.toLowerCase()}`} title={syncStatusLabel(item)}>{item.syncStatus === "SYNCED" ? "✓" : item.syncStatus === "ERROR" ? "!" : "…"}<span className="sr-only">{syncStatusLabel(item)}</span></td></tr>)}</tbody></table></div></>}
+        {history.length === 0 ? <p>Ei tallennettuja tuloksia.</p> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Seura</th><th>Rata</th><th>Aika</th><th><span className="sr-only">Lähetys</span></th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td className="log-read-at"><time>{new Date(item.readAtMs).toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="log-club">{item.club || "–"}</td><td className="log-course">{activeEvent?.courses.find((course) => course.id === item.courseId)?.name ?? "–"}</td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : item.resultStatus === "DID_NOT_FINISH" ? "Keskeytti" : formatDuration(item.source === "MANUAL" ? item.manualDurationSeconds : totalTime(item.punches))}</td><td className={`log-sync ${item.syncStatus.toLowerCase()}`} title={syncStatusLabel(item)}>{item.syncStatus === "SYNCED" ? "✓" : item.syncStatus === "ERROR" ? "!" : "…"}<span className="sr-only">{syncStatusLabel(item)}</span></td></tr>)}</tbody></table></div></>}
       </section>
 
       {pendingCard && (
         <div className="modal-backdrop" role="presentation">
           <section className={`modal ${pendingParticipant ? "result-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="participant-title">
             <h2 id="participant-title">{editingReadId != null ? "Muokkaa lukutulosta" : pendingParticipant ? "Kuittaa lukutulos" : "Uusi osallistuja"}</h2>
-            {pendingParticipant ? <div className="result-confirm"><aside className={`result-person ${cardValidation?.status === "DISQUALIFIED" || cardValidation?.status === "MISSING_CONTROL" ? "disqualified" : ""}`}><span className="eyebrow">Osallistuja</span><div className="result-person-edit"><label>Etunimi<input value={pendingParticipant.firstName} onChange={(event) => { const value = event.target.value; setPendingParticipant((prev) => prev ? { ...prev, firstName: value } : prev); }} /></label><label>Sukunimi<input value={pendingParticipant.lastName} onChange={(event) => { const value = event.target.value; setPendingParticipant((prev) => prev ? { ...prev, lastName: value } : prev); }} /></label><label>Seura<input value={pendingParticipant.club ?? ""} onChange={(event) => { const value = event.target.value; setPendingParticipant((prev) => prev ? { ...prev, club: value } : prev); }} placeholder="Ei seuraa" /></label></div>{cardValidation &&<div className={`validation-badge ${cardValidation.status.toLowerCase()}`}>{cardValidation.status === "ACCEPTED" ? `Hyväksytty · ${cardValidation.courseName}` : cardValidation.status === "MISSING_CONTROL" ? `Rasti puuttuu · rata ${cardValidation.courseName}` : cardValidation.status === "DISQUALIFIED" ? `Hylätty · ei vastaa rataa ${cardValidation.courseName}` : "Ratadata puuttuu · käynnistä tapahtuma uudelleen"}</div>}<dl>{editingSource === "MANUAL" ? <><dt>Tulos</dt><dd className="result-time">{formatDuration(editingManualDurationSeconds)}</dd></> : <><dt>EMIT-kortti</dt><dd>{pendingCard.cardNumber}</dd><dt>Rasteja</dt><dd>{pendingCard.punches.length}</dd><dt>Tulos</dt><dd className="result-time">{cardValidation?.status === "DISQUALIFIED" ? "Hylätty" : cardValidation?.status === "MISSING_CONTROL" ? "Rasti puuttuu" : formatDuration(totalTime(pendingCard.punches))}</dd></>}</dl></aside>{editingSource !== "MANUAL" && <div className="punch-panel"><table className="punch-table"><thead><tr><th>Rasti</th><th>Koodi</th><th>Väliaika</th><th>Lähdöstä</th><th>Huomio</th></tr></thead><tbody>{pendingCard.punches.map((punch, index) => { const elapsed = totalTime(pendingCard.punches.slice(0, index + 1)); const invalid = cardValidation?.invalidIndices.includes(index); return <tr className={invalid ? "invalid-punch" : ""} key={`${index}-${punch.controlCode}`}><td>{index + 1}</td><td>{punch.controlCode}</td><td>{formatDuration(punch.timeSeconds)}</td><td>{formatDuration(elapsed)}</td><td>{invalid ? `Odotettu ${cardValidation?.expectedCodes[index] ?? "–"}` : ""}</td></tr>; })}</tbody></table></div>}{formError && <p className="error result-error">{formError}</p>}<div className="confirm-actions">{cardValidation?.status === "DISQUALIFIED" ? <button className="danger" onClick={() => void confirmResult("DISQUALIFIED")}>Kuittaa hylätty</button> : cardValidation?.status === "MISSING_CONTROL" ? <button className="danger" onClick={() => void confirmResult("MISSING_CONTROL")}>Kuittaa: rasti puuttuu</button> : <button className="primary" onClick={() => void confirmResult("OK")}>Tulos OK</button>}<button onClick={() => void confirmResult("NO_TIME")}>Ilman aikaa</button></div></div> : <><p>EMIT-korttia <strong>{pendingCard.cardNumber}</strong> ei löydy tietokannasta.</p><form onSubmit={(event) => void saveParticipant(event)}>
+            {pendingParticipant ? <div className="result-confirm"><aside className={`result-person ${cardValidation?.status === "DISQUALIFIED" || cardValidation?.status === "MISSING_CONTROL" ? "disqualified" : ""}`}><span className="eyebrow">Osallistuja</span><div className="result-person-edit"><label>Etunimi<input value={pendingParticipant.firstName} onChange={(event) => { const value = event.target.value; setPendingParticipant((prev) => prev ? { ...prev, firstName: value } : prev); }} /></label><label>Sukunimi<input value={pendingParticipant.lastName} onChange={(event) => { const value = event.target.value; setPendingParticipant((prev) => prev ? { ...prev, lastName: value } : prev); }} /></label><label>Seura<input value={pendingParticipant.club ?? ""} onChange={(event) => { const value = event.target.value; setPendingParticipant((prev) => prev ? { ...prev, club: value } : prev); }} placeholder="Ei seuraa" /></label><label>Rata<select value={resultCourseId ?? ""} onChange={(event) => setSelectedCourseId(event.target.value || null)}>{!resultCourseId && <option value="">Valitse rata</option>}{activeEvent?.courses.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select></label></div>{cardValidation &&<div className={`validation-badge ${cardValidation.status.toLowerCase()}`}>{cardValidation.status === "ACCEPTED" ? `Hyväksytty · ${cardValidation.courseName}` : cardValidation.status === "MISSING_CONTROL" ? `Rasti puuttuu · rata ${cardValidation.courseName}` : cardValidation.status === "DISQUALIFIED" ? `Hylätty · ei vastaa rataa ${cardValidation.courseName}` : "Ratadata puuttuu · käynnistä tapahtuma uudelleen"}</div>}<dl>{editingSource === "MANUAL" ? <><dt>Tulos</dt><dd className="result-time">{formatDuration(editingManualDurationSeconds)}</dd></> : <><dt>EMIT-kortti</dt><dd>{pendingCard.cardNumber}</dd><dt>Rasteja</dt><dd>{pendingCard.punches.length}</dd><dt>Tulos</dt><dd className="result-time">{cardValidation?.status === "DISQUALIFIED" ? "Hylätty" : cardValidation?.status === "MISSING_CONTROL" ? "Rasti puuttuu" : formatDuration(totalTime(pendingCard.punches))}</dd></>}</dl></aside>{editingSource !== "MANUAL" && <div className="punch-panel"><table className="punch-table"><thead><tr><th>Rasti</th><th>Koodi</th><th>Väliaika</th><th>Lähdöstä</th><th>Huomio</th></tr></thead><tbody>{pendingCard.punches.map((punch, index) => { const elapsed = totalTime(pendingCard.punches.slice(0, index + 1)); const invalid = cardValidation?.invalidIndices.includes(index); return <tr className={invalid ? "invalid-punch" : ""} key={`${index}-${punch.controlCode}`}><td>{index + 1}</td><td>{punch.controlCode}</td><td>{formatDuration(punch.timeSeconds)}</td><td>{formatDuration(elapsed)}</td><td>{invalid ? `Odotettu ${cardValidation?.expectedCodes[index] ?? "–"}` : ""}</td></tr>; })}</tbody></table></div>}{formError && <p className="error result-error">{formError}</p>}<div className="confirm-actions">{cardValidation?.status === "DISQUALIFIED" ? <button className="danger" onClick={() => void confirmResult("DISQUALIFIED")}>Kuittaa hylätty</button> : cardValidation?.status === "MISSING_CONTROL" ? <button className="danger" onClick={() => void confirmResult("MISSING_CONTROL")}>Kuittaa: rasti puuttuu</button> : <button className="primary" onClick={() => void confirmResult("OK")}>Tulos OK</button>}{editingSource !== "MANUAL" && <button onClick={() => void confirmResult("DID_NOT_FINISH")}>Keskeytti</button>}<button onClick={() => void confirmResult("NO_TIME")}>Ilman aikaa</button></div></div> : <><p>EMIT-korttia <strong>{pendingCard.cardNumber}</strong> ei löydy tietokannasta.</p><form onSubmit={(event) => void saveParticipant(event)}>
               <label>Etunimi<input autoFocus required value={firstName} onChange={(event) => setFirstName(event.target.value)} /></label>
               <label>Sukunimi<input required value={lastName} onChange={(event) => setLastName(event.target.value)} /></label>
               <label>Seura<input value={club} onChange={(event) => setClub(event.target.value)} /></label>
@@ -1065,7 +1078,8 @@ function syncStatusLabel(read: StoredCardRead) {
   return "Odottaa lähetystä";
 }
 
-function resultStatusLabel(status: StoredCardRead["resultStatus"]) {
+function resultStatusLabel(status: ResultStatus) {
+  if (status === "DID_NOT_FINISH") return "Keskeytti";
   if (status === "DISQUALIFIED") return "Hylätty";
   if (status === "MISSING_CONTROL") return "Rasti puuttuu";
   if (status === "NO_TIME") return "Ilman aikaa";

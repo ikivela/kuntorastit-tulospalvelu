@@ -26,9 +26,9 @@ export class CreateReaderResultDto {
   @IsUUID()
   courseId!: string;
 
-  @ApiProperty({ enum: ["OK", "DISQUALIFIED", "MISSING_CONTROL", "NO_TIME"] })
-  @IsIn(["OK", "DISQUALIFIED", "MISSING_CONTROL", "NO_TIME"])
-  resultStatus!: "OK" | "DISQUALIFIED" | "MISSING_CONTROL" | "NO_TIME";
+  @ApiProperty({ enum: ["OK", "DISQUALIFIED", "MISSING_CONTROL", "NO_TIME", "DID_NOT_FINISH"] })
+  @IsIn(["OK", "DISQUALIFIED", "MISSING_CONTROL", "NO_TIME", "DID_NOT_FINISH"])
+  resultStatus!: "OK" | "DISQUALIFIED" | "MISSING_CONTROL" | "NO_TIME" | "DID_NOT_FINISH";
 
   @ApiProperty({ example: "123456" })
   @IsString()

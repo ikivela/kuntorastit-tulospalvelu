@@ -16,7 +16,10 @@ macOS:ssa, ja synkronoi tulokset Kuntorastien REST API:in.
   ilmoittautuneita API:sta, koska tapahtumaan voi osallistua myös
   omatoimisesti ilman ennakkoilmoittautumista
 - validoi luetun kortin radan rasteja vasten (hyväksytty / leima puuttuu /
-  rasti puuttuu) ja synkronoi tuloksen API:in heti kuittauksen jälkeen
+  rasti puuttuu) ja synkronoi tuloksen API:in heti kuittauksen jälkeen.
+  Kuittausikkunan **Rata**-valinnasta voi vaihtaa radan, jolle tulos
+  kirjataan (leimat tarkistetaan valittua rataa vasten); tulos kuitataan
+  OK:ksi, hylätyksi, rasti puuttuu, **Keskeytti** tai ilman aikaa
 - **HenkilöDB**: paikallisen henkilörekisterin selailu ja muokkaus (nimi,
   seura, kortin numero) suoraan clientistä, kortin numeron
   päällekkäisyystarkistuksella. **Tuo/Vie CSV**-napit tuovat henkilöitä
