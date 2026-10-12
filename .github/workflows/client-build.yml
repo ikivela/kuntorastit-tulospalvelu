@@ -28,6 +28,11 @@ jobs:
             name: linux
           - os: windows-latest
             name: windows
+          # One universal .dmg for Apple Silicon and Intel Macs.
+          - os: macos-latest
+            name: macos
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            build-args: --target universal-apple-darwin --bundles dmg
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -68,6 +73,8 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
@@ -87,7 +94,7 @@ jobs:
       # set the repository variable VITE_API_BASE_URL, e.g.
       # https://tulokset.example.fi/kuntorastit/api/v1
       - name: Build Tauri app
-        run: npm run tauri:build
+        run: npm run tauri:build -- ${{ matrix.build-args }}
         env:
           VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
 
@@ -95,7 +102,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pc-client-${{ matrix.name }}
-          path: clients/pc-client/src-tauri/target/release/bundle/**
+          # target/release (host build) or target/<triple>/release (macOS universal)
+          path: clients/pc-client/src-tauri/target/**/release/bundle/**
           if-no-files-found: error
           retention-days: 30
 
@@ -121,16 +129,17 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           shopt -s globstar nullglob
-          files=(artifacts/**/*.exe artifacts/**/*.msi artifacts/**/*.deb artifacts/**/*.rpm artifacts/**/*.AppImage)
+          files=(artifacts/**/*.exe artifacts/**/*.msi artifacts/**/*.dmg artifacts/**/*.deb artifacts/**/*.rpm artifacts/**/*.AppImage)
           if [ ${#files[@]} -eq 0 ]; then echo "No installers found" >&2; exit 1; fi
           printf '%s\n' "${files[@]}"
+          notes="Windows: .exe (asennusohjelma) tai .msi. macOS (Apple Silicon ja Intel): .dmg; sovellus ei ole Applen notarisoima, joten avaa se ensimmäisellä kerralla kohdasta Järjestelmäasetukset → Tietosuoja ja suojaus → Avaa silti. Linux: .AppImage, .deb tai .rpm."
 
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
             if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
               gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
             else
               gh release create "$GITHUB_REF_NAME" "${files[@]}" \
-                --title "PC client ${GITHUB_REF_NAME#pc-client-v}" --generate-notes
+                --title "PC client ${GITHUB_REF_NAME#pc-client-v}" --notes "$notes" --generate-notes
             fi
           else
             # Rolling build of master: recreate so the tag points at this commit.
@@ -138,5 +147,5 @@ jobs:
             gh release create pc-client-latest "${files[@]}" \
               --target "$GITHUB_SHA" --prerelease \
               --title "PC client (uusin master-build)" \
-              --notes "Automaattinen build commitista ${GITHUB_SHA::7}. Windows: .exe (asennusohjelma) tai .msi; Linux: .AppImage, .deb tai .rpm."
+              --notes "Automaattinen build commitista ${GITHUB_SHA::7}. $notes"
           fi

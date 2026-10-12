@@ -105,15 +105,21 @@ Windows/Linux käyttävät alustan normaaleja pakettityyppejä `.msi`, `.deb`,
 `.rpm`, `.AppImage`). `npm run tauri:build -- --dry-run` näyttää vain
 käytettävän oletusosoitteen.
 
-GitHub Actions (`.github/workflows/client-build.yml`) buildaa Windows- ja
-Linux-versiot käsin käynnistettynä (Actions → Client build → Run
+GitHub Actions (`.github/workflows/client-build.yml`) buildaa Windows-,
+macOS- ja Linux-versiot käsin käynnistettynä (Actions → Client build → Run
 workflow) tai `pc-client-v*`-tagin puskemisesta. Osoite luetaan repositorion muuttujasta `VITE_API_BASE_URL`
 (Settings → Secrets and variables → Actions → Variables, tai
 `gh variable set VITE_API_BASE_URL --body <osoite>`); ilman sitä build
 pysähtyy virheeseen.
 
-Asennuspaketit (`.exe`/`.msi`, `.AppImage`/`.deb`/`.rpm`) julkaistaan
-GitHubin **Releases**-osioon:
+Asennuspaketit (`.exe`/`.msi`, `.dmg`, `.AppImage`/`.deb`/`.rpm`) julkaistaan
+GitHubin **Releases**-osioon. macOS-versio on yksi universal-`.dmg` (Apple
+Silicon ja Intel), joka on vain ad-hoc-allekirjoitettu (ei Apple Developer
+-tunnusta eikä notarisointia): ensimmäisellä avauskerralla macOS estää
+sovelluksen, ja se sallitaan kohdasta Järjestelmäasetukset → Tietosuoja ja
+suojaus → Avaa silti. Paikallisesti saman buildin tekee
+`npm run tauri:build -- --target universal-apple-darwin --bundles dmg`
+(vaatii `rustup target add aarch64-apple-darwin x86_64-apple-darwin`).
 
 - käsin käynnistetty ajo `master`-haarassa päivittää esijulkaisun
   **pc-client-latest** (aina uusin build)

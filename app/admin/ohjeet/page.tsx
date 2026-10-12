@@ -126,6 +126,7 @@ export default function InstructionsPage() {
           {CLIENT_DOWNLOAD_URL ? <p><Button asChild className="rounded-full"><a href={CLIENT_DOWNLOAD_URL} target="_blank" rel="noreferrer"><Download className="mr-2 size-4" />Lataa PC-client</a></Button></p> : <p>Pyydä asennuspaketti järjestelmän ylläpitäjältä.</p>}
           <ul className="ml-5 list-disc space-y-1.5">
             <li><b>Windows:</b> aja <code>…_x64-setup.exe</code> (tai <code>.msi</code>). Jos Windows varoittaa tuntemattomasta julkaisijasta, valitse <b>Lisätietoja → Suorita silti</b>.</li>
+            <li><b>macOS</b> (Apple Silicon ja Intel): avaa <code>.dmg</code> ja vedä sovellus Ohjelmat-kansioon. Sovellus ei ole Applen notarisoima: jos macOS estää avaamisen, valitse <b>Järjestelmäasetukset → Tietosuoja ja suojaus → Avaa silti</b>.</li>
             <li><b>Linux:</b> <code>.AppImage</code> (aseta suoritusoikeus), <code>.deb</code> tai <code>.rpm</code>.</li>
             <li>EMIT 250 -lukija tarvitsee USB-sarjaporttiajurin. Jos lukija ei näy porttilistassa, asenna lukijan valmistajan ajuri.</li>
           </ul>
