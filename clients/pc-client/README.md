@@ -29,9 +29,18 @@ macOS:ssa, ja synkronoi tulokset Kuntorastien REST API:in.
   tunnetuista osallistujista, ja tulokselle voi valinnaisesti syöttää ajan
   käsin (esim. sekuntikellolla otetun ajan); ilman aikaa jätetty tulos
   merkitään "ilman aikaa"
-- toimii offline: lukemat ja manuaaliset lisäykset jäävät paikalliseen kantaan
-  `PENDING`-tilaan ja synkronoituvat automaattisesti kun API on taas
-  tavoitettavissa
+- toimii offline: tapahtumakalenteri (tapahtumat, radat ja rastit)
+  tallentuu paikalliseen kantaan jokaisen onnistuneen haun jälkeen, joten
+  tapahtuman voi käynnistää ja kortit tarkistaa myös ilman verkkoyhteyttä
+  (näkymä kertoo, milloin tiedot on haettu; tuoreet tiedot haetaan taustalla
+  heti kun yhteys palaa, myös kesken käynnissä olevan tapahtuman). Lukemat ja manuaaliset lisäykset
+  jäävät paikalliseen kantaan ja lähetetään taustalla 30 sekunnin välein sekä
+  heti kun käyttöjärjestelmä ilmoittaa yhteyden palanneen. Taustalähetys
+  koskee kuluvan päivän tuloksia, myös jos tapahtuma on jo lopetettu
+  clientissä; vanhemmat lähtevät, kun tapahtuma käynnistetään uudelleen. Tulostaulukko näyttää kunkin tuloksen
+  lähetystilan (✓ lähetetty, … odottaa, ! virhe) ja odottavien määrän.
+  Käsin syötetyt tulokset lähettävät syöttöhetkensä, joten myöhässä
+  synkronoitu tulos saa oikean ajan
 - Bearer-token-suojaus API:n lukijakohtaisiin rajapintoihin (ks. alla)
 
 Tämä ei vielä validoi EMITin virallista tarkistussummaa. Nykyinen

@@ -12,7 +12,23 @@ declare const __BUILD_DATE__: string;
 const DEFAULT_API_BASE = normalizeApiBase(import.meta.env.VITE_API_BASE_URL || "http://localhost:3001/api/v1");
 let API_BASE = DEFAULT_API_BASE;
 let installationIdPromise: Promise<string> | undefined;
-const syncingReadIds = new Set<number>();
+// Unsynced reads are retried on this interval and whenever the OS reports the
+// connection back, so results taken offline go out without user action.
+const SYNC_INTERVAL_MS = 30_000;
+// Without a timeout a fetch over a flaky field connection can hang for minutes.
+const FETCH_TIMEOUT_MS = 10_000;
+let syncRunning = false;
+let syncRequested = false;
+
+async function fetchWithTimeout(url: string, init: RequestInit = {}) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
 
 type SerialDevice = {
   portName: string;
@@ -55,12 +71,15 @@ type StoredCardRead = {
   source: "EMIT" | "MANUAL";
   personId?: string;
   manualDurationSeconds?: number;
+  syncRevision: number;
 };
 type Participant = { id: number; cardNumber: number; firstName: string; lastName: string; club?: string; apiPersonId?: string };
 type CourseControl = { sequenceNumber: number; type: string; controlCodes: string[]; control: { code: string } };
 type Course = { id: string; name: string; lengthMeters: number; climbMeters?: number; controls?: CourseControl[] };
 type CalendarEvent = { id: string; name: string; locationName?: string; startsAt: string; endsAt: string; status: string; courses: Course[] };
 type CalendarSeason = { id: string; name: string; events: CalendarEvent[] };
+type CachedCalendar = { json: string; fetchedAtMs: number };
+type SyncState = { pending: number; error: string };
 
 function App() {
   const [devices, setDevices] = useState<SerialDevice[]>([]);
@@ -82,9 +101,14 @@ function App() {
   const [activeEvent, setActiveEvent] = useState<CalendarEvent | null>(null);
   const [calendarLoading, setCalendarLoading] = useState(true);
   const [calendarError, setCalendarError] = useState("");
+  const [calendarCachedAt, setCalendarCachedAt] = useState<number | null>(null);
+  const [syncState, setSyncState] = useState<SyncState | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [personDbOpen, setPersonDbOpen] = useState(false);
   const [deviceToken, setDeviceToken] = useState("");
+  // Background sync runs from a timer set up once, so it reads these refs.
+  const deviceTokenRef = useRef("");
+  const activeEventIdRef = useRef<string | null>(null);
   const [deviceName, setDeviceName] = useState("");
   const [deviceNameInput, setDeviceNameInput] = useState("");
   const [deviceStatus, setDeviceStatus] = useState<"unregistered" | "pending" | "approved" | "revoked">("unregistered");
@@ -161,19 +185,43 @@ function App() {
     }
   }
 
-  async function loadCalendar() {
-    setCalendarLoading(true); setCalendarError("");
+  // Every successful fetch is stored locally; without a connection the stored
+  // calendar (events, courses and controls) is used, so an event can still be
+  // started and cards validated after a restart in the field.
+  // `background`: a silent retry while the stored calendar is shown; a failure
+  // keeps the current view as it is.
+  async function loadCalendar({ background = false } = {}) {
+    if (!background) { setCalendarLoading(true); setCalendarError(""); }
     try {
-      const response = await fetch(`${API_BASE}/public/calendar?year=${new Date().getFullYear()}`, { cache: "no-store" });
+      const response = await fetchWithTimeout(`${API_BASE}/public/calendar?year=${new Date().getFullYear()}`, { cache: "no-store" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const seasons = await response.json() as CalendarSeason[];
-      const found = seasons.flatMap((season) => season.events).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-      setEvents(found);
-      const nearest = nearestEventToNow(found);
-      setSelectedEventId((current) => found.some((event) => event.id === current) ? current : nearest?.id || "");
+      showCalendar(seasons);
+      setCalendarCachedAt(null);
+      await invoke("set_cached_calendar", { json: JSON.stringify({ apiBase: API_BASE, seasons }) }).catch(() => undefined);
     } catch {
-      setCalendarError("Tapahtumien haku backendistä epäonnistui.");
-    } finally { setCalendarLoading(false); }
+      if (background) return;
+      const cached = await invoke<CachedCalendar | null>("cached_calendar").catch(() => null);
+      const stored = cached ? parseCachedCalendar(cached.json) : null;
+      // A calendar fetched from another server has the wrong event ids.
+      if (cached && stored?.apiBase === API_BASE) {
+        showCalendar(stored.seasons);
+        setCalendarCachedAt(cached.fetchedAtMs);
+      } else {
+        setEvents([]);
+        setCalendarCachedAt(null);
+        setCalendarError("Tapahtumien haku backendistä epäonnistui, eikä tallennettuja tapahtumatietoja ole.");
+      }
+    } finally { if (!background) setCalendarLoading(false); }
+  }
+
+  function showCalendar(seasons: CalendarSeason[]) {
+    const found = seasons.flatMap((season) => season.events).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+    setEvents(found);
+    const nearest = nearestEventToNow(found);
+    setSelectedEventId((current) => found.some((event) => event.id === current) ? current : nearest?.id || "");
+    // Fresh courses/controls for a running event, e.g. one started offline.
+    setActiveEvent((current) => current ? found.find((event) => event.id === current.id) ?? current : current);
   }
 
   async function startEvent() {
@@ -182,15 +230,18 @@ function App() {
     if (!selected) { setSettingsOpen(true); setStatus("Valitse ensin lukijan sarjaportti."); return; }
     setHistorySearch("");
     setActiveEvent(event);
+    activeEventIdRef.current = event.id;
     if (await startListening()) {
       await refreshHistory(event.id);
     } else {
       setActiveEvent(null);
+      activeEventIdRef.current = null;
     }
   }
 
   function authHeaders(extra?: Record<string, string>) {
-    return deviceToken ? { ...extra, authorization: `Bearer ${deviceToken}` } : extra ?? {};
+    const token = deviceTokenRef.current;
+    return token ? { ...extra, authorization: `Bearer ${token}` } : extra ?? {};
   }
 
   async function checkDeviceStatus() {
@@ -274,6 +325,7 @@ function App() {
   async function stopEvent() {
     await stopListening();
     setActiveEvent(null);
+    activeEventIdRef.current = null;
     setPendingEventId(null);
     setHistory([]);
     setHistorySearch("");
@@ -289,7 +341,7 @@ function App() {
     if (!eventId) { setHistory([]); return; }
     const reads = await invoke<StoredCardRead[]>("recent_card_reads", { eventId, limit: 300 });
     setHistory(reads);
-    void syncPendingReads(reads);
+    void syncPending();
   }
 
   async function installationId() {
@@ -306,60 +358,102 @@ function App() {
     return installationIdPromise;
   }
 
-  async function syncPendingReads(reads: StoredCardRead[]) {
-    const pending = reads.filter((read) => read.syncStatus !== "SYNCED" && !syncingReadIds.has(read.id));
-    if (!pending.length) return;
-    const clientId = await installationId();
+  // Sends today's unsynced reads (today's event, also after it has been
+  // closed in the client) and those of the open event to the API, oldest first. One round at a time: a request arriving mid-round queues one
+  // more round instead of sending the same reads twice in parallel.
+  async function syncPending() {
+    if (syncRunning) { syncRequested = true; return; }
+    syncRunning = true;
+    try {
+      do {
+        syncRequested = false;
+        await syncRound();
+      } while (syncRequested);
+    } finally {
+      syncRunning = false;
+    }
+  }
+
+  async function syncRound() {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const pending = await invoke<StoredCardRead[]>("pending_card_reads", { sinceMs: startOfToday.getTime(), eventId: activeEventIdRef.current, limit: 500 }).catch(() => null);
+    if (!pending) return;
+    let remaining = pending.length;
+    let roundError = "";
+    const clientId = pending.length ? await installationId() : "";
     for (const read of pending) {
-      syncingReadIds.add(read.id);
       if (!read.courseId || (read.source === "EMIT" && !read.cardNumber)) {
-        await invoke("mark_card_read_sync", { readId: read.id, synced: false, error: "Ratatieto puuttuu." });
-        syncingReadIds.delete(read.id);
+        roundError ||= "Ratatieto puuttuu.";
+        await markSync(read, false, "Ratatieto puuttuu.");
         continue;
       }
+      const url = read.source === "MANUAL"
+        ? `${API_BASE}/public/events/${read.eventId}/manual-results`
+        : `${API_BASE}/public/events/${read.eventId}/reader-results`;
+      const body = read.source === "MANUAL"
+        ? {
+            clientReference: `${clientId}:${read.id}`,
+            courseId: read.courseId,
+            personId: read.personId || undefined,
+            firstName: read.firstName,
+            lastName: read.lastName,
+            clubName: read.club || undefined,
+            durationSeconds: read.manualDurationSeconds,
+            readAt: new Date(read.readAtMs).toISOString(),
+          }
+        : {
+            clientReference: `${clientId}:${read.id}`,
+            courseId: read.courseId,
+            resultStatus: read.resultStatus,
+            cardNumber: String(read.cardNumber),
+            firstName: read.firstName,
+            lastName: read.lastName,
+            clubName: read.club || undefined,
+            readAt: new Date(read.readAtMs).toISOString(),
+            readerSerial: read.portName,
+            punches: read.punches,
+          };
+      let response: Response;
       try {
-        const url = read.source === "MANUAL"
-          ? `${API_BASE}/public/events/${read.eventId}/manual-results`
-          : `${API_BASE}/public/events/${read.eventId}/reader-results`;
-        const body = read.source === "MANUAL"
-          ? {
-              clientReference: `${clientId}:${read.id}`,
-              courseId: read.courseId,
-              personId: read.personId || undefined,
-              firstName: read.firstName,
-              lastName: read.lastName,
-              clubName: read.club || undefined,
-              durationSeconds: read.manualDurationSeconds,
-            }
-          : {
-              clientReference: `${clientId}:${read.id}`,
-              courseId: read.courseId,
-              resultStatus: read.resultStatus,
-              cardNumber: String(read.cardNumber),
-              firstName: read.firstName,
-              lastName: read.lastName,
-              clubName: read.club || undefined,
-              readAt: new Date(read.readAtMs).toISOString(),
-              readerSerial: read.portName,
-              punches: read.punches,
-            };
-        const response = await fetch(url, {
+        response = await fetchWithTimeout(url, {
           method: "POST",
           headers: authHeaders({ "content-type": "application/json" }),
           body: JSON.stringify(body),
         });
-        if (response.status === 401) throw new Error("Lukijaa ei ole hyväksytty tai pääsy on peruutettu. Tarkista Asetukset-paneelista.");
-        if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
-        await invoke("mark_card_read_sync", { readId: read.id, synced: true, error: null });
-        setHistory((current) => current.map((item) => item.id === read.id ? { ...item, syncStatus: "SYNCED", syncError: undefined } : item));
-      } catch (error) {
-        const message = String(error);
-        await invoke("mark_card_read_sync", { readId: read.id, synced: false, error: message });
-        setHistory((current) => current.map((item) => item.id === read.id ? { ...item, syncStatus: "ERROR", syncError: message } : item));
-      } finally {
-        syncingReadIds.delete(read.id);
+      } catch {
+        // Offline or timed out: the remaining reads would fail the same way.
+        roundError = "Ei yhteyttä palvelimeen.";
+        await markSync(read, false, roundError);
+        break;
       }
+      if (response.status === 401) {
+        roundError = "Lukijaa ei ole hyväksytty tai pääsy on peruutettu. Tarkista Asetukset-paneelista.";
+        await markSync(read, false, roundError);
+        break;
+      }
+      if (!response.ok) {
+        const message = `${response.status}: ${await response.text().catch(() => "")}`;
+        roundError ||= message;
+        await markSync(read, false, message);
+        continue;
+      }
+      // Edited while the request was out: stays pending and goes again.
+      if (await markSync(read, true, null)) remaining -= 1;
+      else syncRequested = true;
     }
+    setSyncState({ pending: remaining, error: remaining ? roundError : "" });
+  }
+
+  // Returns false when the read was edited after it was sent (newer revision).
+  async function markSync(read: StoredCardRead, synced: boolean, error: string | null) {
+    const applied = await invoke<boolean>("mark_card_read_sync", { readId: read.id, revision: read.syncRevision, synced, error }).catch(() => false);
+    if (applied) {
+      setHistory((current) => current.map((item) => item.id === read.id && item.syncRevision === read.syncRevision
+        ? { ...item, syncStatus: synced ? "SYNCED" : "ERROR", syncError: error ?? undefined }
+        : item));
+    }
+    return applied;
   }
 
   async function saveManualResult(event: React.FormEvent) {
@@ -532,6 +626,34 @@ function App() {
     const interval = window.setInterval(() => void checkDeviceStatus(), 2 * 60 * 60 * 1000);
     return () => window.clearInterval(interval);
   }, [deviceStatus]);
+
+  // While the stored calendar is in use, keep trying to fetch a fresh one.
+  useEffect(() => {
+    if (calendarCachedAt == null) return;
+    const retry = () => void loadCalendar({ background: true });
+    const interval = window.setInterval(retry, SYNC_INTERVAL_MS);
+    window.addEventListener("online", retry);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("online", retry);
+    };
+  }, [calendarCachedAt]);
+
+  // Also covers startup: the stored token loads here and the first round runs.
+  useEffect(() => {
+    deviceTokenRef.current = deviceToken;
+    if (deviceToken) void syncPending();
+  }, [deviceToken]);
+
+  useEffect(() => {
+    const run = () => void syncPending();
+    const interval = window.setInterval(run, SYNC_INTERVAL_MS);
+    window.addEventListener("online", run);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("online", run);
+    };
+  }, []);
 
   useEffect(() => {
     if (!manualEntryOpen) { setManualSuggestions([]); return; }
@@ -706,7 +828,7 @@ function App() {
       <p className="build-version">Build: {new Date(__BUILD_DATE__).toLocaleString("fi-FI")}</p>
 
       <section>
-        {activeEvent ? <><div className="event-running"><div><span className="eyebrow">Tapahtuma käynnissä</span><h2>{activeEvent.name}</h2><p>{new Date(activeEvent.startsAt).toLocaleString("fi-FI")} · {activeEvent.locationName || "Paikka ei tiedossa"}</p></div><div className={`reader-badge ${reading ? "ok" : "error"}`}><span />{pendingCard ? "Kuittaus odottaa" : reading ? "Lukija OK" : "Lukija ei yhteydessä"}</div><button onClick={() => void stopEvent()}>Lopeta tapahtuma</button><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div><div className="course-list"><strong>Radat</strong>{activeEvent.courses.length ? activeEvent.courses.map((course) => <span key={course.id}>{course.name} · {(course.lengthMeters / 1000).toLocaleString("fi-FI", { maximumFractionDigits: 1 })} km</span>) : <span>Ei julkaistuja ratoja</span>}</div></> : <div className="event-start">{calendarLoading ? <p>Haetaan tapahtumia…</p> : calendarError ? <div><p className="error">{calendarError}</p><p className="hint">API-osoite: {apiBase}</p><div className="event-start-actions"><button onClick={() => void loadCalendar()}>Yritä uudelleen</button><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div></div> : <><label className="event-select-field"><span className="eyebrow">Valitse tapahtuma</span><select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}><option value="">Valitse tapahtuma</option>{events.map((event) => <option key={event.id} value={event.id}>{new Date(event.startsAt).toLocaleDateString("fi-FI")} · {event.name}</option>)}</select></label><button className="primary" onClick={() => void startEvent()} disabled={!selectedEventId}>Valitse tapahtuma</button><div className="event-start-actions"><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div></>}</div>}
+        {activeEvent ? <><div className="event-running"><div><span className="eyebrow">Tapahtuma käynnissä</span><h2>{activeEvent.name}</h2><p>{new Date(activeEvent.startsAt).toLocaleString("fi-FI")} · {activeEvent.locationName || "Paikka ei tiedossa"}</p></div><div className={`reader-badge ${reading ? "ok" : "error"}`}><span />{pendingCard ? "Kuittaus odottaa" : reading ? "Lukija OK" : "Lukija ei yhteydessä"}</div><button onClick={() => void stopEvent()}>Lopeta tapahtuma</button><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div><div className="course-list"><strong>Radat</strong>{activeEvent.courses.length ? activeEvent.courses.map((course) => <span key={course.id}>{course.name} · {(course.lengthMeters / 1000).toLocaleString("fi-FI", { maximumFractionDigits: 1 })} km</span>) : <span>Ei julkaistuja ratoja</span>}</div></> : <div className="event-start">{calendarLoading ? <p>Haetaan tapahtumia…</p> : calendarError ? <div><p className="error">{calendarError}</p><p className="hint">API-osoite: {apiBase}</p><div className="event-start-actions"><button onClick={() => void loadCalendar()}>Yritä uudelleen</button><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div></div> : <>{calendarCachedAt != null && <div className="offline-note"><p className="hint">Ei yhteyttä palvelimeen: tapahtumat ja radat on haettu {new Date(calendarCachedAt).toLocaleString("fi-FI")}.</p><button type="button" onClick={() => void loadCalendar()}>Yritä uudelleen</button></div>}<label className="event-select-field"><span className="eyebrow">Valitse tapahtuma</span><select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}><option value="">Valitse tapahtuma</option>{events.map((event) => <option key={event.id} value={event.id}>{new Date(event.startsAt).toLocaleDateString("fi-FI")} · {event.name}</option>)}</select></label><button className="primary" onClick={() => void startEvent()} disabled={!selectedEventId}>Valitse tapahtuma</button><div className="event-start-actions"><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div></>}</div>}
         {status && <p className="status">{status}</p>}
       </section>
 
@@ -757,8 +879,8 @@ function App() {
       )}
 
       <section>
-        <div className="log-heading"><div><h2>Tulokset</h2><p>{history.length} viimeisintä tulosta</p></div><div className="log-heading-actions"><label className="log-search"><span className="sr-only">Hae tuloksista</span><input type="search" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Hae nimellä, seuralla tai kortilla…" /></label><button onClick={openManualEntry} disabled={!activeEvent}>+ Syötä osanottoja</button></div></div>
-        {history.length === 0 ? <p>Ei tallennettuja tuloksia.</p> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Seura</th><th>Rata</th><th>Aika</th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td className="log-read-at"><time>{new Date(item.readAtMs).toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="log-club">{item.club || "–"}</td><td className="log-course">{activeEvent?.courses.find((course) => course.id === item.courseId)?.name ?? "–"}</td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : formatDuration(item.source === "MANUAL" ? item.manualDurationSeconds : totalTime(item.punches))}</td></tr>)}</tbody></table></div></>}
+        <div className="log-heading"><div><h2>Tulokset</h2><p>{history.length} viimeisintä tulosta</p>{syncState && (syncState.pending > 0 ? <p className="sync-summary pending">{syncState.pending} {syncState.pending === 1 ? "tulos odottaa" : "tulosta odottaa"} lähetystä{syncState.error ? ` · ${syncState.error}` : ""} <button type="button" className="link-button" onClick={() => void syncPending()}>Lähetä nyt</button></p> : <p className="sync-summary ok">✓ Kaikki tulokset lähetetty</p>)}</div><div className="log-heading-actions"><label className="log-search"><span className="sr-only">Hae tuloksista</span><input type="search" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Hae nimellä, seuralla tai kortilla…" /></label><button onClick={openManualEntry} disabled={!activeEvent}>+ Syötä osanottoja</button></div></div>
+        {history.length === 0 ? <p>Ei tallennettuja tuloksia.</p> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Seura</th><th>Rata</th><th>Aika</th><th><span className="sr-only">Lähetys</span></th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td className="log-read-at"><time>{new Date(item.readAtMs).toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="log-club">{item.club || "–"}</td><td className="log-course">{activeEvent?.courses.find((course) => course.id === item.courseId)?.name ?? "–"}</td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : formatDuration(item.source === "MANUAL" ? item.manualDurationSeconds : totalTime(item.punches))}</td><td className={`log-sync ${item.syncStatus.toLowerCase()}`} title={syncStatusLabel(item)}>{item.syncStatus === "SYNCED" ? "✓" : item.syncStatus === "ERROR" ? "!" : "…"}<span className="sr-only">{syncStatusLabel(item)}</span></td></tr>)}</tbody></table></div></>}
       </section>
 
       {pendingCard && (
@@ -823,6 +945,19 @@ createRoot(document.getElementById("root")!).render(<App />);
 /// Parses semicolon-separated CSV text (RFC 4180 quoting supported) into rows
 /// of raw string cells — used for the HenkilöDB import, which otherwise has
 /// no CSV library available in this small frontend bundle.
+/// The stored calendar is `{ apiBase, seasons }` as written by loadCalendar;
+/// anything else (corrupt or from an older client) counts as no cache.
+function parseCachedCalendar(json: string): { apiBase: string; seasons: CalendarSeason[] } | null {
+  try {
+    const value = JSON.parse(json) as { apiBase?: unknown; seasons?: unknown };
+    return typeof value.apiBase === "string" && Array.isArray(value.seasons)
+      ? { apiBase: value.apiBase, seasons: value.seasons as CalendarSeason[] }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function parseCsvRows(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -922,6 +1057,12 @@ function distanceFromEvent(event: CalendarEvent, now: number) {
   const endsAt = new Date(event.endsAt).getTime();
   if (now >= startsAt && now <= endsAt) return 0;
   return Math.min(Math.abs(now - startsAt), Math.abs(now - endsAt));
+}
+
+function syncStatusLabel(read: StoredCardRead) {
+  if (read.syncStatus === "SYNCED") return "Lähetetty palvelimelle";
+  if (read.syncStatus === "ERROR") return `Lähetys epäonnistui${read.syncError ? `: ${read.syncError}` : ""} – yritetään uudelleen automaattisesti`;
+  return "Odottaa lähetystä";
 }
 
 function resultStatusLabel(status: StoredCardRead["resultStatus"]) {

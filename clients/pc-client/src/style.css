@@ -73,6 +73,16 @@ pre { overflow: auto; white-space: pre-wrap; word-break: break-all; background: 
 .log-table .log-time { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .log-table .log-read-at { width: 1%; font-variant-numeric: tabular-nums; }
 .log-table .log-club, .log-table .log-course { color: #5b6578; }
+.log-table .log-sync { width: 1%; text-align: center; font-weight: 750; cursor: default; }
+.log-table .log-sync.synced { color: #116329; }
+.log-table .log-sync.pending { color: #7a8494; }
+.log-table .log-sync.error { color: #b42318; }
+.log-heading .sync-summary { margin-top: 2px; font-size: .8rem; }
+.log-heading .sync-summary.ok { color: #116329; }
+.log-heading .sync-summary.pending { color: #9a5b00; font-weight: 650; }
+.link-button { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; }
+.offline-note { display: flex; flex-basis: 100%; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border: 1px solid #f0d9a8; border-radius: 10px; background: #fff8e6; }
+.event-start .offline-note .hint { margin: 0; color: #7a4a00; }
 .log-name { border: 0; padding: 0; background: transparent; color: #172033; font-weight: 750; text-decoration: underline; text-decoration-color: #bdc5d0; text-underline-offset: 3px; }
 .log-name:hover { color: #116329; text-decoration-color: currentColor; }
 .log-table .log-time { font-weight: 750; }

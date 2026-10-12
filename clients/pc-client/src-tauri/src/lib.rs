@@ -1,6 +1,6 @@
 mod database;
 
-use database::{Database, ImportParticipantRow, ImportSummary, Participant, StoredCardRead};
+use database::{CachedCalendar, Database, ImportParticipantRow, ImportSummary, Participant, StoredCardRead};
 use serde::Serialize;
 use serialport::{DataBits, Parity, SerialPort, SerialPortType, StopBits};
 use std::io::Read;
@@ -312,6 +312,26 @@ fn recent_card_reads(database: State<'_, Database>, event_id: String, limit: Opt
 }
 
 #[tauri::command]
+fn pending_card_reads(
+    database: State<'_, Database>,
+    since_ms: i64,
+    event_id: Option<String>,
+    limit: Option<usize>,
+) -> Result<Vec<StoredCardRead>, String> {
+    database.pending_reads(since_ms, event_id.as_deref(), limit.unwrap_or(500))
+}
+
+#[tauri::command]
+fn cached_calendar(database: State<'_, Database>) -> Result<Option<CachedCalendar>, String> {
+    database.cached_calendar()
+}
+
+#[tauri::command]
+fn set_cached_calendar(database: State<'_, Database>, json: String) -> Result<(), String> {
+    database.set_cached_calendar(&json)
+}
+
+#[tauri::command]
 fn database_path(database: State<'_, Database>) -> String {
     database.path().display().to_string()
 }
@@ -477,8 +497,14 @@ fn confirm_latest_emit250_read(
 }
 
 #[tauri::command]
-fn mark_card_read_sync(database: State<'_, Database>, read_id: i64, synced: bool, error: Option<String>) -> Result<(), String> {
-    database.mark_read_sync(read_id, synced, error.as_deref())
+fn mark_card_read_sync(
+    database: State<'_, Database>,
+    read_id: i64,
+    revision: i64,
+    synced: bool,
+    error: Option<String>,
+) -> Result<bool, String> {
+    database.mark_read_sync(read_id, revision, synced, error.as_deref())
 }
 
 #[tauri::command]
@@ -523,6 +549,9 @@ pub fn run() {
             stop_emit250,
             latest_emit250_read,
             recent_card_reads,
+            pending_card_reads,
+            cached_calendar,
+            set_cached_calendar,
             database_path,
             reader_port_setting,
             set_reader_port_setting,

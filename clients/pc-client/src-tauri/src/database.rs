@@ -136,6 +136,65 @@ mod tests {
     }
 
     #[test]
+    fn lists_pending_reads_across_events_and_caches_calendar() {
+        let path = std::env::temp_dir().join(format!(
+            "kuntorastit-reader-pending-{}-{}.sqlite3",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let database = Database::open(path.clone()).unwrap();
+        let first = database.add_manual_result("event-1", Some("course-1"), "Maija", "Meikäläinen", None, None, None).unwrap();
+        let second = database.add_manual_result("event-2", Some("course-2"), "Pekka", "Peloton", None, None, Some(1800)).unwrap();
+        let third = database.add_manual_result("event-2", Some("course-2"), "Liisa", "Lenkkeilijä", None, None, None).unwrap();
+        database.mark_read_sync(second, 0, true, None).unwrap();
+        database.mark_read_sync(third, 0, false, Some("offline")).unwrap();
+        let yesterday = database.add_manual_result("event-0", Some("course-0"), "Ville", "Vanha", None, None, None).unwrap();
+        database.connection.lock().unwrap()
+            .execute("UPDATE card_reads SET read_at_ms = read_at_ms - 86400000 WHERE id = ?1", [yesterday])
+            .unwrap();
+        let since_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64 - 3_600_000;
+
+        let pending: Vec<i64> = database.pending_reads(since_ms, None, 100).unwrap().iter().map(|read| read.id).collect();
+        assert_eq!(pending, vec![first, third]);
+        let with_open_event: Vec<i64> = database.pending_reads(since_ms, Some("event-0"), 100).unwrap().iter().map(|read| read.id).collect();
+        assert_eq!(with_open_event, vec![yesterday, first, third]);
+
+        assert!(database.cached_calendar().unwrap().is_none());
+        database.set_cached_calendar("{\"seasons\":[]}").unwrap();
+        let cached = database.cached_calendar().unwrap().unwrap();
+        assert_eq!(cached.json, "{\"seasons\":[]}");
+        assert!(cached.fetched_at_ms > 0);
+
+        drop(database);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn edit_during_sync_keeps_read_pending() {
+        let path = std::env::temp_dir().join(format!(
+            "kuntorastit-reader-revision-{}-{}.sqlite3",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let database = Database::open(path.clone()).unwrap();
+        let read_id = database.add_manual_result("event-1", Some("course-1"), "Maija", "Meikäläinen", None, None, None).unwrap();
+        let sent = &database.pending_reads(0, None, 10).unwrap()[0];
+        assert_eq!(sent.sync_revision, 0);
+
+        database.update_read_status(read_id, "OK").unwrap();
+        assert!(!database.mark_read_sync(read_id, sent.sync_revision, true, None).unwrap());
+        let pending = database.pending_reads(0, None, 10).unwrap();
+        assert_eq!(pending[0].sync_status, "PENDING");
+        assert_eq!(pending[0].sync_revision, 1);
+
+        assert!(database.mark_read_sync(read_id, 1, true, None).unwrap());
+        assert!(database.pending_reads(0, None, 10).unwrap().is_empty());
+
+        drop(database);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn adds_manual_result_without_card() {
         let path = std::env::temp_dir().join(format!(
             "kuntorastit-reader-manual-{}-{}.sqlite3",
@@ -187,6 +246,18 @@ pub struct StoredCardRead {
     pub source: String,
     pub person_id: Option<String>,
     pub manual_duration_seconds: Option<i64>,
+    /// Bumped on every edit; sync marks a read SYNCED only if it still has the
+    /// revision that was sent, so an edit made mid-request is sent again.
+    pub sync_revision: i64,
+}
+
+const CALENDAR_CACHE_KEY: &str = "reader.calendar_cache";
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedCalendar {
+    pub json: String,
+    pub fetched_at_ms: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -333,6 +404,7 @@ impl Database {
             ("source", "TEXT NOT NULL DEFAULT 'EMIT'"),
             ("person_id", "TEXT"),
             ("manual_duration_seconds", "INTEGER"),
+            ("sync_revision", "INTEGER NOT NULL DEFAULT 0"),
         ] {
             let exists = connection
                 .prepare("PRAGMA table_info(card_reads)")
@@ -716,7 +788,8 @@ impl Database {
         let connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
         let changed = connection
             .execute(
-                "UPDATE card_reads SET result_status = ?1, sync_status = 'PENDING', sync_error = NULL WHERE id = ?2",
+                "UPDATE card_reads SET result_status = ?1, sync_status = 'PENDING', sync_error = NULL, sync_revision = sync_revision + 1
+                 WHERE id = ?2",
                 params![result_status, read_id],
             )
             .map_err(|error| error.to_string())?;
@@ -726,29 +799,69 @@ impl Database {
         Ok(())
     }
 
-    pub fn mark_read_sync(&self, read_id: i64, synced: bool, error: Option<&str>) -> Result<(), String> {
+    /// Records the outcome of sending `revision` of a read. Returns false and
+    /// leaves the read untouched (still pending) if it was edited meanwhile.
+    pub fn mark_read_sync(&self, read_id: i64, revision: i64, synced: bool, error: Option<&str>) -> Result<bool, String> {
         let connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
-        connection.execute(
-            "UPDATE card_reads SET sync_status = ?1, sync_error = ?2 WHERE id = ?3",
-            params![if synced { "SYNCED" } else { "ERROR" }, error, read_id],
+        let changed = connection.execute(
+            "UPDATE card_reads SET sync_status = ?1, sync_error = ?2 WHERE id = ?3 AND sync_revision = ?4",
+            params![if synced { "SYNCED" } else { "ERROR" }, error, read_id, revision],
         ).map_err(|error| error.to_string())?;
-        Ok(())
+        Ok(changed > 0)
+    }
+
+    /// The calendar (events, courses and their controls) from the last
+    /// successful fetch, so an event can be started without a connection.
+    pub fn cached_calendar(&self) -> Result<Option<CachedCalendar>, String> {
+        let connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
+        connection
+            .query_row(
+                "SELECT value, updated_at_ms FROM settings WHERE key = ?1",
+                [CALENDAR_CACHE_KEY],
+                |row| Ok(CachedCalendar { json: row.get(0)?, fetched_at_ms: row.get(1)? }),
+            )
+            .optional()
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn set_cached_calendar(&self, json: &str) -> Result<(), String> {
+        self.set_setting(CALENDAR_CACHE_KEY, json)
     }
 
     pub fn recent_reads(&self, event_id: &str, limit: usize) -> Result<Vec<StoredCardRead>, String> {
+        self.query_reads(
+            "WHERE r.event_id = ?1 ORDER BY r.read_at_ms DESC LIMIT ?2",
+            params![event_id, limit.min(300) as i64],
+        )
+    }
+
+    /// Reads not yet accepted by the API, oldest first: those taken since
+    /// `since_ms` (the client passes the start of the current day, i.e. today's
+    /// event, also once it is closed in the client) plus any of `event_id`, the
+    /// event open in the client, so an older event's leftovers go out when it
+    /// is started again.
+    pub fn pending_reads(&self, since_ms: i64, event_id: Option<&str>, limit: usize) -> Result<Vec<StoredCardRead>, String> {
+        self.query_reads(
+            "WHERE r.sync_status != 'SYNCED' AND r.event_id IS NOT NULL AND (r.read_at_ms >= ?1 OR r.event_id = ?2)
+             ORDER BY r.read_at_ms ASC LIMIT ?3",
+            params![since_ms, event_id, limit as i64],
+        )
+    }
+
+    fn query_reads(&self, filter: &str, parameters: &[&dyn rusqlite::ToSql]) -> Result<Vec<StoredCardRead>, String> {
         let connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
         let mut statement = connection
-            .prepare(
+            .prepare(&format!(
                 "SELECT r.id, r.event_id, r.course_id, r.card_number, r.port_name, r.read_at_ms, r.production_week,
                         r.production_year, p.id, p.first_name, p.last_name, p.club,
-                        r.result_status, r.sync_status, r.sync_error, r.source, r.person_id, r.manual_duration_seconds
+                        r.result_status, r.sync_status, r.sync_error, r.source, r.person_id, r.manual_duration_seconds,
+                        r.sync_revision
                  FROM card_reads r JOIN participants p ON p.id = r.participant_id
-                 WHERE r.event_id = ?1
-                 ORDER BY r.read_at_ms DESC LIMIT ?2",
-            )
+                 {filter}"
+            ))
             .map_err(|error| error.to_string())?;
         let rows = statement
-            .query_map(params![event_id, limit.min(300) as i64], |row| {
+            .query_map(parameters, |row| {
                 Ok(StoredCardRead {
                     id: row.get(0)?,
                     event_id: row.get(1)?,
@@ -770,6 +883,7 @@ impl Database {
                     source: row.get(15)?,
                     person_id: row.get(16)?,
                     manual_duration_seconds: row.get(17)?,
+                    sync_revision: row.get(18)?,
                 })
             })
             .map_err(|error| error.to_string())?;
