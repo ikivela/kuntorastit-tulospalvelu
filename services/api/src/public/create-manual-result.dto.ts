@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsInt, IsOptional, IsString, IsUUID, Length, Max, MaxLength, Min } from "class-validator";
+import { IsDateString, IsInt, IsOptional, IsString, IsUUID, Length, Max, MaxLength, Min } from "class-validator";
 
 export class CreateManualResultDto {
   @ApiProperty({ description: "Clientin pysyvä, idempotentti lukutunniste" })
@@ -38,4 +38,9 @@ export class CreateManualResultDto {
   @Min(1)
   @Max(24 * 60 * 60)
   durationSeconds?: number;
+
+  @ApiPropertyOptional({ description: "Milloin tulos syötettiin clientissä (ISO 8601). Puuttuessa käytetään vastaanottohetkeä.", example: "2026-10-12T18:42:00.000Z" })
+  @IsOptional()
+  @IsDateString()
+  readAt?: string;
 }

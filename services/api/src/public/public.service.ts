@@ -227,9 +227,12 @@ export class PublicService {
       select: { id: true, attendance: { select: { person: { select: { firstName: true, lastName: true } } } } },
     });
 
+    // Entered offline, a result can reach the API long after it was typed in;
+    // the client's own timestamp keeps finishedAt/readAt at the real moment.
+    const readAt = input.readAt ? new Date(input.readAt) : new Date();
+
     return this.prisma.$transaction(async (tx) => {
       if (existing) {
-        const readAt = new Date();
         const durationMs = input.durationSeconds != null ? input.durationSeconds * 1000 : null;
         const performance = await tx.performance.update({
           where: { id: existing.id },
@@ -264,7 +267,6 @@ export class PublicService {
         update: {},
         create: { eventId, personId: person.id },
       });
-      const readAt = new Date();
       const durationMs = input.durationSeconds != null ? input.durationSeconds * 1000 : null;
       const performance = await tx.performance.create({
         data: {
