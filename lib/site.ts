@@ -43,12 +43,14 @@ export const PAYMENT_HINT = process.env.NEXT_PUBLIC_PAYMENT_HINT?.trim() || "Val
 // NEXT_PUBLIC_SOURCE_URL when running a fork.
 export const SOURCE_URL = (process.env.NEXT_PUBLIC_SOURCE_URL?.trim() || "https://github.com/ikivela/kuntorastit-tulospalvelu").replace(/\/+$/, "");
 
-// Download link for the PC client installers shown on /admin/ohjeet. Defaults
-// to the rolling "pc-client-latest" release that client-build.yml publishes
-// in a GitHub source repository; set NEXT_PUBLIC_CLIENT_DOWNLOAD_URL to link
-// elsewhere. Empty (no GitHub source) = "ask the administrator".
+// Download link for the Kuntorastit Client installers shown on /admin/ohjeet.
+// Defaults to the source repository's latest GitHub release, which GitHub
+// resolves to the newest versioned client release (pc-client-vX.Y.Z; the
+// rolling pc-client-latest master build is a prerelease and not included);
+// set NEXT_PUBLIC_CLIENT_DOWNLOAD_URL to link elsewhere. Empty (no GitHub
+// source) = "ask the administrator".
 export const CLIENT_DOWNLOAD_URL = process.env.NEXT_PUBLIC_CLIENT_DOWNLOAD_URL?.trim()
-  || (SOURCE_URL.startsWith("https://github.com/") ? `${SOURCE_URL}/releases/tag/pc-client-latest` : "");
+  || (SOURCE_URL.startsWith("https://github.com/") ? `${SOURCE_URL}/releases/latest` : "");
 
 function assetUrl(value: string | undefined, fallback: string): string {
   const url = value?.trim() || fallback;
