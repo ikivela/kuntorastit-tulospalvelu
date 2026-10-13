@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { AlertCircle, ArrowLeft, Info, Loader2, RotateCcw, Timer } from "lucide-react";
+import { AlertCircle, Info, Loader2, RotateCcw, Timer } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,8 @@ import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } 
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { API_BASE, CLUB_NAME, LOGO_URL, SITE_NAME, withBasePath } from "@/lib/site";
+import { ResultsHeader } from "@/components/results-header";
+import { API_BASE, SITE_NAME, withBasePath } from "@/lib/site";
 import { analyseSplits, type SplitLeg } from "@/lib/splits";
 
 const apiBase = API_BASE;
@@ -52,14 +53,16 @@ export default function SplitTimesPage() {
   }, [event, course]);
 
   const coursesWithResults = event?.courses.filter((item) => item.results.length > 0) ?? [];
+  const coursePicker = (id: string) => <NativeSelect id={id} className="w-full" value={courseId} onChange={(changeEvent) => router.push(`/tulokset/${eventId}/valiajat/${changeEvent.target.value}`)}>{coursesWithResults.map((item) => <NativeSelectOption key={item.id} value={item.id}>{item.name}</NativeSelectOption>)}</NativeSelect>;
 
   return <main className="min-h-screen bg-background text-foreground">
-    <header className="sticky top-0 z-30 border-b bg-white/90 backdrop-blur"><div className="mx-auto flex max-w-6xl items-center justify-between gap-5 px-5 py-4 lg:px-8"><a className="flex items-center gap-3" href={withBasePath("/")}><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src={LOGO_URL} alt="" className="size-8 object-contain" /></span><span><b className="block tracking-tight">{SITE_NAME}</b>{CLUB_NAME && <small className="block text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">{CLUB_NAME}</small>}</span></a><Button asChild variant="outline" className="rounded-full"><a href={withBasePath(`/tulokset/${eventId}`)}><ArrowLeft className="mr-2 size-4" />Tuloksiin</a></Button></div></header>
+    <ResultsHeader title={event?.name ?? null} subtitle={event ? `Rastiväliajat · ${formatShortDate(event.startsAt)}` : null} refreshing={refreshing} backHref={withBasePath(`/tulokset/${eventId}`)} backLabel="Tuloksiin" />
     {loading ? <SplitsSkeleton /> : !event ? <div className="mx-auto max-w-6xl px-5 py-10 lg:px-8"><Alert variant="destructive"><AlertCircle /><AlertTitle>Tietoja ei voitu ladata</AlertTitle><AlertDescription><p>{error}</p><Button variant="outline" size="sm" className="mt-3" onClick={() => void load(true)}><RotateCcw className="mr-2 size-4" />Yritä uudelleen</Button></AlertDescription></Alert></div> : <>
-      <section className="border-b bg-[linear-gradient(135deg,#eaf5ed_0%,#f8fbf7_65%,#fff4d8_100%)]"><div className="mx-auto max-w-6xl px-5 py-10 lg:px-8 lg:py-14"><div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between"><div><p className="eyebrow">Rastiväliajat</p><h1 className="mt-2 text-4xl font-black tracking-[-.04em] sm:text-5xl">{event.name}</h1></div><div className="flex items-center gap-3"><Badge variant="outline" className="rounded-full bg-white/70 px-3 py-1.5"><span className="mr-2 size-2 rounded-full bg-emerald-500" />Päivittyy automaattisesti</Badge>{refreshing && <Loader2 className="size-4 animate-spin text-primary" />}</div></div>
-        <div className="mt-6 max-w-xs"><label className="mb-1 block text-xs font-bold uppercase tracking-[.1em] text-muted-foreground">Sarja</label><NativeSelect value={courseId} onChange={(changeEvent) => router.push(`/tulokset/${eventId}/valiajat/${changeEvent.target.value}`)}>{coursesWithResults.map((item) => <NativeSelectOption key={item.id} value={item.id}>{item.name}</NativeSelectOption>)}</NativeSelect></div>
+      <section className="hidden border-b bg-[linear-gradient(135deg,#eaf5ed_0%,#f8fbf7_65%,#fff4d8_100%)] sm:block"><div className="mx-auto max-w-6xl px-5 py-10 lg:px-8 lg:py-14"><p className="eyebrow">Rastiväliajat</p><h1 className="mt-2 text-5xl font-black tracking-[-.04em]">{event.name}</h1>
+        <div className="mt-6 flex flex-wrap items-end justify-between gap-3"><div className="w-full max-w-xs flex-1"><label htmlFor="course-desktop" className="mb-1 block text-xs font-bold uppercase tracking-[.1em] text-muted-foreground">Sarja</label>{coursePicker("course-desktop")}</div><div className="flex items-center gap-3"><Badge variant="outline" className="rounded-full bg-white/70 px-3 py-1.5"><span className="mr-2 size-2 rounded-full bg-emerald-500" />Päivittyy automaattisesti</Badge>{refreshing && <Loader2 className="size-4 animate-spin text-primary" />}</div></div>
       </div></section>
-      <div className="mx-auto max-w-6xl px-5 py-8 lg:px-8 lg:py-10">{error && <Alert className="mb-6"><AlertCircle /><AlertTitle>Yhteys katkesi hetkeksi</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
+      <div className="flex items-center gap-3 border-b bg-muted/35 px-4 py-2 sm:hidden"><label htmlFor="course-mobile" className="text-xs font-bold uppercase tracking-[.1em] text-muted-foreground">Sarja</label><div className="min-w-0 flex-1">{coursePicker("course-mobile")}</div></div>
+      <div className="mx-auto max-w-6xl px-5 pb-4 sm:py-8 lg:px-8 lg:py-10">{error && <Alert className="mb-6"><AlertCircle /><AlertTitle>Yhteys katkesi hetkeksi</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
         {!course ? <Empty className="min-h-72 rounded-3xl border bg-card"><EmptyHeader><EmptyTitle>Sarjaa ei löytynyt</EmptyTitle><EmptyDescription>Valitse sarja yllä olevasta valikosta.</EmptyDescription></EmptyHeader></Empty> : <SplitTable key={course.id} course={course} />}
       </div>
     </>}
@@ -93,14 +96,12 @@ function SplitTable({ course }: { course: ResultCourse }) {
   const legLabels = [...analysis.controlCodes.map((code, index) => ({ leg: `${index === 0 ? "L" : index}–${index + 1}`, code: String(code) })), { leg: `${analysis.controlCodes.length || "L"}–M`, code: "Maali" }];
 
   return <div className="space-y-4">
-    <Card className="overflow-hidden rounded-3xl"><CardHeader className="border-b bg-muted/35"><CardTitle className="text-2xl">{course.name}</CardTitle></CardHeader>
+    <Card className="-mx-5 gap-0 overflow-hidden rounded-none border-x-0 py-0 shadow-none sm:mx-0 sm:rounded-3xl sm:border-x sm:shadow-sm"><CardHeader className="hidden border-b bg-muted/35 pt-6 sm:grid"><CardTitle className="text-2xl">{course.name}</CardTitle></CardHeader>
       <CardContent className="p-0"><div className="overflow-x-auto"><Table><TableHeader><TableRow>
-        <TableHead className="sticky left-0 z-10 w-12 bg-card text-right"><button type="button" onClick={() => setSort(null)} className={sort ? "underline-offset-2 hover:underline" : ""} title="Järjestä tuloksen mukaan">Sija</button></TableHead>
-        <TableHead className="sticky left-12 z-10 min-w-40 bg-card shadow-[1px_0_0_var(--border)]">Nimi</TableHead>
-        {legLabels.map((label, index) => <TableHead key={label.leg} className="h-auto py-2 text-right align-top tabular-nums">{label.leg}<div className="font-normal text-muted-foreground">{label.code}</div><div className="mt-1 flex justify-end gap-0.5">{sortButton(index, "split", "väli")}{sortButton(index, "cumulative", "yht.")}</div></TableHead>)}
+        <TableHead className="sticky left-0 z-10 w-32 max-w-32 bg-card pl-2 shadow-[1px_0_0_var(--border)] sm:w-auto sm:max-w-none sm:min-w-52 sm:pl-4"><button type="button" onClick={() => setSort(null)} className={sort ? "underline-offset-2 hover:underline" : ""} title="Järjestä tuloksen mukaan">Sija</button> · Nimi</TableHead>
+        {legLabels.map((label, index) => <TableHead key={label.leg} className="h-auto px-1.5 py-2 text-right align-top tabular-nums sm:px-2">{label.leg}<div className="font-normal text-muted-foreground">{label.code}</div><div className="mt-1 flex justify-end gap-0.5">{sortButton(index, "split", "väli")}{sortButton(index, "cumulative", "yht.")}</div></TableHead>)}
       </TableRow></TableHeader><TableBody>{rows.map(({ result, legs }) => <TableRow key={result.id}>
-        <TableCell className="sticky left-0 z-10 bg-card text-right align-top font-bold tabular-nums">{result.rank ?? "–"}</TableCell>
-        <TableCell className="sticky left-12 z-10 bg-card align-top shadow-[1px_0_0_var(--border)]"><div className="font-bold">{result.firstName} {result.lastName}</div><div className="text-xs text-muted-foreground">{result.clubName || "–"}</div></TableCell>
+        <TableCell className="sticky left-0 z-10 w-32 max-w-32 bg-card px-1.5 py-1.5 align-top shadow-[1px_0_0_var(--border)] sm:w-auto sm:max-w-none sm:p-2 sm:pl-4"><div className="flex gap-1.5 sm:gap-3"><span className="w-5 shrink-0 text-right text-[13px] font-bold tabular-nums sm:w-6 sm:text-sm">{result.rank ?? "–"}</span><div className="min-w-0"><div className="truncate text-[13px] font-bold sm:text-sm">{result.firstName} {result.lastName}</div><div className="truncate text-xs text-muted-foreground">{result.clubName || "–"}</div></div></div></TableCell>
         {legs.map((leg, index) => <LegCell key={index} leg={leg} />)}
       </TableRow>)}</TableBody></Table></div></CardContent>
     </Card>
@@ -126,18 +127,19 @@ function SplitTable({ course }: { course: ResultCourse }) {
 function LegCell({ leg }: { leg: SplitLeg }) {
   const top = (rank: number) => rank === 1 ? "font-bold text-emerald-700" : rank <= 3 ? "font-bold text-blue-700" : "";
   const times = <>
-    <div className={top(leg.splitRank)}>{formatDuration(leg.splitMs)} <span className="text-xs">({leg.splitRank})</span></div>
-    <div className={`text-xs ${leg.cumulativeRank <= 3 ? top(leg.cumulativeRank) : "text-muted-foreground"}`}>{formatDuration(leg.cumulativeMs)} ({leg.cumulativeRank})</div>
+    <div className={`text-[13px] sm:text-sm ${top(leg.splitRank)}`}>{formatDuration(leg.splitMs)} <span className="text-[11px] sm:text-xs">({leg.splitRank})</span></div>
+    <div className={`text-[11px] sm:text-xs ${leg.cumulativeRank <= 3 ? top(leg.cumulativeRank) : "text-muted-foreground"}`}>{formatDuration(leg.cumulativeMs)} ({leg.cumulativeRank})</div>
   </>;
-  if (!leg.lostMs) return <TableCell className="text-right align-top tabular-nums">{times}</TableCell>;
+  if (!leg.lostMs) return <TableCell className="px-1.5 py-1.5 text-right align-top tabular-nums sm:p-2">{times}</TableCell>;
   // A mistake cell opens its estimated time loss on click or tap (touch
   // screens have no hover for a title tooltip).
   return <TableCell className="bg-red-100 p-0 text-right align-top tabular-nums">
-    <Popover><PopoverTrigger asChild><button type="button" className="block w-full cursor-pointer p-2 text-right hover:bg-red-200 focus-visible:bg-red-200 focus-visible:outline-none" aria-label={`Pummi, ${formatDuration(leg.splitMs)}: näytä aikahukka`}>{times}</button></PopoverTrigger>
+    <Popover><PopoverTrigger asChild><button type="button" className="block w-full cursor-pointer px-1.5 py-1.5 text-right sm:p-2 hover:bg-red-200 focus-visible:bg-red-200 focus-visible:outline-none" aria-label={`Pummi, ${formatDuration(leg.splitMs)}: näytä aikahukka`}>{times}</button></PopoverTrigger>
       <PopoverContent side="top" className="w-auto max-w-64 text-sm"><b>Pummi</b>: arviolta <b className="tabular-nums">{formatDuration(leg.lostMs)}</b> hukkaa juoksijan omaan tasoon verrattuna.</PopoverContent>
     </Popover>
   </TableCell>;
 }
 
 function SplitsSkeleton() { return <div className="mx-auto max-w-6xl space-y-6 px-5 py-10 lg:px-8"><Skeleton className="h-12 w-80 max-w-full" /><Skeleton className="h-96 rounded-3xl" /></div>; }
+function formatShortDate(value: string) { return new Intl.DateTimeFormat("fi-FI", { weekday: "short", day: "numeric", month: "numeric", year: "numeric" }).format(new Date(value)); }
 function formatDuration(milliseconds: number | null) { if (milliseconds == null) return "–"; const seconds = Math.floor(milliseconds / 1000); const hours = Math.floor(seconds / 3600); const minutes = Math.floor((seconds % 3600) / 60); const remainder = seconds % 60; return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}` : `${minutes}:${String(remainder).padStart(2, "0")}`; }
