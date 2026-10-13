@@ -111,7 +111,10 @@ function SplitTable({ course }: { course: ResultCourse }) {
           <li><b>L–1, 1–2, … –M</b> = rastiväli lähdöstä (L) maaliin (M). Otsikon alla rastikoodi.</li>
           <li><b>Ylärivi</b> = rastivälin aika, <b>alarivi</b> = kokonaisaika lähdöstä kyseiselle rastille. Suluissa sija.</li>
           <li><span className="font-bold text-emerald-700">(1)</span> = nopein, <span className="font-bold text-blue-700">(2–3)</span> = toiseksi ja kolmanneksi nopein.</li>
-          <li className="flex gap-2"><span className="mt-1 inline-block size-3 shrink-0 rounded-sm bg-red-100 ring-1 ring-red-300" /><span><b>Pummi</b>: rastiväli on yli 20 % ja vähintään 20 s hitaampi kuin juoksijan oma vauhti muilla väleillä ennustaa. Napauta punaista solua nähdäksesi arvioidun aikahukan.</span></li>
+          <li className="flex gap-2"><span className="mt-1 inline-block size-3 shrink-0 rounded-sm bg-red-100 ring-1 ring-red-300" /><span><b>Pummi</b> = rastiväli, jolla juoksija oli selvästi omaa tasoaan hitaampi.
+            <span className="mt-1.5 block">Kunkin rastivälin vertailuaika on kolmen nopeimman keskiarvo. Juoksijan oma taso on hänen rastiväliensä mediaani suhteessa vertailuaikoihin (esim. 1,12 = tyypillisesti 12 % kärkeä hitaampi).</span>
+            <span className="mt-1.5 block">Odotettu aika = vertailuaika × oma taso. Väli on pummi, kun se on yli 20 % ja vähintään 20 s odotettua hitaampi. Aikahukka = toteutunut − odotettu aika; näet sen napauttamalla punaista solua.</span>
+            <span className="mt-1.5 block text-muted-foreground">Pienissä sarjoissa arvio on suuntaa antava, eikä yhden juoksijan sarjassa pummeja tunnisteta.</span></span></li>
           <li><b>väli</b> ja <b>yht.</b> järjestävät juoksijat rastivälin tai kokonaisajan mukaan. <b>Sija</b> palauttaa tulosjärjestyksen.</li>
         </ul>
       </PopoverContent>
@@ -131,7 +134,7 @@ function LegCell({ leg }: { leg: SplitLeg }) {
   // screens have no hover for a title tooltip).
   return <TableCell className="bg-red-100 p-0 text-right align-top tabular-nums">
     <Popover><PopoverTrigger asChild><button type="button" className="block w-full cursor-pointer p-2 text-right hover:bg-red-200 focus-visible:bg-red-200 focus-visible:outline-none" aria-label={`Pummi, ${formatDuration(leg.splitMs)}: näytä aikahukka`}>{times}</button></PopoverTrigger>
-      <PopoverContent side="top" className="w-auto max-w-64 text-sm"><b>Pummi</b>: arviolta <b className="tabular-nums">{formatDuration(leg.lostMs)}</b> hukkaa juoksijan omaan vauhtiin verrattuna.</PopoverContent>
+      <PopoverContent side="top" className="w-auto max-w-64 text-sm"><b>Pummi</b>: arviolta <b className="tabular-nums">{formatDuration(leg.lostMs)}</b> hukkaa juoksijan omaan tasoon verrattuna.</PopoverContent>
     </Popover>
   </TableCell>;
 }
