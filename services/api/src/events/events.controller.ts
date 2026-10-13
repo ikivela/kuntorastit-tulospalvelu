@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, UseGuards } from "@nestjs/common";
 import { AdminAuthGuard } from "../auth/admin-auth.guard.js";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CreateEventDto } from "./create-event.dto.js";
@@ -7,6 +7,7 @@ import { UpdateEventDto } from "./update-event.dto.js";
 import { CreateCourseDto, UpdateCourseDto } from "./course.dto.js";
 import { ImportCoursesDto } from "./import-courses.dto.js";
 import { ImportEventsDto } from "./import-events.dto.js";
+import { UpdateLiveloxDto } from "./livelox.dto.js";
 
 @ApiTags("events")
 @ApiBearerAuth()
@@ -20,6 +21,10 @@ export class EventsController {
   @Get("seasons/:seasonId/attendance-export") attendanceExport(@Param("seasonId") seasonId: string) { return this.events.seasonAttendanceExport(seasonId); }
   @Get(":id") get(@Param("id") id: string) { return this.events.get(id); }
   @Get(":id/registrations") registrations(@Param("id") id: string) { return this.events.registrations(id); }
+  @Get(":id/livelox") livelox(@Param("id") id: string) { return this.events.livelox(id); }
+  @Put(":id/livelox") updateLivelox(@Param("id") id: string, @Body() input: UpdateLiveloxDto) { return this.events.updateLivelox(id, input); }
+  @Post(":id/livelox/upload") uploadLivelox(@Param("id") id: string) { return this.events.uploadLivelox(id); }
+  @Delete(":id/livelox") removeLivelox(@Param("id") id: string) { return this.events.removeLivelox(id); }
   @Post("import") importEvents(@Body() input: ImportEventsDto) { return this.events.importEvents(input.rows, input.dryRun ?? false); }
   @Post() create(@Body() input: CreateEventDto) { return this.events.create(input); }
   @Patch(":id") update(@Param("id") id: string, @Body() input: UpdateEventDto) { return this.events.update(id, input); }

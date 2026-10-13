@@ -1,18 +1,22 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadGatewayException, BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { CreateEventDto } from "./create-event.dto.js";
 import { UpdateEventDto } from "./update-event.dto.js";
 import { CreateCourseDto, UpdateCourseDto } from "./course.dto.js";
 import { NO_COURSES_MESSAGE, planEventImport } from "./events-import.js";
+import { UpdateLiveloxDto } from "./livelox.dto.js";
+import { buildResultListXml } from "./livelox-result-list.js";
 
 // The club's finish punch unit is always coded 100; IOF CourseData exports
 // usually don't assign the finish control an Id at all, since course-planning
 // tools don't treat it as a numbered EMIT unit.
 const DEFAULT_FINISH_CONTROL_CODE = "100";
+const LIVELOX_API_BASE = "https://api.livelox.com";
 
 @Injectable()
 export class EventsService {
+  private readonly logger = new Logger(EventsService.name);
   constructor(private readonly prisma: PrismaService) {}
   list() { return this.prisma.event.findMany({ include: { courses: { orderBy: { sortOrder: "asc" } }, season: { select: { name: true, year: true } }, _count: { select: { registrations: { where: { status: "ACTIVE" } }, attendances: true } } }, orderBy: { startsAt: "asc" } }).then((events) => events.map(({ _count, ...event }) => ({ ...event, registrationCount: _count.registrations, attendanceCount: _count.attendances }))); }
   // seriesName lets pickers tell apart same-year seasons of different series.
@@ -175,6 +179,109 @@ export class EventsService {
         version: { increment: 1 },
       },
     });
+  }
+  // The API key is write-only: responses only say whether one is stored.
+  async livelox(id: string) {
+    await this.ensureExists(id);
+    const settings = await this.prisma.eventLivelox.findUnique({ where: { eventId: id } });
+    return liveloxResponse(settings);
+  }
+  async updateLivelox(id: string, input: UpdateLiveloxDto) {
+    await this.ensureExists(id);
+    const liveloxEventId = input.liveloxEventId.trim();
+    const apiKey = input.apiKey?.trim();
+    if (!liveloxEventId) throw new BadRequestException("Anna Liveloxin tapahtumatunniste.");
+    const existing = await this.prisma.eventLivelox.findUnique({ where: { eventId: id }, select: { eventId: true } });
+    if (!existing && !apiKey) throw new BadRequestException("Anna Liveloxin API-avain.");
+    const settings = await this.prisma.eventLivelox.upsert({
+      where: { eventId: id },
+      update: { liveloxEventId, ...(apiKey ? { apiKey } : {}) },
+      create: { eventId: id, liveloxEventId, apiKey: apiKey! },
+    });
+    return liveloxResponse(settings);
+  }
+  /** Sends the event's current results to Livelox as an IOF ResultList.
+   * Livelox replaces the previous list, so this is safe to repeat. */
+  async uploadLivelox(id: string) {
+    const settings = await this.prisma.eventLivelox.findUnique({ where: { eventId: id } });
+    if (!settings) {
+      await this.ensureExists(id);
+      throw new BadRequestException("Tapahtumalle ei ole tallennettu Livelox-asetuksia.");
+    }
+    const event = await this.prisma.event.findUniqueOrThrow({
+      where: { id },
+      select: {
+        name: true,
+        startsAt: true,
+        courses: {
+          orderBy: { sortOrder: "asc" },
+          select: {
+            name: true,
+            lengthMeters: true,
+            climbMeters: true,
+            controls: { where: { type: "FINISH" }, select: { controlCodes: true, control: { select: { code: true } } } },
+            performances: {
+              orderBy: { updatedAt: "desc" },
+              select: {
+                status: true,
+                durationMs: true,
+                startedAt: true,
+                finishedAt: true,
+                attendance: { select: { personId: true, person: { select: { firstName: true, lastName: true, club: { select: { name: true } } } } } },
+                punches: { select: { sequenceNumber: true, controlCode: true, elapsedMs: true, status: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+    const xml = buildResultListXml({
+      name: event.name,
+      startsAt: event.startsAt,
+      courses: event.courses.map((course) => ({
+        name: course.name,
+        lengthMeters: course.lengthMeters,
+        climbMeters: course.climbMeters,
+        finishCodes: course.controls.flatMap((item) => item.controlCodes.length ? item.controlCodes : [item.control.code]),
+        performances: course.performances.map(({ attendance, ...performance }) => ({
+          ...performance,
+          personId: attendance.personId,
+          firstName: attendance.person.firstName,
+          lastName: attendance.person.lastName,
+          clubName: attendance.person.club?.name ?? null,
+        })),
+      })),
+    });
+
+    let response: Response;
+    try {
+      response = await fetch(`${LIVELOX_API_BASE}/events/external/${encodeURIComponent(settings.liveloxEventId)}/resultLists`, {
+        method: "POST",
+        headers: { ApiKey: settings.apiKey, "Content-Type": "application/xml", Accept: "application/json" },
+        body: xml,
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (cause) {
+      this.logger.warn(`Livelox upload for event ${id} failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+      throw new BadGatewayException("Liveloxiin ei saatu yhteyttä. Yritä myöhemmin uudelleen.");
+    }
+    const body = await response.text();
+    if (!response.ok) {
+      this.logger.warn(`Livelox upload for event ${id} rejected: ${response.status} ${body.slice(0, 500)}`);
+      const reason = response.status === 403 ? "API-avain ei kelpaa tai sillä ei ole oikeutta tapahtumaan."
+        : response.status === 404 ? "Liveloxista ei löytynyt tapahtumaa annetulla tunnisteella."
+        : `Livelox palautti virheen ${response.status}.`;
+      throw new BadGatewayException(`Tulosten lähetys Liveloxiin epäonnistui: ${reason}`);
+    }
+    let operationId: string | null = null;
+    try { operationId = (JSON.parse(body) as { operationId?: string }).operationId ?? null; } catch { /* body isn't required */ }
+    const saved = await this.prisma.eventLivelox.update({ where: { eventId: id }, data: { lastUploadedAt: new Date(), lastOperationId: operationId } });
+    return liveloxResponse(saved);
+  }
+  async removeLivelox(id: string) {
+    await this.ensureExists(id);
+    await this.prisma.eventLivelox.deleteMany({ where: { eventId: id } });
+    return { deleted: true };
   }
   async importEvents(rows: Record<string, unknown>[], dryRun: boolean) {
     const ids = rows.map((row) => String(row.id ?? "").trim().toLowerCase()).filter((id) => /^[0-9a-f-]{36}$/.test(id));
@@ -369,6 +476,11 @@ export class EventsService {
   }
 }
 
+function liveloxResponse(settings: { liveloxEventId: string; apiKey: string; lastUploadedAt: Date | null; lastOperationId: string | null } | null) {
+  return settings
+    ? { liveloxEventId: settings.liveloxEventId, apiKeySet: settings.apiKey.length > 0, lastUploadedAt: settings.lastUploadedAt, lastOperationId: settings.lastOperationId }
+    : { liveloxEventId: null, apiKeySet: false, lastUploadedAt: null, lastOperationId: null };
+}
 function asArray(value: unknown): unknown[] { return value == null ? [] : Array.isArray(value) ? value : [value]; }
 function objectValue(value: unknown): Record<string, unknown> | undefined { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined; }
 function textValue(value: unknown): string { const object = objectValue(value); return String(object?.["#text"] ?? value ?? "").trim(); }

@@ -145,10 +145,29 @@ model Event {
   registrations    Registration[]
   attendances      Attendance[]
   cardReads        CardRead[]
+  livelox          EventLivelox?
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt        DateTime       @updatedAt @map("updated_at")
   @@index([seasonId, startsAt])
   @@map("event")
+}
+
+/// Livelox result-upload settings for an event. Kept out of the event row so
+/// the API key never rides along with `include`/spread event responses — the
+/// admin API only reports whether a key is set (see events.service.ts).
+model EventLivelox {
+  eventId        String   @id @db.Uuid @map("event_id")
+  event          Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  /// Livelox importableEventId used in /events/external/{id}/resultLists.
+  liveloxEventId String   @map("livelox_event_id")
+  apiKey         String   @map("api_key")
+  /// Last successful result-list upload; Livelox imports it asynchronously
+  /// and reports the outcome only via webhook, keyed by this operation id.
+  lastUploadedAt  DateTime? @map("last_uploaded_at")
+  lastOperationId String?   @map("last_operation_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  @@map("event_livelox")
 }
 
 model Course {
