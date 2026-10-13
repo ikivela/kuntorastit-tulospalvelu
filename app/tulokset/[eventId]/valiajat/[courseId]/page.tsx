@@ -62,8 +62,8 @@ export default function SplitTimesPage() {
         <div className="mt-6 flex flex-wrap items-end justify-between gap-3"><div className="w-full max-w-xs flex-1"><label htmlFor="course-desktop" className="mb-1 block text-xs font-bold uppercase tracking-[.1em] text-muted-foreground">Sarja</label>{coursePicker("course-desktop")}</div><div className="flex items-center gap-3"><Badge variant="outline" className="rounded-full bg-white/70 px-3 py-1.5"><span className="mr-2 size-2 rounded-full bg-emerald-500" />Päivittyy automaattisesti</Badge>{refreshing && <Loader2 className="size-4 animate-spin text-primary" />}</div></div>
       </div></section>
       <div className="flex items-center gap-3 border-b bg-muted/35 px-4 py-2 sm:hidden"><label htmlFor="course-mobile" className="text-xs font-bold uppercase tracking-[.1em] text-muted-foreground">Sarja</label><div className="min-w-0 flex-1">{coursePicker("course-mobile")}</div></div>
-      <div className="mx-auto max-w-6xl px-5 pb-4 sm:py-8 lg:px-8 lg:py-10">{error && <Alert className="mb-6"><AlertCircle /><AlertTitle>Yhteys katkesi hetkeksi</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
-        {!course ? <Empty className="min-h-72 rounded-3xl border bg-card"><EmptyHeader><EmptyTitle>Sarjaa ei löytynyt</EmptyTitle><EmptyDescription>Valitse sarja yllä olevasta valikosta.</EmptyDescription></EmptyHeader></Empty> : <SplitTable key={course.id} course={course} />}
+      <div className="px-5 pb-4 sm:py-8 lg:px-8 lg:py-10">{error && <Alert className="mx-auto mb-6 max-w-6xl"><AlertCircle /><AlertTitle>Yhteys katkesi hetkeksi</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
+        {!course ? <Empty className="mx-auto min-h-72 max-w-6xl rounded-3xl border bg-card"><EmptyHeader><EmptyTitle>Sarjaa ei löytynyt</EmptyTitle><EmptyDescription>Valitse sarja yllä olevasta valikosta.</EmptyDescription></EmptyHeader></Empty> : <SplitTable key={course.id} course={course} />}
       </div>
     </>}
   </main>;
@@ -83,7 +83,7 @@ function SplitTable({ course }: { course: ResultCourse }) {
   const analysis = analyseSplits(accepted);
   const excluded = [...course.results.filter((result) => !accepted.includes(result)), ...analysis.excluded];
   if (analysis.rows.length === 0) {
-    return <Empty className="min-h-72 rounded-3xl border bg-card"><EmptyHeader><EmptyMedia variant="icon"><Timer /></EmptyMedia><EmptyTitle>Ei vertailukelpoisia tuloksia</EmptyTitle><EmptyDescription>Rastiväliaikoja ei voi vielä näyttää — odotetaan hyväksyttyjä tuloksia.</EmptyDescription></EmptyHeader></Empty>;
+    return <Empty className="mx-auto min-h-72 max-w-6xl rounded-3xl border bg-card"><EmptyHeader><EmptyMedia variant="icon"><Timer /></EmptyMedia><EmptyTitle>Ei vertailukelpoisia tuloksia</EmptyTitle><EmptyDescription>Rastiväliaikoja ei voi vielä näyttää — odotetaan hyväksyttyjä tuloksia.</EmptyDescription></EmptyHeader></Empty>;
   }
   const rows = sort ? [...analysis.rows].sort((left, right) => {
     const key = sort.by === "split" ? "splitRank" : "cumulativeRank";
@@ -95,7 +95,9 @@ function SplitTable({ course }: { course: ResultCourse }) {
   };
   const legLabels = [...analysis.controlCodes.map((code, index) => ({ leg: `${index === 0 ? "L" : index}–${index + 1}`, code: String(code) })), { leg: `${analysis.controlCodes.length || "L"}–M`, code: "Maali" }];
 
-  return <div className="space-y-4">
+  // As wide as the legs need on a wide screen (centred, at least the page's
+  // usual 72rem column), scrolling sideways only when the window runs out.
+  return <div className="space-y-4 sm:mx-auto sm:w-fit sm:max-w-full sm:min-w-[min(100%,72rem)]">
     <Card className="-mx-5 gap-0 overflow-hidden rounded-none border-x-0 py-0 shadow-none sm:mx-0 sm:rounded-3xl sm:border-x sm:shadow-sm"><CardHeader className="hidden border-b bg-muted/35 pt-6 sm:grid"><CardTitle className="text-2xl">{course.name}</CardTitle></CardHeader>
       <CardContent className="p-0"><div className="overflow-x-auto"><Table><TableHeader><TableRow>
         <TableHead className="sticky left-0 z-10 w-32 max-w-32 bg-card pl-2 shadow-[1px_0_0_var(--border)] sm:w-auto sm:max-w-none sm:min-w-52 sm:pl-4"><button type="button" onClick={() => setSort(null)} className={sort ? "underline-offset-2 hover:underline" : ""} title="Järjestä tuloksen mukaan">Sija</button> · Nimi</TableHead>
