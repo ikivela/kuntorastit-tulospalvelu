@@ -35,10 +35,11 @@ export class SeasonsService {
 
   async removeSeries(id: string) {
     await this.findSeries(id);
-    // Season (and through it Event) rows cascade on delete in the schema, so
-    // refuse instead of silently wiping results.
-    const seasons = await this.prisma.season.count({ where: { eventSeriesId: id } });
-    if (seasons > 0) throw new ConflictException(`Sarjalla on ${seasons} ${seasons === 1 ? "kausi" : "kautta"}. Poista kaudet ennen sarjan poistamista.`);
+    // Seasons (with their rewards) go with the series, but Event rows would
+    // cascade too, so refuse while any season has events instead of
+    // silently wiping results.
+    const events = await this.prisma.event.count({ where: { season: { eventSeriesId: id } } });
+    if (events > 0) throw new ConflictException(`Sarjan kausilla on ${events} ${events === 1 ? "tapahtuma" : "tapahtumaa"}. Siirrä tapahtumat toiselle kaudelle tai poista ne ennen sarjan poistamista.`);
     await this.prisma.eventSeries.delete({ where: { id } });
     return { id };
   }
