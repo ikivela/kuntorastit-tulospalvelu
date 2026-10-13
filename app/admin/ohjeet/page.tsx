@@ -4,7 +4,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ArrowLeft, BookOpen, Code, Download, ExternalLink, Loader2, MonitorDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { API_BASE, CLIENT_DOWNLOAD_URL, LOGO_URL, SITE_NAME, SOURCE_URL, withBasePath } from "@/lib/site";
+import { AdminHeader } from "@/components/admin-header";
+import { API_BASE, CLIENT_DOWNLOAD_URL, SOURCE_URL, withBasePath } from "@/lib/site";
 
 const apiBase = API_BASE;
 
@@ -38,7 +39,7 @@ export default function InstructionsPage() {
   if (checking) return <main className="grid min-h-screen place-items-center bg-muted/30"><Loader2 className="size-6 animate-spin text-primary" /></main>;
 
   return <main className="min-h-screen bg-muted/30">
-    <header className="border-b bg-background"><div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4"><div className="flex items-center gap-3"><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src={LOGO_URL} alt="" className="size-8 object-contain" /></span><div><b className="block">{SITE_NAME}</b><span className="text-xs text-muted-foreground">Ylläpito</span></div></div><Button asChild variant="ghost" className="rounded-full"><a href={withBasePath("/admin")}><ArrowLeft className="mr-2 size-4" />Tapahtumat</a></Button></div></header>
+    <AdminHeader items={[{ label: "Tapahtumat", icon: ArrowLeft, href: withBasePath("/admin"), variant: "ghost" }]} />
     <div className="mx-auto max-w-4xl px-5 py-10">
       <div className="mb-8"><p className="text-sm font-bold uppercase tracking-wider text-primary">Hallinta</p><h1 className="mt-2 text-3xl font-black tracking-tight">Ohjeet</h1><p className="mt-2 text-muted-foreground">Miten tulospalvelua ylläpidetään ja miten tapahtumapäivän luenta hoidetaan Kuntorastit Clientillä. Tulospalvelu on avointa lähdekoodia: <a href={SOURCE_URL} target="_blank" rel="noreferrer" className="font-medium text-primary underline-offset-4 hover:underline">lähdekoodi GitHubissa</a>.</p></div>
 

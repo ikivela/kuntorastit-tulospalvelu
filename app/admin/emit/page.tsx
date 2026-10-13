@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { EmitReader } from "@/components/emit-reader";
-import { API_BASE, LOGO_URL, SITE_NAME, withBasePath } from "@/lib/site";
+import { AdminHeader } from "@/components/admin-header";
+import { API_BASE, withBasePath } from "@/lib/site";
 
 type EventOption = { id: string; name: string; status: string; startsAt: string; endsAt: string };
 type FinishResult = { status: "FINISHED"; livelox: { configured: boolean; uploaded: boolean; error: string | null } };
@@ -61,7 +62,7 @@ export default function EmitReadingPage() {
 
   const event = events?.find((item) => item.id === eventId);
   return <main className="min-h-screen bg-muted/30">
-    <header className="border-b bg-background"><div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4"><div className="flex items-center gap-3"><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src={LOGO_URL} alt="" className="size-8 object-contain" /></span><div><b className="block">{SITE_NAME}</b><span className="text-xs text-muted-foreground">Ylläpito</span></div></div><Button asChild variant="ghost" className="rounded-full"><a href={withBasePath("/admin")}><ArrowLeft className="mr-2 size-4" />Tapahtumat</a></Button></div></header>
+    <AdminHeader items={[{ label: "Tapahtumat", icon: ArrowLeft, href: withBasePath("/admin"), variant: "ghost" }]} />
     <div className="mx-auto max-w-4xl px-5 py-10">
       <div className="mb-8"><p className="text-sm font-bold uppercase tracking-wider text-primary">Hallinta</p><h1 className="mt-2 text-3xl font-black tracking-tight">Tulospalvelu</h1><p className="mt-2 text-muted-foreground">Liitä EMIT 250 -lukija tähän koneeseen ja yhdistä, tai lisää osanottajia käsin. Tulokset tallentuvat tapahtuman tuloksiin samoin kuin Kuntorastit Clientillä.</p></div>
       {error && <p role="alert" className="mb-5 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}
