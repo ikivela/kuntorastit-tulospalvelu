@@ -13,6 +13,7 @@ import { buildResultListXml } from "./livelox-result-list.js";
 // tools don't treat it as a numbered EMIT unit.
 const DEFAULT_FINISH_CONTROL_CODE = "100";
 const LIVELOX_API_BASE = "https://api.livelox.com";
+const COURSES_LOCKED_MESSAGE = "Valmiin tapahtuman ratoja ei voi muokata. Palauta tapahtuma julkaistuksi muokataksesi ratoja.";
 
 @Injectable()
 export class EventsService {
@@ -200,6 +201,25 @@ export class EventsService {
     });
     return liveloxResponse(settings);
   }
+  /** Marks the event finished and, when Livelox is set up for it, sends its
+   * results there. A failed upload doesn't undo the finish: it is reported
+   * in the response and can be retried from the admin UI. Results can still
+   * be added to a finished event (late syncs), so this is safe to repeat. */
+  async finish(id: string) {
+    const current = await this.prisma.event.findUnique({ where: { id }, select: { status: true, livelox: { select: { eventId: true } } } });
+    if (!current) throw new NotFoundException("Tapahtumaa ei löytynyt");
+    if (current.status === "DRAFT") throw new BadRequestException("Luonnostilaista tapahtumaa ei voi lopettaa.");
+    if (current.status !== "FINISHED") {
+      await this.prisma.event.update({ where: { id }, data: { status: "FINISHED", version: { increment: 1 } } });
+    }
+    if (!current.livelox) return { status: "FINISHED" as const, livelox: { configured: false, uploaded: false, error: null } };
+    try {
+      await this.uploadLivelox(id);
+      return { status: "FINISHED" as const, livelox: { configured: true, uploaded: true, error: null } };
+    } catch (cause) {
+      return { status: "FINISHED" as const, livelox: { configured: true, uploaded: false, error: cause instanceof Error ? cause.message : "Tulosten lähetys Liveloxiin epäonnistui." } };
+    }
+  }
   /** Sends the event's current results to Livelox as an IOF ResultList.
    * Livelox replaces the previous list, so this is safe to repeat. */
   async uploadLivelox(id: string) {
@@ -321,15 +341,17 @@ export class EventsService {
     return { deleted: true };
   }
   async createCourse(eventId: string, input: CreateCourseDto) {
-    await this.ensureExists(eventId);
+    await this.ensureCoursesEditable(eventId);
     const sortOrder = input.sortOrder ?? (await this.prisma.course.count({ where: { eventId } })) + 1;
     return this.prisma.course.create({ data: { eventId, ...input, sortOrder } });
   }
   async updateCourse(eventId: string, courseId: string, input: UpdateCourseDto) {
+    await this.ensureCoursesEditable(eventId);
     await this.ensureCourse(eventId, courseId);
     return this.prisma.course.update({ where: { id: courseId }, data: input });
   }
   async removeCourse(eventId: string, courseId: string) {
+    await this.ensureCoursesEditable(eventId);
     await this.ensureCourse(eventId, courseId);
     const event = await this.prisma.event.findUnique({ where: { id: eventId }, select: { status: true, _count: { select: { courses: true } } } });
     if (event && event.status !== "DRAFT" && event._count.courses <= 1) {
@@ -339,7 +361,7 @@ export class EventsService {
     return { deleted: true };
   }
   async importCourses(eventId: string, xml: string) {
-    await this.ensureExists(eventId);
+    await this.ensureCoursesEditable(eventId);
     const validation = XMLValidator.validate(xml);
     if (validation !== true) throw new BadRequestException(`Virheellinen XML: ${validation.err.msg}`);
 
@@ -469,6 +491,13 @@ export class EventsService {
   private async ensureExists(id: string) {
     const event = await this.prisma.event.findUnique({ where: { id }, select: { id: true } });
     if (!event) throw new NotFoundException("Tapahtumaa ei löytynyt");
+  }
+  // A finished event's courses are what its results (and the Livelox upload)
+  // were checked against, so they are locked; results stay editable.
+  private async ensureCoursesEditable(id: string) {
+    const event = await this.prisma.event.findUnique({ where: { id }, select: { status: true } });
+    if (!event) throw new NotFoundException("Tapahtumaa ei löytynyt");
+    if (event.status === "FINISHED") throw new BadRequestException(COURSES_LOCKED_MESSAGE);
   }
   private async ensureCourse(eventId: string, courseId: string) {
     const course = await this.prisma.course.findFirst({ where: { id: courseId, eventId }, select: { id: true } });

@@ -32,9 +32,9 @@ function log(level: "INFO" | "WARN" | "ERROR", source: string, message: string) 
 window.addEventListener("error", (event) => log("ERROR", "ui", `${event.message} (${event.filename}:${event.lineno})`));
 window.addEventListener("unhandledrejection", (event) => log("ERROR", "ui", `Käsittelemätön virhe: ${String(event.reason)}`));
 
-async function fetchWithTimeout(url: string, init: RequestInit = {}) {
+async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = FETCH_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...init, signal: controller.signal });
   } finally {
@@ -62,6 +62,14 @@ type ProbeResult = {
   productionYear?: number;
   punches: { controlCode: number; timeSeconds: number }[];
 };
+// "Lopeta tapahtuma": confirm, send what's left, mark the event finished on
+// the server (which also sends the results to Livelox when set up).
+type FinishState =
+  | { phase: "confirm" }
+  | { phase: "working"; step: string }
+  | { phase: "done"; unsynced: number; livelox: { configured: boolean; uploaded: boolean; error: string | null } }
+  | { phase: "failed"; error: string; unsynced: number };
+
 type StoredCardRead = {
   id: number;
   eventId: string;
@@ -116,6 +124,8 @@ function App() {
   const [calendarError, setCalendarError] = useState("");
   const [calendarCachedAt, setCalendarCachedAt] = useState<number | null>(null);
   const [syncState, setSyncState] = useState<SyncState | null>(null);
+  const [finishState, setFinishState] = useState<FinishState | null>(null);
+  const resumeAfterFinishRef = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [personDbOpen, setPersonDbOpen] = useState(false);
   const [deviceToken, setDeviceToken] = useState("");
@@ -350,6 +360,47 @@ function App() {
     setApiBase(value); setApiBaseInput(value);
     await forgetDevice();
     void loadCalendar();
+  }
+
+  async function finishEvent() {
+    const event = activeEvent;
+    if (!event) return;
+    if (finishState?.phase === "confirm") resumeAfterFinishRef.current = reading;
+    if (reading) await stopListening();
+    setFinishState({ phase: "working", step: "Lähetetään odottavia tuloksia…" });
+    await syncPending();
+    while (syncRunning) await new Promise((resolve) => setTimeout(resolve, 200));
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const pending = await invoke<StoredCardRead[]>("pending_card_reads", { sinceMs: startOfToday.getTime(), eventId: event.id, limit: 500 }).catch(() => []);
+    const unsynced = pending.filter((read) => read.eventId === event.id).length;
+    setFinishState({ phase: "working", step: "Merkitään tapahtuma valmiiksi…" });
+    try {
+      if (!deviceTokenRef.current) throw new Error("Lukijaa ei ole hyväksytty. Tarkista Asetukset-paneelista.");
+      const response = await fetchWithTimeout(`${API_BASE}/public/events/${event.id}/finish`, { method: "POST", headers: authHeaders() }, 60_000);
+      if (response.status === 401) throw new Error("Lukijaa ei ole hyväksytty tai pääsy on peruutettu. Tarkista Asetukset-paneelista.");
+      const body = await response.json().catch(() => null) as { message?: string | string[]; livelox?: { configured: boolean; uploaded: boolean; error: string | null } } | null;
+      if (!response.ok || !body?.livelox) throw new Error((Array.isArray(body?.message) ? body.message.join(" ") : body?.message) || `Palvelin palautti virheen ${response.status}.`);
+      const { livelox } = body;
+      log(livelox.error ? "WARN" : "INFO", "event", `Tapahtuma merkitty valmiiksi: ${event.name} (${event.id}); lähettämättä ${unsynced}; Livelox: ${livelox.uploaded ? "lähetetty" : livelox.configured ? livelox.error : "ei käytössä"}`);
+      setFinishState({ phase: "done", unsynced, livelox });
+    } catch (error) {
+      const message = error instanceof Error && error.name !== "AbortError" && error.name !== "TypeError" ? error.message : "Ei yhteyttä palvelimeen.";
+      log("WARN", "event", `Tapahtuman merkitseminen valmiiksi epäonnistui (${event.id}): ${message}`);
+      setFinishState({ phase: "failed", error: message, unsynced });
+    }
+  }
+
+  async function cancelFinish() {
+    setFinishState(null);
+    if (resumeAfterFinishRef.current) await startListening();
+    resumeAfterFinishRef.current = false;
+  }
+
+  async function closeFinishedEvent() {
+    setFinishState(null);
+    resumeAfterFinishRef.current = false;
+    await stopEvent();
   }
 
   async function stopEvent() {
@@ -903,7 +954,7 @@ function App() {
       <p className="build-version">Build: {new Date(__BUILD_DATE__).toLocaleString("fi-FI")}</p>
 
       <section>
-        {activeEvent ? <><div className="event-running"><div><span className="eyebrow">Tapahtuma käynnissä</span><h2>{activeEvent.name}</h2><p>{new Date(activeEvent.startsAt).toLocaleString("fi-FI")} · {activeEvent.locationName || "Paikka ei tiedossa"}</p></div><div className={`reader-badge ${reading ? "ok" : "error"}`}><span />{pendingCard ? "Kuittaus odottaa" : reading ? "Lukija OK" : "Lukija ei yhteydessä"}</div><button onClick={() => void stopEvent()}>Lopeta tapahtuma</button><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div><div className="course-list"><strong>Radat</strong>{activeEvent.courses.length ? activeEvent.courses.map((course) => <span key={course.id}>{course.name} · {(course.lengthMeters / 1000).toLocaleString("fi-FI", { maximumFractionDigits: 1 })} km</span>) : <span>Ei julkaistuja ratoja</span>}</div></> : <div className="event-start">{calendarLoading ? <p>Haetaan tapahtumia…</p> : calendarError ? <div><p className="error">{calendarError}</p><p className="hint">API-osoite: {apiBase}</p><div className="event-start-actions"><button onClick={() => void loadCalendar()}>Yritä uudelleen</button><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div></div> : <>{calendarCachedAt != null && <div className="offline-note"><p className="hint">Ei yhteyttä palvelimeen: tapahtumat ja radat on haettu {new Date(calendarCachedAt).toLocaleString("fi-FI")}.</p><button type="button" onClick={() => void loadCalendar()}>Yritä uudelleen</button></div>}<label className="event-select-field"><span className="eyebrow">Käynnistä tulospalvelu</span><select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}><option value="">Käynnistä tulospalvelu</option>{events.map((event) => { const past = isPastEvent(event); return <option key={event.id} value={event.id} disabled={past}>{new Date(event.startsAt).toLocaleDateString("fi-FI")} · {event.name}{past ? " · mennyt" : ""}</option>; })}</select></label><button className="primary" onClick={() => void startEvent()} disabled={!selectedEventId || events.some((event) => event.id === selectedEventId && isPastEvent(event))}>Käynnistä tulospalvelu</button><div className="event-start-actions"><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div></>}</div>}
+        {activeEvent ? <><div className="event-running"><div><span className="eyebrow">Tapahtuma käynnissä</span><h2>{activeEvent.name}</h2><p>{new Date(activeEvent.startsAt).toLocaleString("fi-FI")} · {activeEvent.locationName || "Paikka ei tiedossa"}</p></div><div className={`reader-badge ${reading ? "ok" : "error"}`}><span />{pendingCard ? "Kuittaus odottaa" : reading ? "Lukija OK" : "Lukija ei yhteydessä"}</div><button onClick={() => setFinishState({ phase: "confirm" })}>Lopeta tapahtuma</button><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div><div className="course-list"><strong>Radat</strong>{activeEvent.courses.length ? activeEvent.courses.map((course) => <span key={course.id}>{course.name} · {(course.lengthMeters / 1000).toLocaleString("fi-FI", { maximumFractionDigits: 1 })} km</span>) : <span>Ei julkaistuja ratoja</span>}</div></> : <div className="event-start">{calendarLoading ? <p>Haetaan tapahtumia…</p> : calendarError ? <div><p className="error">{calendarError}</p><p className="hint">API-osoite: {apiBase}</p><div className="event-start-actions"><button onClick={() => void loadCalendar()}>Yritä uudelleen</button><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div></div> : <>{calendarCachedAt != null && <div className="offline-note"><p className="hint">Ei yhteyttä palvelimeen: tapahtumat ja radat on haettu {new Date(calendarCachedAt).toLocaleString("fi-FI")}.</p><button type="button" onClick={() => void loadCalendar()}>Yritä uudelleen</button></div>}<label className="event-select-field"><span className="eyebrow">Käynnistä tulospalvelu</span><select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}><option value="">Käynnistä tulospalvelu</option>{events.map((event) => { const past = isPastEvent(event); return <option key={event.id} value={event.id} disabled={past}>{new Date(event.startsAt).toLocaleDateString("fi-FI")} · {event.name}{past ? " · mennyt" : ""}</option>; })}</select></label><button className="primary" onClick={() => void startEvent()} disabled={!selectedEventId || events.some((event) => event.id === selectedEventId && isPastEvent(event))}>Käynnistä tulospalvelu</button><div className="event-start-actions"><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div></>}</div>}
         {status && <p className="status">{status}</p>}
       </section>
 
@@ -972,6 +1023,39 @@ function App() {
                 <button type="button" onClick={() => void skipPendingCard()}>Ohita kortti</button>
               </div>
             </form></>}
+          </section>
+        </div>
+      )}
+
+      {finishState && activeEvent && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="finish-title">
+            <h2 id="finish-title">Lopeta tapahtuma</h2>
+            {finishState.phase === "confirm" ? <>
+              <p>Lopetetaanko <b>{activeEvent.name}</b>? Tapahtuma merkitään valmiiksi ja tulokset lähetetään Liveloxiin, jos se on otettu käyttöön tapahtumalle.</p>
+              <p className="hint">Valmiin tapahtuman ratoja ei voi enää muokata. Tuloksia voi edelleen korjata ylläpidossa.</p>
+              {pendingCard && <p className="error">Kuittaa tai ohita odottava kortti ennen lopettamista.</p>}
+              <div className="confirm-actions">
+                <button className="primary" type="button" disabled={Boolean(pendingCard)} onClick={() => void finishEvent()}>Kyllä, lopeta tapahtuma</button>
+                <button type="button" onClick={() => setFinishState(null)}>Peruuta</button>
+              </div>
+            </> : finishState.phase === "working" ? <p className="status">{finishState.step}</p>
+            : finishState.phase === "done" ? <>
+              <p>✓ Tapahtuma on merkitty valmiiksi.</p>
+              {finishState.livelox.uploaded ? <p>✓ Tulokset lähetettiin Liveloxiin.</p>
+                : finishState.livelox.configured ? <p className="error">{finishState.livelox.error} Lähetyksen voi tehdä uudelleen ylläpidon Livelox-ikkunasta.</p>
+                : <p className="hint">Liveloxia ei ole otettu käyttöön tälle tapahtumalle.</p>}
+              {finishState.unsynced > 0 && <p className="error">{finishState.unsynced} {finishState.unsynced === 1 ? "tulos odottaa" : "tulosta odottaa"} yhä lähetystä palvelimelle. Ne lähetetään automaattisesti yhteyden palattua, mutta Liveloxiin ne pitää lähettää erikseen ylläpidosta.</p>}
+              <div className="confirm-actions"><button className="primary" type="button" onClick={() => void closeFinishedEvent()}>Sulje tapahtuma</button></div>
+            </> : <>
+              <p className="error">Tapahtumaa ei saatu merkittyä valmiiksi: {finishState.error}</p>
+              {finishState.unsynced > 0 && <p className="hint">{finishState.unsynced} {finishState.unsynced === 1 ? "tulos odottaa" : "tulosta odottaa"} lähetystä palvelimelle.</p>}
+              <div className="confirm-actions">
+                <button className="primary" type="button" onClick={() => void finishEvent()}>Yritä uudelleen</button>
+                <button type="button" onClick={() => void closeFinishedEvent()}>Lopeta vain tällä koneella</button>
+                <button type="button" onClick={() => void cancelFinish()}>Peruuta</button>
+              </div>
+            </>}
           </section>
         </div>
       )}

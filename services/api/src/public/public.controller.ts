@@ -7,6 +7,7 @@ import { CreateRegistrationDto } from "./create-registration.dto.js";
 import { CreateReaderResultDto } from "./create-reader-result.dto.js";
 import { CreateManualResultDto } from "./create-manual-result.dto.js";
 import { PublicService } from "./public.service.js";
+import { EventsService } from "../events/events.service.js";
 
 @ApiTags("public")
 @Controller("public")
@@ -14,6 +15,7 @@ export class PublicController {
   constructor(
     private readonly publicService: PublicService,
     private readonly readerDevices: ReaderDevicesService,
+    private readonly events: EventsService,
   ) {}
 
   @Post("reader-devices/register")
@@ -73,6 +75,14 @@ export class PublicController {
     @Body() input: CreateManualResultDto,
   ) {
     return this.publicService.addManualResult(eventId, input);
+  }
+
+  /** "Lopeta tapahtuma" in the pc-client and the web result service. */
+  @Post("events/:eventId/finish")
+  @UseGuards(ReaderDeviceAuthGuard)
+  @ApiSecurity("bearer")
+  finishEvent(@Param("eventId", new ParseUUIDPipe()) eventId: string) {
+    return this.events.finish(eventId);
   }
 
   @Get("events/:eventId/results")

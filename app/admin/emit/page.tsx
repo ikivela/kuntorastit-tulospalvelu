@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Flag, Loader2 } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
@@ -9,6 +10,7 @@ import { EmitReader } from "@/components/emit-reader";
 import { API_BASE, LOGO_URL, SITE_NAME, withBasePath } from "@/lib/site";
 
 type EventOption = { id: string; name: string; status: string; startsAt: string; endsAt: string };
+type FinishResult = { status: "FINISHED"; livelox: { configured: boolean; uploaded: boolean; error: string | null } };
 
 // "Tulospalvelu": EMIT card reading in the browser (Web Serial) and manual
 // participant entry for one event:
@@ -67,10 +69,48 @@ export default function EmitReadingPage() {
         : events.length === 0 ? <p className="text-muted-foreground">Ei tapahtumia. Luo tapahtuma ensin ylläpidossa.</p>
         : <>
           <div className="mb-6 max-w-md"><Label htmlFor="emit-event">Tapahtuma</Label><NativeSelect id="emit-event" className="mt-2 w-full" value={eventId} disabled={readerState.connected} onChange={(changeEvent) => setEventId(changeEvent.target.value)}>{events.map((item) => <NativeSelectOption key={item.id} value={item.id}>{item.name} · {formatDate(item.startsAt)}</NativeSelectOption>)}</NativeSelect>{readerState.connected && <p className="mt-1.5 text-xs text-muted-foreground">Katkaise lukijayhteys vaihtaaksesi tapahtumaa.</p>}</div>
+          {event && token && <FinishEvent key={`finish-${event.id}`} event={event} token={token} pendingCards={readerState.pendingCards} onSessionExpired={onSessionExpired} onFinished={() => setEvents((items) => items?.map((item) => item.id === event.id ? { ...item, status: "FINISHED" } : item) ?? null)} />}
           {event && token && <EmitReader key={event.id} event={event} token={token} onSessionExpired={onSessionExpired} onStateChange={setReaderState} />}
         </>}
     </div>
   </main>;
+}
+
+// "Lopeta tapahtuma": marks the event finished and sends its results to
+// Livelox when that is set up (POST /public/events/:id/finish). Results can
+// still be read and corrected afterwards; only the courses are locked.
+function FinishEvent({ event, token, pendingCards, onSessionExpired, onFinished }: { event: EventOption; token: string; pendingCards: number; onSessionExpired: () => void; onFinished: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<FinishResult | null>(null);
+  async function finish() {
+    setBusy(true); setError(""); setResult(null);
+    try {
+      const response = await fetch(`${API_BASE}/public/events/${event.id}/finish`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      if (response.status === 401) { onSessionExpired(); return; }
+      const body = await response.json().catch(() => null) as (FinishResult & { message?: string | string[] }) | null;
+      if (!response.ok || !body?.livelox) throw new Error((Array.isArray(body?.message) ? body.message.join(" ") : body?.message) || "Tapahtuman lopettaminen epäonnistui.");
+      setResult(body); onFinished();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Tapahtuman lopettaminen epäonnistui."); }
+    finally { setBusy(false); }
+  }
+  const finished = event.status === "FINISHED";
+  return <div className="mb-6 grid gap-3">
+    <div className="flex flex-wrap items-center gap-3">
+      <AlertDialog><AlertDialogTrigger asChild><Button variant={finished ? "outline" : "default"} className="rounded-full" disabled={busy || pendingCards > 0}>{busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Flag className="mr-2 size-4" />}{finished ? "Lähetä tulokset uudelleen" : "Lopeta tapahtuma"}</Button></AlertDialogTrigger>
+        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{finished ? "Lähetetäänkö tulokset uudelleen?" : "Lopetetaanko tapahtuma?"}</AlertDialogTitle><AlertDialogDescription>{finished ? `Tapahtuma “${event.name}” on jo valmis. Tulokset lähetetään Liveloxiin uudelleen, jos se on otettu käyttöön.` : `Tapahtuma “${event.name}” merkitään valmiiksi ja tulokset lähetetään Liveloxiin, jos se on otettu käyttöön. Valmiin tapahtuman ratoja ei voi enää muokata, mutta tuloksia voi edelleen korjata.`}</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>Peruuta</AlertDialogCancel><AlertDialogAction onClick={() => void finish()}>{finished ? "Kyllä, lähetä" : "Kyllä, lopeta tapahtuma"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+      {finished && !result && <span className="text-sm text-muted-foreground">Tapahtuma on merkitty valmiiksi.</span>}
+      {pendingCards > 0 && <span className="text-sm text-muted-foreground">Kuittaa odottavat kortit ennen lopettamista.</span>}
+    </div>
+    {error && <p role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}
+    {result && <div className="grid gap-1 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm font-medium">
+      <p className="flex items-center gap-2"><CheckCircle2 className="size-4 text-primary" />Tapahtuma on merkitty valmiiksi.</p>
+      {result.livelox.uploaded ? <p className="flex items-center gap-2"><CheckCircle2 className="size-4 text-primary" />Tulokset lähetettiin Liveloxiin.</p>
+        : result.livelox.configured ? <p className="text-destructive">{result.livelox.error}</p>
+        : <p className="font-normal text-muted-foreground">Liveloxia ei ole otettu käyttöön tälle tapahtumalle.</p>}
+    </div>}
+  </div>;
 }
 
 function nearestEventToNow(events: EventOption[], now = Date.now()) {
