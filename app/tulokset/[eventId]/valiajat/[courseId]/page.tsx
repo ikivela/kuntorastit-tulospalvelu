@@ -2,16 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { AlertCircle, ArrowLeft, Loader2, RotateCcw, Timer } from "lucide-react";
+import { AlertCircle, ArrowLeft, Info, Loader2, RotateCcw, Timer } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { API_BASE, CLUB_NAME, LOGO_URL, SITE_NAME, withBasePath } from "@/lib/site";
+import { analyseSplits, type SplitLeg } from "@/lib/splits";
 
 const apiBase = API_BASE;
 type ResultStatus = "PENDING" | "ACCEPTED" | "DISQUALIFIED" | "NO_TIME" | "DID_NOT_FINISH";
@@ -58,59 +60,79 @@ export default function SplitTimesPage() {
         <div className="mt-6 max-w-xs"><label className="mb-1 block text-xs font-bold uppercase tracking-[.1em] text-muted-foreground">Sarja</label><NativeSelect value={courseId} onChange={(changeEvent) => router.push(`/tulokset/${eventId}/valiajat/${changeEvent.target.value}`)}>{coursesWithResults.map((item) => <NativeSelectOption key={item.id} value={item.id}>{item.name}</NativeSelectOption>)}</NativeSelect></div>
       </div></section>
       <div className="mx-auto max-w-6xl px-5 py-8 lg:px-8 lg:py-10">{error && <Alert className="mb-6"><AlertCircle /><AlertTitle>Yhteys katkesi hetkeksi</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
-        {!course ? <Empty className="min-h-72 rounded-3xl border bg-card"><EmptyHeader><EmptyTitle>Sarjaa ei löytynyt</EmptyTitle><EmptyDescription>Valitse sarja yllä olevasta valikosta.</EmptyDescription></EmptyHeader></Empty> : <SplitTable course={course} />}
+        {!course ? <Empty className="min-h-72 rounded-3xl border bg-card"><EmptyHeader><EmptyTitle>Sarjaa ei löytynyt</EmptyTitle><EmptyDescription>Valitse sarja yllä olevasta valikosta.</EmptyDescription></EmptyHeader></Empty> : <SplitTable key={course.id} course={course} />}
       </div>
     </>}
   </main>;
 }
 
+// WinSplits-style table: one column per leg (start → 1, …, last → finish),
+// each cell the leg time over the cumulative time, both with their rank.
+// Rank 1 is green and ranks 2–3 blue; a leg the runner lost clear time on (estimated from
+// their own pace on the other legs, see lib/splits) has a red background.
+// Like WinSplits, any leg can be sorted by its leg time or by the
+// cumulative time there; "Sija" goes back to the result order.
+type SplitSort = { leg: number; by: "split" | "cumulative" } | null;
+
 function SplitTable({ course }: { course: ResultCourse }) {
+  const [sort, setSort] = useState<SplitSort>(null);
   const accepted = course.results.filter((result) => result.status === "ACCEPTED" && result.punches.length > 0);
-  const excluded = course.results.filter((result) => !(result.status === "ACCEPTED" && result.punches.length > 0));
-  if (accepted.length === 0) {
+  const analysis = analyseSplits(accepted);
+  const excluded = [...course.results.filter((result) => !accepted.includes(result)), ...analysis.excluded];
+  if (analysis.rows.length === 0) {
     return <Empty className="min-h-72 rounded-3xl border bg-card"><EmptyHeader><EmptyMedia variant="icon"><Timer /></EmptyMedia><EmptyTitle>Ei vertailukelpoisia tuloksia</EmptyTitle><EmptyDescription>Rastiväliaikoja ei voi vielä näyttää — odotetaan hyväksyttyjä tuloksia.</EmptyDescription></EmptyHeader></Empty>;
   }
-  const legCount = accepted[0].punches.length;
-  const referenceCodes = [...accepted[0].punches].sort((a, b) => a.sequenceNumber - b.sequenceNumber).map((punch) => punch.controlCode);
-  // Winsplits-style: one column per control, each cell pairing the leg
-  // (split) time with the cumulative time at that point. The recorded
-  // duration always ends exactly at the last punch (there's no separate
-  // finish-line timing beyond it), so that last column doubles as "Maali"
-  // rather than getting its own always-zero trailing column.
-  const legTimes = accepted.map((result) => {
-    const punches = [...result.punches].sort((a, b) => a.sequenceNumber - b.sequenceNumber);
-    const legs: { splitMs: number | null; cumulativeMs: number | null }[] = punches.map((punch, index) => {
-      if (punch.elapsedMs == null) return { splitMs: null, cumulativeMs: null };
-      const previous = index === 0 ? 0 : punches[index - 1].elapsedMs;
-      return { splitMs: previous == null ? null : punch.elapsedMs - previous, cumulativeMs: punch.elapsedMs };
-    });
-    return { result, legs };
-  });
+  const rows = sort ? [...analysis.rows].sort((left, right) => {
+    const key = sort.by === "split" ? "splitRank" : "cumulativeRank";
+    return left.legs[sort.leg][key] - right.legs[sort.leg][key];
+  }) : analysis.rows;
+  const sortButton = (leg: number, by: "split" | "cumulative", label: string) => {
+    const active = sort?.leg === leg && sort.by === by;
+    return <button type="button" aria-pressed={active} onClick={() => setSort(active ? null : { leg, by })} className={`rounded px-1 text-xs font-normal underline-offset-2 hover:underline ${active ? "bg-primary text-primary-foreground hover:no-underline" : "text-muted-foreground"}`}>{label}</button>;
+  };
+  const legLabels = [...analysis.controlCodes.map((code, index) => ({ leg: `${index === 0 ? "L" : index}–${index + 1}`, code: String(code) })), { leg: `${analysis.controlCodes.length || "L"}–M`, code: "Maali" }];
 
   return <div className="space-y-4">
     <Card className="overflow-hidden rounded-3xl"><CardHeader className="border-b bg-muted/35"><CardTitle className="text-2xl">{course.name}</CardTitle></CardHeader>
       <CardContent className="p-0"><div className="overflow-x-auto"><Table><TableHeader><TableRow>
-        <TableHead className="w-16 text-right">Sija</TableHead>
-        <TableHead>Nimi</TableHead>
-        <TableHead>Seura</TableHead>
-        {Array.from({ length: legCount }, (_, index) => <TableHead key={index} className="text-right tabular-nums">{index === legCount - 1 ? "Maali" : index + 1}<div className="font-normal text-muted-foreground">{referenceCodes[index]}</div></TableHead>)}
-      </TableRow></TableHeader><TableBody>{legTimes.map(({ result, legs }) => <TableRow key={result.id}>
-        <TableCell className="text-right font-bold tabular-nums">{result.rank ?? "–"}</TableCell>
-        <TableCell className="font-bold">{result.firstName} {result.lastName}</TableCell>
-        <TableCell className="text-muted-foreground">{result.clubName || "–"}</TableCell>
-        {legs.map((leg, index) => <LegCell key={index} splitMs={leg.splitMs} cumulativeMs={leg.cumulativeMs} />)}
+        <TableHead className="sticky left-0 z-10 w-12 bg-card text-right"><button type="button" onClick={() => setSort(null)} className={sort ? "underline-offset-2 hover:underline" : ""} title="Järjestä tuloksen mukaan">Sija</button></TableHead>
+        <TableHead className="sticky left-12 z-10 min-w-40 bg-card shadow-[1px_0_0_var(--border)]">Nimi</TableHead>
+        {legLabels.map((label, index) => <TableHead key={label.leg} className="h-auto py-2 text-right align-top tabular-nums">{label.leg}<div className="font-normal text-muted-foreground">{label.code}</div><div className="mt-1 flex justify-end gap-0.5">{sortButton(index, "split", "väli")}{sortButton(index, "cumulative", "yht.")}</div></TableHead>)}
+      </TableRow></TableHeader><TableBody>{rows.map(({ result, legs }) => <TableRow key={result.id}>
+        <TableCell className="sticky left-0 z-10 bg-card text-right align-top font-bold tabular-nums">{result.rank ?? "–"}</TableCell>
+        <TableCell className="sticky left-12 z-10 bg-card align-top shadow-[1px_0_0_var(--border)]"><div className="font-bold">{result.firstName} {result.lastName}</div><div className="text-xs text-muted-foreground">{result.clubName || "–"}</div></TableCell>
+        {legs.map((leg, index) => <LegCell key={index} leg={leg} />)}
       </TableRow>)}</TableBody></Table></div></CardContent>
     </Card>
-    <p className="text-xs text-muted-foreground">Ylärivi = väliaika edellisestä rastista, alarivi = kokonaisaika lähdöstä.</p>
+    <Popover><PopoverTrigger asChild><Button variant="ghost" size="sm" className="rounded-full text-muted-foreground"><Info className="mr-1.5 size-4" />Taulukon selite</Button></PopoverTrigger>
+      <PopoverContent align="start" className="w-80 max-w-[calc(100vw-2rem)] text-sm">
+        <PopoverHeader><PopoverTitle>Taulukon selite</PopoverTitle></PopoverHeader>
+        <ul className="mt-3 space-y-2.5">
+          <li><b>L–1, 1–2, … –M</b> = rastiväli lähdöstä (L) maaliin (M). Otsikon alla rastikoodi.</li>
+          <li><b>Ylärivi</b> = rastivälin aika, <b>alarivi</b> = kokonaisaika lähdöstä kyseiselle rastille. Suluissa sija.</li>
+          <li><span className="font-bold text-emerald-700">(1)</span> = nopein, <span className="font-bold text-blue-700">(2–3)</span> = toiseksi ja kolmanneksi nopein.</li>
+          <li className="flex gap-2"><span className="mt-1 inline-block size-3 shrink-0 rounded-sm bg-red-100 ring-1 ring-red-300" /><span><b>Pummi</b>: rastiväli on yli 20 % ja vähintään 20 s hitaampi kuin juoksijan oma vauhti muilla väleillä ennustaa. Napauta punaista solua nähdäksesi arvioidun aikahukan.</span></li>
+          <li><b>väli</b> ja <b>yht.</b> järjestävät juoksijat rastivälin tai kokonaisajan mukaan. <b>Sija</b> palauttaa tulosjärjestyksen.</li>
+        </ul>
+      </PopoverContent>
+    </Popover>
     {excluded.length > 0 && <p className="text-sm text-muted-foreground">Vertailun ulkopuolella ({excluded.length}): {excluded.map((result) => `${result.firstName} ${result.lastName}`).join(", ")} — ei hyväksyttyä tulosta.</p>}
   </div>;
 }
 
-function LegCell({ splitMs, cumulativeMs }: { splitMs: number | null; cumulativeMs: number | null }) {
-  if (splitMs == null) return <TableCell className="text-right tabular-nums text-muted-foreground">–</TableCell>;
-  return <TableCell className="text-right tabular-nums">
-    {formatDuration(splitMs)}
-    <div className="text-xs font-normal text-muted-foreground">{formatDuration(cumulativeMs)}</div>
+function LegCell({ leg }: { leg: SplitLeg }) {
+  const top = (rank: number) => rank === 1 ? "font-bold text-emerald-700" : rank <= 3 ? "font-bold text-blue-700" : "";
+  const times = <>
+    <div className={top(leg.splitRank)}>{formatDuration(leg.splitMs)} <span className="text-xs">({leg.splitRank})</span></div>
+    <div className={`text-xs ${leg.cumulativeRank <= 3 ? top(leg.cumulativeRank) : "text-muted-foreground"}`}>{formatDuration(leg.cumulativeMs)} ({leg.cumulativeRank})</div>
+  </>;
+  if (!leg.lostMs) return <TableCell className="text-right align-top tabular-nums">{times}</TableCell>;
+  // A mistake cell opens its estimated time loss on click or tap (touch
+  // screens have no hover for a title tooltip).
+  return <TableCell className="bg-red-100 p-0 text-right align-top tabular-nums">
+    <Popover><PopoverTrigger asChild><button type="button" className="block w-full cursor-pointer p-2 text-right hover:bg-red-200 focus-visible:bg-red-200 focus-visible:outline-none" aria-label={`Pummi, ${formatDuration(leg.splitMs)}: näytä aikahukka`}>{times}</button></PopoverTrigger>
+      <PopoverContent side="top" className="w-auto max-w-64 text-sm"><b>Pummi</b>: arviolta <b className="tabular-nums">{formatDuration(leg.lostMs)}</b> hukkaa juoksijan omaan vauhtiin verrattuna.</PopoverContent>
+    </Popover>
   </TableCell>;
 }
 
