@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEventHandler, FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Award, BookOpen, CalendarDays, CheckCircle2, Clock3, Cpu, Download, FileUp, KeyRound, ListChecks, Loader2, Nfc, LockKeyhole, LogOut, MapPin, Pencil, Plus, Route, Send, Trash2, UserRound, Users } from "lucide-react";
+import { ArrowLeft, Award, BookOpen, CalendarDays, CheckCircle2, Clock3, Cpu, Download, FileUp, KeyRound, ListChecks, Loader2, Nfc, LockKeyhole, LogOut, MapPin, Pencil, Plus, Route, Search, Send, Trash2, UserRound, Users } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -80,6 +80,7 @@ function AdminEvents({ token, onLogout }: { token: string; onLogout: () => void 
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
+  const [filter, setFilter] = useState<EventFilter>({ query: "", seasonId: "", when: "upcoming" });
   const headers = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -136,11 +137,12 @@ function AdminEvents({ token, onLogout }: { token: string; onLogout: () => void 
     if (!response.ok) { setError("Tapahtuman poistaminen epäonnistui."); return; }
     await load();
   }
+  const visibleEvents = filterEvents(events, filter);
   return <main className="min-h-screen bg-muted/30">
     <AdminHeader items={[{ label: "Julkinen sivu", href: withBasePath("/"), variant: "ghost" }, { label: "Osallistumiskerrat", icon: Award, href: withBasePath("/admin/osallistumiskerrat") }, { label: "Kaudet", icon: CalendarDays, href: withBasePath("/admin/kaudet") }, { label: "Tulospalvelu", icon: Nfc, href: withBasePath("/admin/emit") }, { label: "Lukijalaitteet", icon: Cpu, onClick: () => setReaderDevicesOpen(true) }, { label: "Ohjeet", icon: BookOpen, href: withBasePath("/admin/ohjeet") }, { label: "Vaihda salasana", icon: KeyRound, onClick: () => setPasswordOpen(true) }, { label: "Kirjaudu ulos", icon: LogOut, onClick: onLogout }]} />
     <div className="mx-auto max-w-6xl px-5 py-10"><div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-sm font-bold uppercase tracking-wider text-primary">Hallinta</p><h1 className="mt-2 text-3xl font-black tracking-tight">Tapahtumat</h1><p className="mt-2 text-muted-foreground">Lisää, muokkaa ja julkaise kauden tapahtumia.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" className="rounded-full" disabled={loading || events.length === 0} onClick={() => downloadEventsExcel(events)}><Download className="mr-2 size-4" />Lataa Excel</Button><Button variant="outline" className="rounded-full" onClick={() => setImportOpen(true)}><FileUp className="mr-2 size-4" />Tuo Excel</Button><Button className="rounded-full" onClick={openCreate}><Plus className="mr-2 size-4" />Lisää tapahtuma</Button></div></div>
       {error && <p role="alert" className="mb-5 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}
-      {loading ? <div className="grid place-items-center py-20"><Loader2 className="size-7 animate-spin text-primary" /></div> : events.length === 0 ? <Card className="rounded-3xl border-dashed"><CardContent className="grid place-items-center py-16 text-center"><CalendarDays className="mb-4 size-9 text-muted-foreground" /><p className="font-bold">Ei tapahtumia</p><p className="mt-1 text-sm text-muted-foreground">Luo kauden ensimmäinen tapahtuma.</p></CardContent></Card> : <><AttendanceChart events={events} seasons={seasons} /><div className="grid gap-4">{events.map((item) => <EventCard key={item.id} item={item} onRegistrations={() => setRegistrationEvent(item)} onCourses={() => setCourseEvent(item)} onEdit={() => openEdit(item)} onDelete={() => remove(item.id)} />)}</div></>}
+      {loading ? <div className="grid place-items-center py-20"><Loader2 className="size-7 animate-spin text-primary" /></div> : events.length === 0 ? <Card className="rounded-3xl border-dashed"><CardContent className="grid place-items-center py-16 text-center"><CalendarDays className="mb-4 size-9 text-muted-foreground" /><p className="font-bold">Ei tapahtumia</p><p className="mt-1 text-sm text-muted-foreground">Luo kauden ensimmäinen tapahtuma.</p></CardContent></Card> : <><AttendanceChart events={events} seasons={seasons} /><EventFilters filter={filter} seasons={seasons} shown={visibleEvents.length} total={events.length} onChange={setFilter} /><div className="grid gap-4">{visibleEvents.length === 0 && <Card className="rounded-3xl border-dashed"><CardContent className="grid place-items-center gap-3 py-12 text-center"><p className="font-bold">Ei hakua vastaavia tapahtumia</p><Button variant="outline" size="sm" className="rounded-full" onClick={() => setFilter({ query: "", seasonId: "", when: "all" })}>Näytä kaikki tapahtumat</Button></CardContent></Card>}{visibleEvents.map((item) => <EventCard key={item.id} item={item} onRegistrations={() => setRegistrationEvent(item)} onCourses={() => setCourseEvent(item)} onEdit={() => openEdit(item)} onDelete={() => remove(item.id)} />)}</div></>}
     </div>
     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-2xl"><DialogHeader><DialogTitle>{editing ? "Muokkaa tapahtumaa" : "Lisää tapahtuma"}</DialogTitle><DialogDescription>Täytä tapahtuman perustiedot ja valitse julkaisutila.</DialogDescription></DialogHeader><EventForm key={editing?.id ?? "new"} item={editing} seasons={seasons} saving={saving} error={formError} token={token} onSessionExpired={onLogout} onSubmit={save} onCancel={() => setDialogOpen(false)} /></DialogContent></Dialog>
     <Dialog open={Boolean(courseEvent)} onOpenChange={(open) => { if (!open) { setCourseEvent(null); void load(); } }}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-3xl">{courseEvent && <CourseManager event={courseEvent} token={token} onSessionExpired={onLogout} />}</DialogContent></Dialog>
@@ -149,6 +151,38 @@ function AdminEvents({ token, onLogout }: { token: string; onLogout: () => void 
     <Dialog open={importOpen} onOpenChange={setImportOpen}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-2xl">{importOpen && <EventImport token={token} onSessionExpired={onLogout} onImported={() => void load()} onClose={() => setImportOpen(false)} />}</DialogContent></Dialog>
     <Dialog open={readerDevicesOpen} onOpenChange={setReaderDevicesOpen}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-3xl">{readerDevicesOpen && <ReaderDevicesManager token={token} onSessionExpired={onLogout} />}</DialogContent></Dialog>
   </main>;
+}
+
+type EventFilter = { query: string; seasonId: string; when: "upcoming" | "past" | "all" };
+
+/** Events matching the admin list's filters. Upcoming ones (ending today or
+ * later) run soonest first; past ones newest first, as that's where an
+ * admin usually looks. The search matches name, place, season and date. */
+function filterEvents(events: EventItem[], filter: EventFilter) {
+  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+  const terms = filter.query.toLocaleLowerCase("fi").split(/\s+/).filter(Boolean);
+  const matches = events.filter((item) => {
+    if (filter.seasonId && item.seasonId !== filter.seasonId) return false;
+    const upcoming = new Date(item.endsAt) >= startOfToday;
+    if (filter.when === "upcoming" && !upcoming) return false;
+    if (filter.when === "past" && upcoming) return false;
+    if (!terms.length) return true;
+    const text = [item.name, item.locationName, item.address, item.season.name, new Date(item.startsAt).toLocaleDateString("fi-FI")].filter(Boolean).join(" ").toLocaleLowerCase("fi");
+    return terms.every((term) => text.includes(term));
+  });
+  return filter.when === "past" ? [...matches].reverse() : matches;
+}
+
+function EventFilters({ filter, seasons, shown, total, onChange }: { filter: EventFilter; seasons: Season[]; shown: number; total: number; onChange: (filter: EventFilter) => void }) {
+  const whenLabels = { upcoming: "Tulevat", past: "Menneet", all: "Kaikki" } as const;
+  return <div className="mb-4 flex flex-col gap-3 rounded-2xl border bg-card p-3 shadow-sm sm:flex-row sm:flex-wrap sm:items-center">
+    <div className="relative min-w-0 flex-1 sm:min-w-56"><Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" /><Input type="search" value={filter.query} onChange={(changeEvent) => onChange({ ...filter, query: changeEvent.target.value })} placeholder="Hae nimellä, paikalla tai päivämäärällä…" className="pl-9" aria-label="Hae tapahtumia" /></div>
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="inline-flex rounded-full border p-0.5" role="group" aria-label="Aikarajaus">{(Object.keys(whenLabels) as EventFilter["when"][]).map((when) => <button key={when} type="button" aria-pressed={filter.when === when} onClick={() => onChange({ ...filter, when })} className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${filter.when === when ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>{whenLabels[when]}</button>)}</div>
+      {seasons.length > 1 && <select value={filter.seasonId} onChange={(changeEvent) => onChange({ ...filter, seasonId: changeEvent.target.value })} aria-label="Kausi" className="h-9 rounded-full border border-input bg-background px-3 text-sm"><option value="">Kaikki kaudet</option>{groupSeasonsBySeries(seasons).map((group) => { const options = group.seasons.map((season) => <option key={season.id} value={season.id}>{season.name} ({season.year})</option>); return group.seriesName === null ? options : <optgroup key={group.seriesName} label={group.seriesName}>{options}</optgroup>; })}</select>}
+      <span className="text-sm text-muted-foreground tabular-nums">{shown} / {total}</span>
+    </div>
+  </div>;
 }
 
 function EventCard({ item, onRegistrations, onCourses, onEdit, onDelete }: { item: EventItem; onRegistrations: () => void; onCourses: () => void; onEdit: () => void; onDelete: () => void }) {
