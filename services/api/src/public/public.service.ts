@@ -60,7 +60,8 @@ export class PublicService {
       },
     });
 
-    return seasons.map((season) => ({
+    // A season with nothing published yet (or only drafts) isn't shown.
+    return seasons.filter((season) => season.events.length > 0).map((season) => ({
       id: season.id,
       name: season.name,
       year: season.year,
