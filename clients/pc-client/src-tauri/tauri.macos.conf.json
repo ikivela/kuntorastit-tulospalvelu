@@ -1,6 +1,9 @@
 {
+  "mainBinaryName": "Kuntorastit Client",
   "bundle": {
-    "targets": ["app"],
+    "targets": [
+      "app"
+    ],
     "macOS": {
       "signingIdentity": "-"
     }

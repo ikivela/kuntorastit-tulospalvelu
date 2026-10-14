@@ -948,21 +948,57 @@ function App() {
     ].some((value) => value.toLocaleLowerCase("fi-FI").includes(query)));
   }, [history, historySearch]);
 
+  const selectedEvent = events.find((event) => event.id === selectedEventId) ?? null;
   return (
     <main>
-      <h4>Kuntorastit Client</h4>
-      <p className="build-version">Build: {new Date(__BUILD_DATE__).toLocaleString("fi-FI")}</p>
+      <header className="app-bar">
+        <div className="brand"><span className="brand-mark" aria-hidden="true"><FlagIcon /></span><div><b>Kuntorastit Client</b><span>Build {new Date(__BUILD_DATE__).toLocaleString("fi-FI", { dateStyle: "short", timeStyle: "short" })}</span></div></div>
+        <div className="app-bar-actions">
+          <span className={`chip ${deviceStatus === "approved" ? "ok" : "warn"}`} title={deviceStatus === "approved" ? "Lukijalaite on hyväksytty, tulokset lähtevät palvelimelle." : "Hyväksytä laite Asetuksista, jotta tulokset lähtevät palvelimelle."}><span className="chip-dot" />{deviceStatus === "approved" ? deviceName || "Laite hyväksytty" : deviceStatus === "pending" ? "Odottaa hyväksyntää" : "Laitetta ei hyväksytty"}</span>
+          <button type="button" className="ghost" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog"><UsersIcon />HenkilöDB</button>
+          <button type="button" className="ghost" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog"><GearIcon />Asetukset</button>
+        </div>
+      </header>
 
-      <section>
-        {activeEvent ? <><div className="event-running"><div><span className="eyebrow">Tapahtuma käynnissä</span><h2>{activeEvent.name}</h2><p>{new Date(activeEvent.startsAt).toLocaleString("fi-FI")} · {activeEvent.locationName || "Paikka ei tiedossa"}</p></div><div className={`reader-badge ${reading ? "ok" : "error"}`}><span />{pendingCard ? "Kuittaus odottaa" : reading ? "Lukija OK" : "Lukija ei yhteydessä"}</div><button onClick={() => setFinishState({ phase: "confirm" })}>Lopeta tapahtuma</button><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div><div className="course-list"><strong>Radat</strong>{activeEvent.courses.length ? activeEvent.courses.map((course) => <span key={course.id}>{course.name} · {(course.lengthMeters / 1000).toLocaleString("fi-FI", { maximumFractionDigits: 1 })} km</span>) : <span>Ei julkaistuja ratoja</span>}</div></> : <div className="event-start">{calendarLoading ? <p>Haetaan tapahtumia…</p> : calendarError ? <div><p className="error">{calendarError}</p><p className="hint">API-osoite: {apiBase}</p><div className="event-start-actions"><button onClick={() => void loadCalendar()}>Yritä uudelleen</button><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div></div> : <>{calendarCachedAt != null && <div className="offline-note"><p className="hint">Ei yhteyttä palvelimeen: tapahtumat ja radat on haettu {new Date(calendarCachedAt).toLocaleString("fi-FI")}.</p><button type="button" onClick={() => void loadCalendar()}>Yritä uudelleen</button></div>}<label className="event-select-field"><span className="eyebrow">Käynnistä tulospalvelu</span><select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}><option value="">Käynnistä tulospalvelu</option>{events.map((event) => { const past = isPastEvent(event); return <option key={event.id} value={event.id} disabled={past}>{new Date(event.startsAt).toLocaleDateString("fi-FI")} · {event.name}{past ? " · mennyt" : ""}</option>; })}</select></label><button className="primary" onClick={() => void startEvent()} disabled={!selectedEventId || events.some((event) => event.id === selectedEventId && isPastEvent(event))}>Käynnistä tulospalvelu</button><div className="event-start-actions"><button type="button" className="settings-toggle" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">⚙ Asetukset</button><button type="button" className="settings-toggle" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog">👥 HenkilöDB</button></div></>}</div>}
-        {status && <p className="status">{status}</p>}
-      </section>
+      {activeEvent ? (
+        <section className="event-card running">
+          <div className="event-card-head">
+            <div className="event-card-main">
+              <span className="live-label"><span className="live-dot" />Tapahtuma käynnissä</span>
+              <h1>{activeEvent.name}</h1>
+              <p className="event-meta">{formatEventDates(activeEvent)} · {activeEvent.locationName || "Paikka ei tiedossa"}</p>
+            </div>
+            <div className="event-card-side">
+              <div className={`reader-badge ${pendingCard ? "waiting" : reading ? "ok" : "error"}`}><span />{pendingCard ? "Kuittaus odottaa" : reading ? "Lukija OK" : "Lukija ei yhteydessä"}</div>
+              <button type="button" className="danger-outline" onClick={() => setFinishState({ phase: "confirm" })}><StopIcon />Lopeta tapahtuma</button>
+            </div>
+          </div>
+          <CourseChips courses={activeEvent.courses} />
+          {status && <p className="status">{status}</p>}
+        </section>
+      ) : (
+        <section className="event-card start">
+          <span className="eyebrow">Käynnistä tulospalvelu</span>
+          <h1>Valitse tapahtuma</h1>
+          {calendarLoading ? <p className="muted">Haetaan tapahtumia…</p> : calendarError ? (
+            <div className="callout danger"><p className="error">{calendarError}</p><p className="hint">API-osoite: {apiBase}</p><button type="button" onClick={() => void loadCalendar()}>Yritä uudelleen</button></div>
+          ) : <>
+            {calendarCachedAt != null && <div className="offline-note"><p className="hint">Ei yhteyttä palvelimeen: tapahtumat ja radat on haettu {new Date(calendarCachedAt).toLocaleString("fi-FI")}.</p><button type="button" onClick={() => void loadCalendar()}>Yritä uudelleen</button></div>}
+            <div className="start-row">
+              <select className="event-select" aria-label="Tapahtuma" value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}><option value="">Valitse tapahtuma…</option>{events.map((event) => { const past = isPastEvent(event); return <option key={event.id} value={event.id} disabled={past}>{new Date(event.startsAt).toLocaleDateString("fi-FI")} · {event.name}{past ? " · mennyt" : ""}</option>; })}</select>
+              <button type="button" className="primary" onClick={() => void startEvent()} disabled={!selectedEvent || isPastEvent(selectedEvent)}><PlayIcon />Käynnistä</button>
+            </div>
+            {selectedEvent && <div className="event-preview"><p className="event-meta">{formatEventDates(selectedEvent)} · {selectedEvent.locationName || "Paikka ei tiedossa"}</p><CourseChips courses={selectedEvent.courses} /></div>}
+          </>}
+          {status && <p className="status muted">{status}</p>}
+        </section>
+      )}
 
       {settingsOpen && (
         <div className="modal-backdrop" role="presentation">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
             <h2 id="settings-title">Asetukset</h2>
-            <div className="reader-settings"><select value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading}><option value="">Valitse sarjaportti</option>{devices.map((device) => <option key={device.portName} value={device.portName}>{device.portName} – {device.product || device.manufacturer || device.portType}</option>)}</select><input className="port-input" value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading} placeholder="Sarjaportin polku" aria-label="Sarjaportin polku" /><button type="button" onClick={() => void refresh()} disabled={reading}>Päivitä portit</button><div className="device-row">{deviceStatus === "unregistered" || deviceStatus === "revoked" ? <>{deviceStatus === "revoked" && <p className="error">Ylläpitäjä on peruuttanut tämän laitteen pääsyn. Rekisteröidy uudelleen.</p>}<input className="device-name-input" value={deviceNameInput} onChange={(e) => setDeviceNameInput(e.target.value)} placeholder="Laitteen nimi, esim. Maalin lukija #1" aria-label="Laitteen nimi" /><button type="button" onClick={() => void registerDevice()} disabled={!deviceNameInput.trim()}>Lähetä hyväksyntäpyyntö</button></> : deviceStatus === "pending" ? <><span>Odotetaan ylläpitäjän hyväksyntää (nimellä &quot;{deviceName}&quot;)…</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button></> : <><span className="device-approved">✓ Hyväksytty (nimellä &quot;{deviceName}&quot;)</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button><button type="button" onClick={() => void forgetDevice()}>Unohda laite</button></>}{deviceError && <p className="error">{deviceError}</p>}</div><form className="api-row" onSubmit={(event) => { event.preventDefault(); void saveApiBase(apiBaseInput); }}><label htmlFor="api-base-input">API-osoite</label><input id="api-base-input" className="api-base-input" value={apiBaseInput} onChange={(e) => setApiBaseInput(e.target.value)} disabled={!!activeEvent} placeholder={DEFAULT_API_BASE} spellCheck={false} /><button type="submit" disabled={!!activeEvent || normalizeApiBase(apiBaseInput) === apiBase}>Tallenna</button>{apiBase !== DEFAULT_API_BASE && <button type="button" disabled={!!activeEvent} onClick={() => void saveApiBase(DEFAULT_API_BASE)}>Palauta oletus</button>}<p className="hint">{activeEvent ? "Osoitetta voi vaihtaa vain, kun tapahtuma ei ole käynnissä." : "Osoitteen vaihto unohtaa laitteen hyväksynnän: lähetä hyväksyntäpyyntö uudelle palvelimelle."}</p>{apiBaseError && <p className="error">{apiBaseError}</p>}</form><div className="log-row"><span className="log-row-label">Debug-loki</span><button type="button" onClick={() => void openLog(false)}>Avaa loki</button><button type="button" onClick={() => void openLog(true)}>Avaa kansio</button>{logPath && <p className="hint">{logPath}</p>}{logError && <p className="error">{logError}</p>}</div></div>
+            <div className="reader-settings"><span className="settings-label">Lukijan sarjaportti</span><select value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading}><option value="">Valitse sarjaportti</option>{devices.map((device) => <option key={device.portName} value={device.portName}>{device.portName} – {device.product || device.manufacturer || device.portType}</option>)}</select><input className="port-input" value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading} placeholder="Sarjaportin polku" aria-label="Sarjaportin polku" /><button type="button" onClick={() => void refresh()} disabled={reading}>Päivitä portit</button><div className="device-row"><span className="settings-label">Lukijalaite</span>{deviceStatus === "unregistered" || deviceStatus === "revoked" ? <>{deviceStatus === "revoked" && <p className="error">Ylläpitäjä on peruuttanut tämän laitteen pääsyn. Rekisteröidy uudelleen.</p>}<input className="device-name-input" value={deviceNameInput} onChange={(e) => setDeviceNameInput(e.target.value)} placeholder="Laitteen nimi, esim. Maalin lukija #1" aria-label="Laitteen nimi" /><button type="button" onClick={() => void registerDevice()} disabled={!deviceNameInput.trim()}>Lähetä hyväksyntäpyyntö</button></> : deviceStatus === "pending" ? <><span>Odotetaan ylläpitäjän hyväksyntää (nimellä &quot;{deviceName}&quot;)…</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button></> : <><span className="device-approved">✓ Hyväksytty (nimellä &quot;{deviceName}&quot;)</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button><button type="button" onClick={() => void forgetDevice()}>Unohda laite</button></>}{deviceError && <p className="error">{deviceError}</p>}</div><form className="api-row" onSubmit={(event) => { event.preventDefault(); void saveApiBase(apiBaseInput); }}><label htmlFor="api-base-input">API-osoite</label><input id="api-base-input" className="api-base-input" value={apiBaseInput} onChange={(e) => setApiBaseInput(e.target.value)} disabled={!!activeEvent} placeholder={DEFAULT_API_BASE} spellCheck={false} /><button type="submit" disabled={!!activeEvent || normalizeApiBase(apiBaseInput) === apiBase}>Tallenna</button>{apiBase !== DEFAULT_API_BASE && <button type="button" disabled={!!activeEvent} onClick={() => void saveApiBase(DEFAULT_API_BASE)}>Palauta oletus</button>}<p className="hint">{activeEvent ? "Osoitetta voi vaihtaa vain, kun tapahtuma ei ole käynnissä." : "Osoitteen vaihto unohtaa laitteen hyväksynnän: lähetä hyväksyntäpyyntö uudelle palvelimelle."}</p>{apiBaseError && <p className="error">{apiBaseError}</p>}</form><div className="log-row"><span className="log-row-label">Debug-loki</span><button type="button" onClick={() => void openLog(false)}>Avaa loki</button><button type="button" onClick={() => void openLog(true)}>Avaa kansio</button>{logPath && <p className="hint">{logPath}</p>}{logError && <p className="error">{logError}</p>}</div></div>
             <div className="confirm-actions"><button type="button" className="primary" onClick={() => setSettingsOpen(false)}>Sulje</button></div>
           </section>
         </div>
@@ -1006,7 +1042,7 @@ function App() {
 
       <section>
         <div className="log-heading"><div><h2>Tulokset</h2><p>{history.length} viimeisintä tulosta</p>{syncState && (syncState.pending > 0 ? <p className="sync-summary pending">{syncState.pending} {syncState.pending === 1 ? "tulos odottaa" : "tulosta odottaa"} lähetystä{syncState.error ? ` · ${syncState.error}` : ""} <button type="button" className="link-button" onClick={() => void syncPending()}>Lähetä nyt</button></p> : <p className="sync-summary ok">✓ Kaikki tulokset lähetetty</p>)}</div><div className="log-heading-actions"><label className="log-search"><span className="sr-only">Hae tuloksista</span><input type="search" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Hae nimellä, seuralla tai kortilla…" /></label><button onClick={openManualEntry} disabled={!activeEvent}>+ Syötä osanottoja</button></div></div>
-        {history.length === 0 ? <p>Ei tallennettuja tuloksia.</p> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Seura</th><th>Rata</th><th>Aika</th><th><span className="sr-only">Lähetys</span></th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td className="log-read-at"><time>{new Date(item.readAtMs).toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="log-club">{item.club || "–"}</td><td className="log-course">{activeEvent?.courses.find((course) => course.id === item.courseId)?.name ?? "–"}</td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : item.resultStatus === "DID_NOT_FINISH" ? "Keskeytti" : formatDuration(item.source === "MANUAL" ? item.manualDurationSeconds : cardResultSeconds(item.punches, activeEvent?.courses.find((course) => course.id === item.courseId)))}</td><td className={`log-sync ${item.syncStatus.toLowerCase()}`} title={syncStatusLabel(item)}>{item.syncStatus === "SYNCED" ? "✓" : item.syncStatus === "ERROR" ? "!" : "…"}<span className="sr-only">{syncStatusLabel(item)}</span></td></tr>)}</tbody></table></div></>}
+        {history.length === 0 ? <div className="log-empty"><b>Ei vielä tuloksia</b><span>{activeEvent ? "Lue ensimmäinen kortti lukijalla tai syötä osanotto käsin." : "Tulokset näkyvät täällä, kun tulospalvelu on käynnissä."}</span></div> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Seura</th><th>Rata</th><th>Aika</th><th><span className="sr-only">Lähetys</span></th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td className="log-read-at"><time>{new Date(item.readAtMs).toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="log-club">{item.club || "–"}</td><td className="log-course">{activeEvent?.courses.find((course) => course.id === item.courseId)?.name ?? "–"}</td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : item.resultStatus === "DID_NOT_FINISH" ? "Keskeytti" : formatDuration(item.source === "MANUAL" ? item.manualDurationSeconds : cardResultSeconds(item.punches, activeEvent?.courses.find((course) => course.id === item.courseId)))}</td><td className={`log-sync ${item.syncStatus.toLowerCase()}`} title={syncStatusLabel(item)}>{item.syncStatus === "SYNCED" ? "✓" : item.syncStatus === "ERROR" ? "!" : "…"}<span className="sr-only">{syncStatusLabel(item)}</span></td></tr>)}</tbody></table></div></>}
       </section>
 
       {pendingCard && (
@@ -1312,4 +1348,31 @@ function cardResultSeconds(punches: ProbeResult["punches"], course: Course | und
   if (!course) return punches.at(-1)?.timeSeconds;
   const { codes, finishPunched } = courseCodes(course);
   return (codes.length ? checkCard(punches, codes, finishPunched).resultSeconds : punches.at(-1)?.timeSeconds) ?? undefined;
+}
+
+function formatEventDates(event: { startsAt: string; endsAt: string }) {
+  const starts = new Date(event.startsAt);
+  const ends = new Date(event.endsAt);
+  const day = (value: Date) => value.toLocaleDateString("fi-FI", { day: "numeric", month: "numeric" });
+  const time = starts.toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit" });
+  return starts.toDateString() === ends.toDateString()
+    ? `${starts.toLocaleDateString("fi-FI")} klo ${time}`
+    : `${day(starts)}–${ends.toLocaleDateString("fi-FI")} · alkaa klo ${time}`;
+}
+
+function CourseChips({ courses }: { courses: Course[] }) {
+  return <div className="course-list">{courses.length ? courses.map((course) => <span key={course.id}><b>{course.name}</b>{(course.lengthMeters / 1000).toLocaleString("fi-FI", { maximumFractionDigits: 1 })} km</span>) : <span className="empty">Ei julkaistuja ratoja</span>}</div>;
+}
+
+// Small line icons (lucide-style, 24px grid, currentColor).
+function Icon({ children }: { children: React.ReactNode }) {
+  return <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>;
+}
+function GearIcon() { return <Icon><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></Icon>; }
+function UsersIcon() { return <Icon><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></Icon>; }
+function PlayIcon() { return <Icon><polygon points="6 3 20 12 6 21 6 3" /></Icon>; }
+function StopIcon() { return <Icon><rect x="5" y="5" width="14" height="14" rx="2" /></Icon>; }
+// The orienteering control flag: a square split diagonally white / orange.
+function FlagIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" fill="#fff" /><path d="M21 3v16a2 2 0 0 1-2 2H3z" fill="#f26b1d" /></svg>;
 }
