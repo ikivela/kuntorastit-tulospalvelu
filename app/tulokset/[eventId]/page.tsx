@@ -11,6 +11,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ResultsHeader } from "@/components/results-header";
+import { isLiveEvent } from "@/lib/live";
 import { API_BASE, SITE_NAME, withBasePath } from "@/lib/site";
 
 const apiBase = API_BASE;
@@ -18,7 +19,7 @@ type ResultStatus = "PENDING" | "ACCEPTED" | "DISQUALIFIED" | "NO_TIME" | "DID_N
 type ResultPunch = { sequenceNumber: number; controlCode: number; elapsedMs: number | null; status: "VALID" | "EXTRA" | "MISSING" };
 type EventResult = { id: string; rank: number | null; firstName: string; lastName: string; clubName: string | null; attendanceCount: number; status: ResultStatus; durationMs: number | null; punches: ResultPunch[] };
 type ResultCourse = { id: string; name: string; lengthMeters: number; results: EventResult[] };
-type ResultEvent = { id: string; name: string; locationName: string | null; startsAt: string; endsAt: string; updatedAt: string; courses: ResultCourse[] };
+type ResultEvent = { id: string; name: string; locationName: string | null; startsAt: string; endsAt: string; status?: string; updatedAt: string; courses: ResultCourse[] };
 
 export default function ResultsPage() {
   const { eventId } = useParams<{ eventId: string }>();
@@ -36,11 +37,14 @@ export default function ResultsPage() {
     } catch { setError("Tulosten lataaminen epäonnistui. Yritetään pian uudelleen."); }
     finally { setLoading(false); setRefreshing(false); }
   }, [eventId]);
+  useEffect(() => { void load(true); }, [load]);
+  // Refresh only while the event is on; a past event's results don't change.
+  const live = event ? isLiveEvent(event) : false;
   useEffect(() => {
-    void load(true);
+    if (!live) return;
     const interval = window.setInterval(() => void load(), 5000);
     return () => window.clearInterval(interval);
-  }, [load]);
+  }, [load, live]);
 
   useEffect(() => {
     if (!event) return;
@@ -49,9 +53,9 @@ export default function ResultsPage() {
 
   const resultCount = event?.courses.reduce((sum, course) => sum + course.results.length, 0) ?? 0;
   return <main className="min-h-screen bg-background text-foreground">
-    <ResultsHeader title={event?.name ?? null} subtitle={event ? [formatShortDate(event.startsAt), event.locationName].filter(Boolean).join(" · ") : null} refreshing={refreshing} backHref={withBasePath("/kalenteri")} backLabel="Kalenteriin" />
+    <ResultsHeader title={event?.name ?? null} subtitle={event ? [formatShortDate(event.startsAt), event.locationName].filter(Boolean).join(" · ") : null} live={live} refreshing={refreshing} backHref={withBasePath("/kalenteri")} backLabel="Kalenteriin" />
     {loading ? <ResultsSkeleton /> : !event ? <div className="mx-auto max-w-6xl px-5 py-10 lg:px-8"><Alert variant="destructive"><AlertCircle /><AlertTitle>Tuloksia ei voitu ladata</AlertTitle><AlertDescription><p>{error}</p><Button variant="outline" size="sm" className="mt-3" onClick={() => void load(true)}><RotateCcw className="mr-2 size-4" />Yritä uudelleen</Button></AlertDescription></Alert></div> : <>
-      <section className="hidden border-b sm:block bg-[linear-gradient(135deg,#eaf5ed_0%,#f8fbf7_65%,#fff4d8_100%)]"><div className="mx-auto max-w-6xl px-5 py-10 lg:px-8 lg:py-14"><div className="flex flex-row items-end justify-between gap-6"><div><p className="eyebrow">Tulokset</p><h1 className="mt-2 text-5xl font-black tracking-[-.04em]">{event.name}</h1><div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted-foreground"><span className="flex items-center gap-2"><Clock3 className="size-4 text-primary" />{formatDate(event.startsAt)}</span>{event.locationName && <span className="flex items-center gap-2"><MapPin className="size-4 text-primary" />{event.locationName}</span>}</div></div><div className="flex items-center gap-3"><Badge variant="outline" className="rounded-full bg-white/70 px-3 py-1.5"><span className="mr-2 size-2 rounded-full bg-emerald-500" />Päivittyy automaattisesti</Badge>{refreshing && <Loader2 className="size-4 animate-spin text-primary" />}</div></div></div></section>
+      <section className="hidden border-b sm:block bg-[linear-gradient(135deg,#eaf5ed_0%,#f8fbf7_65%,#fff4d8_100%)]"><div className="mx-auto max-w-6xl px-5 py-10 lg:px-8 lg:py-14"><div className="flex flex-row items-end justify-between gap-6"><div><p className="eyebrow">Tulokset</p><h1 className="mt-2 text-5xl font-black tracking-[-.04em]">{event.name}</h1><div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted-foreground"><span className="flex items-center gap-2"><Clock3 className="size-4 text-primary" />{formatDate(event.startsAt)}</span>{event.locationName && <span className="flex items-center gap-2"><MapPin className="size-4 text-primary" />{event.locationName}</span>}</div></div><div className="flex items-center gap-3">{live && <Badge variant="outline" className="rounded-full bg-white/70 px-3 py-1.5"><span className="mr-2 size-2 rounded-full bg-emerald-500" />Päivittyy automaattisesti</Badge>}{refreshing && <Loader2 className="size-4 animate-spin text-primary" />}</div></div></div></section>
       <div className="mx-auto max-w-6xl px-5 pb-4 sm:py-8 lg:px-8 lg:py-10">{error && <Alert className="mb-6"><AlertCircle /><AlertTitle>Yhteys katkesi hetkeksi</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}{resultCount === 0 ? <Empty className="min-h-72 rounded-3xl border bg-card"><EmptyHeader><EmptyMedia variant="icon"><Trophy /></EmptyMedia><EmptyTitle>Ei vielä tuloksia</EmptyTitle><EmptyDescription>Tulokset ilmestyvät tähän automaattisesti, kun kortteja luetaan.</EmptyDescription></EmptyHeader></Empty> : <div className="space-y-4 sm:space-y-6">{event.courses.filter((course) => course.results.length > 0).map((course) => <CourseResults key={course.id} eventId={event.id} course={course} />)}</div>}</div>
     </>}
   </main>;

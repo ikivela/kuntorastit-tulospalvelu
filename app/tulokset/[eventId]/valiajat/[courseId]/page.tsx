@@ -13,6 +13,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ResultsHeader } from "@/components/results-header";
+import { isLiveEvent } from "@/lib/live";
 import { API_BASE, SITE_NAME, withBasePath } from "@/lib/site";
 import { analyseSplits, type SplitLeg } from "@/lib/splits";
 
@@ -21,7 +22,7 @@ type ResultStatus = "PENDING" | "ACCEPTED" | "DISQUALIFIED" | "NO_TIME" | "DID_N
 type ResultPunch = { sequenceNumber: number; controlCode: number; elapsedMs: number | null; status: "VALID" | "EXTRA" | "MISSING" };
 type EventResult = { id: string; rank: number | null; firstName: string; lastName: string; clubName: string | null; status: ResultStatus; durationMs: number | null; punches: ResultPunch[] };
 type ResultCourse = { id: string; name: string; lengthMeters: number; results: EventResult[] };
-type ResultEvent = { id: string; name: string; startsAt: string; courses: ResultCourse[] };
+type ResultEvent = { id: string; name: string; startsAt: string; endsAt: string; status?: string; courses: ResultCourse[] };
 
 export default function SplitTimesPage() {
   const { eventId, courseId } = useParams<{ eventId: string; courseId: string }>();
@@ -40,11 +41,14 @@ export default function SplitTimesPage() {
     } catch { setError("Rastiväliaikojen lataaminen epäonnistui. Yritetään pian uudelleen."); }
     finally { setLoading(false); setRefreshing(false); }
   }, [eventId]);
+  useEffect(() => { void load(true); }, [load]);
+  // Refresh only while the event is on; a past event's results don't change.
+  const live = event ? isLiveEvent(event) : false;
   useEffect(() => {
-    void load(true);
+    if (!live) return;
     const interval = window.setInterval(() => void load(), 5000);
     return () => window.clearInterval(interval);
-  }, [load]);
+  }, [load, live]);
 
   const course = event?.courses.find((item) => item.id === courseId) ?? null;
   useEffect(() => {
@@ -56,10 +60,10 @@ export default function SplitTimesPage() {
   const coursePicker = (id: string) => <NativeSelect id={id} className="w-full" value={courseId} onChange={(changeEvent) => router.push(`/tulokset/${eventId}/valiajat/${changeEvent.target.value}`)}>{coursesWithResults.map((item) => <NativeSelectOption key={item.id} value={item.id}>{item.name}</NativeSelectOption>)}</NativeSelect>;
 
   return <main className="min-h-screen bg-background text-foreground">
-    <ResultsHeader title={event?.name ?? null} subtitle={event ? `Rastiväliajat · ${formatShortDate(event.startsAt)}` : null} refreshing={refreshing} backHref={withBasePath(`/tulokset/${eventId}`)} backLabel="Tuloksiin" />
+    <ResultsHeader title={event?.name ?? null} subtitle={event ? `Rastiväliajat · ${formatShortDate(event.startsAt)}` : null} live={live} refreshing={refreshing} backHref={withBasePath(`/tulokset/${eventId}`)} backLabel="Tuloksiin" />
     {loading ? <SplitsSkeleton /> : !event ? <div className="mx-auto max-w-6xl px-5 py-10 lg:px-8"><Alert variant="destructive"><AlertCircle /><AlertTitle>Tietoja ei voitu ladata</AlertTitle><AlertDescription><p>{error}</p><Button variant="outline" size="sm" className="mt-3" onClick={() => void load(true)}><RotateCcw className="mr-2 size-4" />Yritä uudelleen</Button></AlertDescription></Alert></div> : <>
       <section className="hidden border-b bg-[linear-gradient(135deg,#eaf5ed_0%,#f8fbf7_65%,#fff4d8_100%)] sm:block"><div className="mx-auto max-w-6xl px-5 py-10 lg:px-8 lg:py-14"><p className="eyebrow">Rastiväliajat</p><h1 className="mt-2 text-5xl font-black tracking-[-.04em]">{event.name}</h1>
-        <div className="mt-6 flex flex-wrap items-end justify-between gap-3"><div className="w-full max-w-xs flex-1"><label htmlFor="course-desktop" className="mb-1 block text-xs font-bold uppercase tracking-[.1em] text-muted-foreground">Sarja</label>{coursePicker("course-desktop")}</div><div className="flex items-center gap-3"><Badge variant="outline" className="rounded-full bg-white/70 px-3 py-1.5"><span className="mr-2 size-2 rounded-full bg-emerald-500" />Päivittyy automaattisesti</Badge>{refreshing && <Loader2 className="size-4 animate-spin text-primary" />}</div></div>
+        <div className="mt-6 flex flex-wrap items-end justify-between gap-3"><div className="w-full max-w-xs flex-1"><label htmlFor="course-desktop" className="mb-1 block text-xs font-bold uppercase tracking-[.1em] text-muted-foreground">Sarja</label>{coursePicker("course-desktop")}</div><div className="flex items-center gap-3">{live && <Badge variant="outline" className="rounded-full bg-white/70 px-3 py-1.5"><span className="mr-2 size-2 rounded-full bg-emerald-500" />Päivittyy automaattisesti</Badge>}{refreshing && <Loader2 className="size-4 animate-spin text-primary" />}</div></div>
       </div></section>
       <div className="flex items-center gap-3 border-b bg-muted/35 px-4 py-2 sm:hidden"><label htmlFor="course-mobile" className="text-xs font-bold uppercase tracking-[.1em] text-muted-foreground">Sarja</label><div className="min-w-0 flex-1">{coursePicker("course-mobile")}</div></div>
       <div className="px-5 pb-4 sm:py-8 lg:px-8 lg:py-10">{error && <Alert className="mx-auto mb-6 max-w-6xl"><AlertCircle /><AlertTitle>Yhteys katkesi hetkeksi</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}

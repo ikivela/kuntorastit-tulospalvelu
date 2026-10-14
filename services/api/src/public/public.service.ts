@@ -418,6 +418,7 @@ export class PublicService {
       locationName: event.locationName,
       startsAt: event.startsAt,
       endsAt: event.endsAt,
+      status: event.status,
       updatedAt: new Date(),
       courses: event.courses.map((course) => {
         const latestByParticipant = new Map<string, (typeof course.performances)[number]>();
