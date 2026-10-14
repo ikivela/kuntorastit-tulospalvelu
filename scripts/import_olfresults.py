@@ -414,13 +414,21 @@ class Importer:
     def punches(self, performance_id: str, splits: list[tuple[str, int | None]]) -> None:
         """Replaces the result's punches with its control split times (the
         finish is the result time, not a punch)."""
-        self.db.execute("DELETE FROM punch WHERE performance_id = %s", (performance_id,))
+        self.many_punches({performance_id: splits})
+
+    def many_punches(self, splits_by_performance: dict[str, list[tuple[str, int | None]]]) -> None:
+        """punches() for many results in two statements, so a remote database
+        (SSH tunnel) isn't paid a round trip per result."""
+        if not splits_by_performance:
+            return
+        self.db.execute("DELETE FROM punch WHERE performance_id = ANY(%s::uuid[])", (list(splits_by_performance),))
         with self.db.cursor() as cursor:
             cursor.executemany(
                 """INSERT INTO punch (id, performance_id, control_code, elapsed_ms, sequence_number, status)
                    VALUES (%s, %s, %s, %s, %s, %s::"PunchStatus")""",
                 [(new_id(), performance_id, code, seconds * 1000 if seconds is not None else None, number,
                   "VALID" if seconds is not None else "MISSING")
+                 for performance_id, splits in splits_by_performance.items()
                  for number, (code, seconds) in enumerate(splits, 1)])
 
     def registration(self, event_id: str, person_id: str, course_id: str, registered_at: datetime) -> None:
@@ -438,10 +446,14 @@ def find_season(connection: "psycopg.Connection", series: str, year: int, requir
         return str(row[0])
     if not required:
         return None
+    sys.exit(f"Kautta \"{series}\" {year} ei löytynyt. Luo se ylläpidon Kaudet-sivulla. Olemassa olevat kaudet:\n  {season_listing(connection)}")
+
+
+def season_listing(connection: "psycopg.Connection") -> str:
     available = connection.execute(
         "SELECT es.name, s.year FROM season s JOIN event_series es ON es.id = s.event_series_id ORDER BY es.name, s.year").fetchall()
-    listing = "\n  ".join(f"{name} {season_year}" for name, season_year in available) or "(ei kausia)"
-    sys.exit(f"Kautta \"{series}\" {year} ei löytynyt. Luo se ylläpidon Kaudet-sivulla. Olemassa olevat kaudet:\n  {listing}")
+    # The series name alone goes to --series; the year comes from the events.
+    return "\n  ".join(f'--series "{name}" (kausi {season_year})' for name, season_year in available) or "(ei kausia)"
 
 
 # --- Fetching from olfresults.net ---------------------------------------------
@@ -983,13 +995,18 @@ def run_splits(events: dict[str, SourceEvent], normaliser: Normaliser, *, series
     with psycopg.connect(database_url, options="-c timezone=UTC") as connection:
         importers = {year: Importer(connection, season_id) for year in sorted(set(years.values()))
                      for season_id in [find_season(connection, series, year, required=False)] if season_id}
+        if not importers:
+            sys.exit(f"Sarjalle \"{series}\" ei löytynyt kausia vuosille {', '.join(map(str, sorted(set(years.values()))))}. "
+                     f"Tarkista --series (sarjan nimi ylläpidon Kaudet-sivulla). Olemassa olevat kaudet:\n  {season_listing(connection)}")
         existing = {year: importer.existing_events() for year, importer in importers.items()}
         lines: list[str] = []
         problems: list[str] = []
         totals: Counter[str] = Counter()
-        for event in sorted(events.values(), key=lambda item: item.starts_on):
+        ordered = sorted(events.values(), key=lambda item: item.starts_on)
+        for number, event in enumerate(ordered, 1):
             year = years[event.olf_id]
             label = f"{event.starts_on} [{event.olf_id}] {split_location(event.title)[0]}"
+            print(f"Tietokanta {number}/{len(ordered)}: {label}", file=sys.stderr)
             if year not in importers:
                 lines.append(f"{label}: OHITETTU, kautta \"{series}\" {year} ei ole")
                 totals["events_skipped"] += 1
@@ -1009,6 +1026,7 @@ def run_splits(events: dict[str, SourceEvent], normaliser: Normaliser, *, series
                        WHERE a.event_id = %s""", (event_id,)).fetchall():
                 results[(name_key(f"{last} {first}"), course_key(course))].append((performance_id, duration_ms, punches))
             counts: Counter[str] = Counter()
+            pending: dict[str, list[tuple[str, int | None]]] = {}
             for row in event.rows:
                 splits = parse_splits(row.get("Valiajat", ""))
                 if not splits:
@@ -1035,8 +1053,9 @@ def run_splits(events: dict[str, SourceEvent], normaliser: Normaliser, *, series
                     counts["had_punches"] += 1
                     continue
                 for performance_id, _, _ in targets:
-                    importers[year].punches(performance_id, splits)
+                    pending[str(performance_id)] = splits
                 counts["added"] += 1
+            importers[year].many_punches(pending)
             totals.update(counts)
             lines.append(f"{label}: väliajat lisätty {counts['added']}, oli jo leimaukset {counts['had_punches']}"
                          + "".join(f", {text} {counts[key]}" for key, text in (("not_found", "ei löytynyt"), ("time_mismatch", "aika ei täsmää")) if counts[key]))
