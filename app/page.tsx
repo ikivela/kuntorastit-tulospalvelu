@@ -41,8 +41,8 @@ export default function Home() {
   return <main className="min-h-screen bg-background text-foreground">
     <header className="border-b bg-white/90 backdrop-blur">
       <div className="mx-auto flex max-w-4xl items-center justify-between gap-5 px-5 py-4 lg:px-8">
-        <a className="flex items-center gap-3" href={withBasePath("/")}><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src={LOGO_URL} alt="" className="size-8 object-contain" /></span><span><b className="block tracking-tight">{SITE_NAME}</b>{CLUB_NAME && <small className="block text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">{CLUB_NAME}</small>}</span></a>
-        <nav className="flex items-center gap-2"><LanguageSwitcher /><Button asChild variant="ghost" className="rounded-full"><a href={withBasePath("/kalenteri")}>{t.home.fullCalendar}</a></Button><Button asChild variant="outline" className="hidden rounded-full sm:inline-flex"><a href={withBasePath("/admin")}>{t.common.admin}</a></Button></nav>
+        <a className="flex min-w-0 items-center gap-3" href={withBasePath("/")}><span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white ring-1 ring-border"><img src={LOGO_URL} alt="" className="size-8 object-contain" /></span><span><b className="block tracking-tight">{SITE_NAME}</b>{CLUB_NAME && <small className="block text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">{CLUB_NAME}</small>}</span></a>
+        <nav className="flex items-center gap-2"><LanguageSwitcher /><Button asChild variant="ghost" className="rounded-full px-3 sm:px-4"><a href={withBasePath("/kalenteri")} aria-label={t.home.fullCalendar}><CalendarDays className="size-4 sm:hidden" /><span className="hidden sm:inline">{t.home.fullCalendar}</span></a></Button><Button asChild variant="outline" className="hidden rounded-full sm:inline-flex"><a href={withBasePath("/admin")}>{t.common.admin}</a></Button></nav>
       </div>
     </header>
 
