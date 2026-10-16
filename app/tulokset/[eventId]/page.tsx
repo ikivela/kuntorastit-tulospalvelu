@@ -11,6 +11,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ResultsHeader } from "@/components/results-header";
+import { RunnerDialog } from "@/components/runner-dialog";
 import { isLiveEvent } from "@/lib/live";
 import { API_BASE, SITE_NAME, withBasePath } from "@/lib/site";
 import { formatDistance, useT } from "@/lib/i18n";
@@ -18,8 +19,8 @@ import { formatDistance, useT } from "@/lib/i18n";
 const apiBase = API_BASE;
 type ResultStatus = "PENDING" | "ACCEPTED" | "DISQUALIFIED" | "NO_TIME" | "DID_NOT_FINISH";
 type ResultPunch = { sequenceNumber: number; controlCode: number; elapsedMs: number | null; status: "VALID" | "EXTRA" | "MISSING" };
-type EventResult = { id: string; rank: number | null; firstName: string; lastName: string; clubName: string | null; attendanceCount: number; source?: string; status: ResultStatus; durationMs: number | null; punches: ResultPunch[] };
-type ResultCourse = { id: string; name: string; lengthMeters: number; results: EventResult[] };
+type EventResult = { id: string; rank: number | null; firstName: string; lastName: string; clubName: string | null; attendanceCount: number; acceptedCount?: number; startedAt?: string | null; source?: string; status: ResultStatus; durationMs: number | null; punches: ResultPunch[] };
+type ResultCourse = { id: string; name: string; lengthMeters: number; legs?: { code: string | null; lengthMeters: number | null }[]; results: EventResult[] };
 type ResultEvent = { id: string; name: string; locationName: string | null; startsAt: string; endsAt: string; status?: string; updatedAt: string; courses: ResultCourse[] };
 
 export default function ResultsPage() {
@@ -65,6 +66,7 @@ export default function ResultsPage() {
 
 function CourseResults({ eventId, course }: { eventId: string; course: ResultCourse }) {
   const { t, locale } = useT();
+  const [selected, setSelected] = useState<EventResult | null>(null);
   const winnerDurationMs = course.results.find((result) => result.rank === 1)?.durationMs ?? null;
   const hasSplits = course.results.some((result) => result.status === "ACCEPTED" && result.punches.length > 0);
   // Phones get a stacked row with no sideways scrolling: rank | name with
@@ -74,13 +76,14 @@ function CourseResults({ eventId, course }: { eventId: string; course: ResultCou
     <CardContent className="p-0"><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead className="w-10 text-right sm:w-16">{t.results.rank}</TableHead><TableHead className="w-full sm:w-auto">{t.results.name}</TableHead><TableHead className="hidden sm:table-cell">{t.results.club}</TableHead><TableHead className="pr-4 text-right sm:pr-2">{t.results.result}</TableHead><TableHead className="hidden text-right sm:table-cell">{t.results.behind}</TableHead><TableHead className="hidden text-right sm:table-cell">{t.results.pace}</TableHead><TableHead className="hidden text-right sm:table-cell">{t.results.attendances}</TableHead></TableRow></TableHeader>
       <TableBody>{course.results.map((result) => <TableRow key={result.id}>
         <TableCell className="text-right align-top font-bold tabular-nums sm:align-middle">{result.rank ?? "–"}</TableCell>
-        <TableCell className="max-w-0 whitespace-normal sm:max-w-none sm:whitespace-nowrap"><div className="font-bold">{result.firstName} {result.lastName}</div><div className="truncate text-xs text-muted-foreground sm:hidden">{[result.clubName, result.status === "ACCEPTED" ? formatPace(result.durationMs, course.lengthMeters) : null, t.results.timesShort(result.attendanceCount)].filter(Boolean).join(" · ")}</div></TableCell>
+        <TableCell className="max-w-0 whitespace-normal sm:max-w-none sm:whitespace-nowrap"><button type="button" onClick={() => setSelected(result)} aria-label={t.runner.open(`${result.firstName} ${result.lastName}`)} className="text-left font-bold underline decoration-border underline-offset-4 hover:text-primary hover:decoration-primary">{result.firstName} {result.lastName}</button><div className="truncate text-xs text-muted-foreground sm:hidden">{[result.clubName, result.status === "ACCEPTED" ? formatPace(result.durationMs, course.lengthMeters) : null, t.results.timesShort(result.attendanceCount)].filter(Boolean).join(" · ")}</div></TableCell>
         <TableCell className="hidden text-muted-foreground sm:table-cell">{result.clubName || "–"}</TableCell>
         <TableCell className="pr-4 text-right align-top sm:pr-2 sm:align-middle"><ResultOutcome status={result.status} source={result.source} durationMs={result.durationMs} /><div className="text-xs tabular-nums text-muted-foreground sm:hidden">{formatGap(result.durationMs, winnerDurationMs) === "–" ? "" : formatGap(result.durationMs, winnerDurationMs)}</div></TableCell>
         <TableCell className="hidden text-right tabular-nums text-muted-foreground sm:table-cell">{formatGap(result.durationMs, winnerDurationMs)}</TableCell>
         <TableCell className="hidden text-right tabular-nums text-muted-foreground sm:table-cell">{formatPace(result.durationMs, course.lengthMeters)}</TableCell>
         <TableCell className="hidden text-right tabular-nums text-muted-foreground sm:table-cell">{result.attendanceCount}</TableCell>
       </TableRow>)}</TableBody></Table></div></CardContent>
+    <RunnerDialog course={course} result={selected} onClose={() => setSelected(null)} />
   </Card>;
 }
 

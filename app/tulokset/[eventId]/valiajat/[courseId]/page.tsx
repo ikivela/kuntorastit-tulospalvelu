@@ -13,6 +13,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ResultsHeader } from "@/components/results-header";
+import { RunnerDialog } from "@/components/runner-dialog";
 import { isLiveEvent } from "@/lib/live";
 import { API_BASE, SITE_NAME, withBasePath } from "@/lib/site";
 import { analyseSplits, type SplitLeg } from "@/lib/splits";
@@ -21,8 +22,8 @@ import { useT } from "@/lib/i18n";
 const apiBase = API_BASE;
 type ResultStatus = "PENDING" | "ACCEPTED" | "DISQUALIFIED" | "NO_TIME" | "DID_NOT_FINISH";
 type ResultPunch = { sequenceNumber: number; controlCode: number; elapsedMs: number | null; status: "VALID" | "EXTRA" | "MISSING" };
-type EventResult = { id: string; rank: number | null; firstName: string; lastName: string; clubName: string | null; source?: string; status: ResultStatus; durationMs: number | null; punches: ResultPunch[] };
-type ResultCourse = { id: string; name: string; lengthMeters: number; results: EventResult[] };
+type EventResult = { id: string; rank: number | null; firstName: string; lastName: string; clubName: string | null; attendanceCount: number; acceptedCount?: number; startedAt?: string | null; source?: string; status: ResultStatus; durationMs: number | null; punches: ResultPunch[] };
+type ResultCourse = { id: string; name: string; lengthMeters: number; legs?: { code: string | null; lengthMeters: number | null }[]; results: EventResult[] };
 type ResultEvent = { id: string; name: string; startsAt: string; endsAt: string; status?: string; courses: ResultCourse[] };
 
 export default function SplitTimesPage() {
@@ -85,6 +86,7 @@ type SplitSort = { leg: number; by: "split" | "cumulative" } | null;
 
 function SplitTable({ course }: { course: ResultCourse }) {
   const { t } = useT();
+  const [selected, setSelected] = useState<EventResult | null>(null);
   const [sort, setSort] = useState<SplitSort>(null);
   const accepted = course.results.filter((result) => result.status === "ACCEPTED" && result.punches.length > 0);
   const analysis = analyseSplits(accepted);
@@ -111,7 +113,7 @@ function SplitTable({ course }: { course: ResultCourse }) {
         <TableHead className="sticky left-0 z-10 w-32 max-w-32 bg-card pl-2 shadow-[1px_0_0_var(--border)] sm:w-auto sm:max-w-none sm:min-w-52 sm:pl-4"><button type="button" onClick={() => setSort(null)} className={sort ? "underline-offset-2 hover:underline" : ""} title={t.splits.sortByResult}>{t.splits.rank}</button> · {t.results.name}</TableHead>
         {legLabels.map((label, index) => <TableHead key={label.leg} className="h-auto px-1.5 py-2 text-right align-top tabular-nums sm:px-2">{label.leg}<div className="font-normal text-muted-foreground">{label.code}</div><div className="mt-1 flex justify-end gap-0.5">{sortButton(index, "split", t.splits.leg)}{sortButton(index, "cumulative", t.splits.total)}</div></TableHead>)}
       </TableRow></TableHeader><TableBody>{rows.map(({ result, legs }) => <TableRow key={result.id}>
-        <TableCell className="sticky left-0 z-10 w-32 max-w-32 bg-card px-1.5 py-1.5 align-top shadow-[1px_0_0_var(--border)] sm:w-auto sm:max-w-none sm:p-2 sm:pl-4"><div className="flex gap-1.5 sm:gap-3"><span className="w-5 shrink-0 text-right text-[13px] font-bold tabular-nums sm:w-6 sm:text-sm">{result.rank ?? "–"}</span><div className="min-w-0"><div className="truncate text-[13px] font-bold sm:text-sm">{result.firstName} {result.lastName}</div><div className="truncate text-xs text-muted-foreground">{result.clubName || "–"}</div></div></div></TableCell>
+        <TableCell className="sticky left-0 z-10 w-32 max-w-32 bg-card px-1.5 py-1.5 align-top shadow-[1px_0_0_var(--border)] sm:w-auto sm:max-w-none sm:p-2 sm:pl-4"><div className="flex gap-1.5 sm:gap-3"><span className="w-5 shrink-0 text-right text-[13px] font-bold tabular-nums sm:w-6 sm:text-sm">{result.rank ?? "–"}</span><div className="min-w-0"><button type="button" onClick={() => setSelected(result)} aria-label={t.runner.open(`${result.firstName} ${result.lastName}`)} className="block max-w-full truncate text-left text-[13px] font-bold underline decoration-border underline-offset-4 hover:text-primary hover:decoration-primary sm:text-sm">{result.firstName} {result.lastName}</button><div className="truncate text-xs text-muted-foreground">{result.clubName || "–"}</div></div></div></TableCell>
         {legs.map((leg, index) => <LegCell key={index} leg={leg} />)}
       </TableRow>)}</TableBody></Table></div></CardContent>
     </Card>
@@ -130,6 +132,7 @@ function SplitTable({ course }: { course: ResultCourse }) {
         </ul>
       </PopoverContent>
     </Popover>
+    <RunnerDialog course={course} result={selected} onClose={() => setSelected(null)} />
     {excluded.length > 0 && <p className="text-sm text-muted-foreground">{t.splits.excluded(excluded.length, excluded.map((result) => `${result.firstName} ${result.lastName}`).join(", "))}</p>}
   </div>;
 }

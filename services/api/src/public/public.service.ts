@@ -379,6 +379,7 @@ export class PublicService {
         courses: {
           orderBy: { sortOrder: "asc" },
           include: {
+            controls: { orderBy: { sequenceNumber: "asc" }, select: { type: true, controlCodes: true, legLengthMeters: true, control: { select: { code: true } } } },
             performances: {
               orderBy: { updatedAt: "desc" },
               include: {
@@ -409,10 +410,14 @@ export class PublicService {
     // part "omatoimi", on their own time, with no recorded result) events —
     // a person can show up here with a result for this event while their
     // count also reflects a registration-only event elsewhere.
-    const [attendanceRows, registrationRows] = personIds.size === 0 ? [[], []] : await Promise.all([
+    const [attendanceRows, registrationRows, acceptedRows] = personIds.size === 0 ? [[], [], []] : await Promise.all([
       this.prisma.attendance.findMany({ where: { personId: { in: [...personIds] }, eventId: { in: seasonEventIds } }, select: { personId: true, eventId: true } }),
       this.prisma.registration.findMany({ where: { personId: { in: [...personIds] }, eventId: { in: seasonEventIds }, status: "ACTIVE" }, select: { personId: true, eventId: true } }),
+      // Season events with an accepted (timed) result, for the runner card.
+      this.prisma.attendance.findMany({ where: { personId: { in: [...personIds] }, eventId: { in: seasonEventIds }, performances: { some: { status: "ACCEPTED" } } }, select: { personId: true } }),
     ]);
+    const acceptedCounts = new Map<string, number>();
+    for (const row of acceptedRows) acceptedCounts.set(row.personId, (acceptedCounts.get(row.personId) ?? 0) + 1);
     const eventsByPerson = new Map<string, Set<string>>();
     for (const record of [...attendanceRows, ...registrationRows]) {
       const eventSet = eventsByPerson.get(record.personId) ?? new Set<string>();
@@ -443,6 +448,7 @@ export class PublicService {
           status: performance.status,
           durationMs: performance.durationMs == null ? null : Number(performance.durationMs),
           readAt: performance.readAt,
+          startedAt: performance.startedAt,
           punches: performance.punches.map((punch) => ({
             sequenceNumber: punch.sequenceNumber,
             controlCode: punch.controlCode,
@@ -459,6 +465,7 @@ export class PublicService {
             status: "NO_TIME" as const,
             durationMs: null,
             readAt: registration.registeredAt,
+            startedAt: null,
             punches: [],
           }));
         // Timed results first, then no time, "omatoimi" (self-service, no
@@ -476,6 +483,12 @@ export class PublicService {
           id: course.id,
           name: course.name,
           lengthMeters: course.lengthMeters,
+          // Controls in course order (no start) with the length of the leg
+          // to each, for the runner card's leg distances and paces.
+          legs: course.controls.filter((item) => item.type !== "START").map((item) => ({
+            code: item.type === "FINISH" ? null : item.controlCodes[0] ?? item.control.code,
+            lengthMeters: item.legLengthMeters,
+          })),
           results: results.map(({ person, ...result }) => {
             if (result.status === "ACCEPTED") acceptedRank += 1;
             return {
@@ -485,6 +498,7 @@ export class PublicService {
               lastName: person.lastName,
               clubName: person.club?.name ?? null,
               attendanceCount: attendanceCounts.get(person.id) ?? 0,
+              acceptedCount: acceptedCounts.get(person.id) ?? 0,
             };
           }),
         };

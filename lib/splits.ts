@@ -12,11 +12,22 @@ export type SplitLeg = {
   /** Estimated time lost on the leg; > 0 only when the leg counts as a mistake. */
   lostMs: number;
 };
-export type SplitRow<T extends SplitResult> = { result: T; legs: SplitLeg[] };
+export type SplitRow<T extends SplitResult> = {
+  result: T;
+  legs: SplitLeg[];
+  /** The runner's own pace relative to the reference times (1.1 = usually
+   * 10% slower than the leaders); 100 / level is OLFresults' "perustaso". */
+  level: number;
+};
 export type SplitAnalysis<T extends SplitResult> = {
   /** Control codes in course order; the finish ("M") leg follows the last one. */
   controlCodes: number[];
   rows: SplitRow<T>[];
+  /** Per leg: reference time (average of the fastest), best leg time and
+   * best cumulative time at that control. */
+  referenceMs: number[];
+  bestSplitMs: number[];
+  bestCumulativeMs: number[];
   /** Results whose punches don't line up with the course (left out). */
   excluded: T[];
 };
@@ -70,6 +81,7 @@ export function analyseSplits<T extends SplitResult>(results: T[]): SplitAnalysi
     const index = median(row.splits.map((split, leg) => referenceMs[leg] > 0 ? split / referenceMs[leg] : 1));
     return {
       result: row.result,
+      level: index,
       legs: row.splits.map((splitMs, leg) => {
         const expected = referenceMs[leg] * index;
         const lost = splitMs - expected;
@@ -78,7 +90,15 @@ export function analyseSplits<T extends SplitResult>(results: T[]): SplitAnalysi
       }),
     };
   });
-  return { controlCodes: reference, rows, excluded: results.filter((result) => !alignedIds.has(result.id)) };
+  const best = (values: number[]) => values.length ? Math.min(...values) : 0;
+  return {
+    controlCodes: reference,
+    rows,
+    referenceMs,
+    bestSplitMs: Array.from({ length: legCount }, (_, leg) => best(raw.map((row) => row.splits[leg]))),
+    bestCumulativeMs: Array.from({ length: legCount }, (_, leg) => best(raw.map((row) => row.cumulative[leg]))),
+    excluded: results.filter((result) => !alignedIds.has(result.id)),
+  };
 }
 
 /** Competition ranking: equal times share a rank, the next rank skips. */
