@@ -34,14 +34,14 @@ export function RunnerDialog({ course, result, onClose }: { course: RunnerCourse
     && analysis.controlCodes.every((code, index) => course.legs![index].code === String(code)) ? course.legs : undefined;
 
   return <Dialog open={Boolean(result)} onOpenChange={(open) => { if (!open) onClose(); }}>
-    <DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-3xl">
+    <DialogContent className="max-h-[90vh] gap-3 overflow-y-auto rounded-3xl p-4 sm:max-w-3xl sm:gap-4 sm:p-6">
       {result && <>
-        <DialogHeader><DialogTitle className="text-2xl">{result.firstName} {result.lastName}</DialogTitle><DialogDescription>{[result.clubName, course.name].filter(Boolean).join(" · ")}</DialogDescription></DialogHeader>
-        <div className="flex flex-wrap gap-2" title={t.runner.seasonHint}>
-          <Badge className="rounded-full px-3 py-1">{t.runner.attendances(result.attendanceCount)}</Badge>
+        <DialogHeader className="gap-0.5 pr-8 text-left"><DialogTitle className="text-xl sm:text-2xl">{result.firstName} {result.lastName}</DialogTitle><DialogDescription>{[result.clubName, course.name].filter(Boolean).join(" · ")}</DialogDescription></DialogHeader>
+        <div className="flex flex-wrap gap-1.5 sm:gap-2" title={t.runner.seasonHint}>
+          <Badge className="rounded-full px-2.5 py-0.5 sm:px-3 sm:py-1">{t.runner.attendances(result.attendanceCount)}</Badge>
           {result.acceptedCount != null && <>
-            <Badge variant="outline" className="rounded-full border-emerald-300 px-3 py-1 text-emerald-800">{t.runner.accepted(result.acceptedCount)}</Badge>
-            <Badge variant="outline" className="rounded-full border-amber-300 px-3 py-1 text-amber-800">{t.runner.other(Math.max(0, result.attendanceCount - result.acceptedCount))}</Badge>
+            <Badge variant="outline" className="rounded-full border-emerald-300 px-2.5 py-0.5 text-emerald-800 sm:px-3 sm:py-1">{t.runner.accepted(result.acceptedCount)}</Badge>
+            <Badge variant="outline" className="rounded-full border-amber-300 px-2.5 py-0.5 text-amber-800 sm:px-3 sm:py-1">{t.runner.other(Math.max(0, result.attendanceCount - result.acceptedCount))}</Badge>
           </>}
         </div>
         {!row ? <p className="text-sm text-muted-foreground">{t.runner.noSplits}</p> : <RunnerSplits row={row} analysis={analysis} result={result} course={course} legs={legs} locale={locale} />}
@@ -69,9 +69,9 @@ function RunnerSplits({ row, analysis, result, course, legs, locale }: { row: An
     [t.runner.level, percent(level), t.runner.levelHint],
   ];
 
-  return <div className="grid gap-5">
+  return <div className="grid gap-3 sm:gap-5">
     <PaceChart row={row} analysis={analysis} level={level} finishLabel={t.runner.finish} />
-    <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">{stats.map(([label, value, hint]) => <div key={label} className="rounded-2xl border bg-muted/30 px-3 py-2" title={hint}><dt className="text-xs font-semibold text-muted-foreground">{label}</dt><dd className="text-lg font-black tabular-nums">{value}</dd></div>)}</dl>
+    <dl className="grid grid-cols-3 gap-1.5 sm:grid-cols-4 sm:gap-2">{stats.map(([label, value, hint]) => <div key={label} className="min-w-0 rounded-xl border bg-muted/30 px-2 py-1.5 sm:rounded-2xl sm:px-3 sm:py-2" title={hint}><dt className="truncate text-[11px] font-semibold text-muted-foreground sm:text-xs">{label}</dt><dd className="truncate text-sm font-black tabular-nums sm:text-lg">{value}</dd></div>)}</dl>
     <div className="overflow-x-auto rounded-2xl border"><Table><TableHeader><TableRow>
       <TableHead className="sticky left-0 z-10 bg-background text-right shadow-[1px_0_0_var(--border)]">{t.runner.control}</TableHead><TableHead className="text-right">{t.runner.code}</TableHead>
       <TableHead className="border-l text-center" colSpan={3}>{t.runner.standing}</TableHead>
@@ -108,8 +108,8 @@ function PaceChart({ row, analysis, level, finishLabel }: { row: Analysis["rows"
   const y = (value: number) => top + (1 - Math.min(value, max) / max) * (height - top - bottom);
   const ticks = Array.from({ length: max / 20 + 1 }, (_, index) => index * 20);
   const line = values.map((value, index) => `${index ? "L" : "M"}${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(" ");
-  return <figure className="grid gap-2">
-    <figcaption className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"><span className="font-semibold">{t.runner.chartTitle}</span><span className="flex items-center gap-3"><span className="flex items-center gap-1"><span className="inline-block size-2 rounded-sm bg-emerald-600" />{t.runner.chartLegendLeg}</span><span className="flex items-center gap-1"><span className="inline-block h-0 w-4 border-t-2 border-dashed border-primary" />{t.runner.chartLegendLevel}</span></span></figcaption>
+  return <figure className="grid gap-1 sm:gap-2">
+    <figcaption className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground sm:text-xs"><span className="min-w-0 truncate font-semibold">{t.runner.chartTitle}</span><span className="flex shrink-0 items-center gap-2 sm:gap-3"><span className="flex items-center gap-1"><span className="inline-block size-2 rounded-sm bg-emerald-600" />{t.runner.chartLegendLeg}</span><span className="flex items-center gap-1"><span className="inline-block h-0 w-4 border-t-2 border-dashed border-primary" />{t.runner.chartLegendLevel}</span></span></figcaption>
     <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" aria-label={t.runner.chartTitle}>
       {ticks.map((tick) => <g key={tick}><line x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} className="stroke-border" strokeWidth={1} /><text x={left - 6} y={y(tick) + 4} textAnchor="end" className="fill-muted-foreground text-[11px]">{tick}</text></g>)}
       <rect x={left} y={y(level)} width={width - left - right} height={y(0) - y(level)} className="fill-primary/10" />
