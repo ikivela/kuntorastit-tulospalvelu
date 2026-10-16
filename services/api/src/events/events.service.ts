@@ -240,7 +240,9 @@ export class EventsService {
             lengthMeters: true,
             climbMeters: true,
             controls: { where: { type: "FINISH" }, select: { controlCodes: true, control: { select: { code: true } } } },
+            // "Omatoimi" (self-service) results have no route to show.
             performances: {
+              where: { source: { not: "SELF_SERVICE" } },
               orderBy: { updatedAt: "desc" },
               select: {
                 status: true,

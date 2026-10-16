@@ -82,6 +82,7 @@ const fi = {
     missingPunch: "Leima puuttuu",
     didNotFinish: "Keskeyttänyt",
     pending: "Odottaa",
+    selfService: "Omatoimi",
   },
   splits: {
     eyebrow: "Rastiväliajat",
@@ -207,6 +208,7 @@ const sv: Dictionary = {
     missingPunch: "Felstämpling",
     didNotFinish: "Utgått",
     pending: "Väntar",
+    selfService: "På egen hand",
   },
   splits: {
     eyebrow: "Sträcktider",
@@ -330,6 +332,7 @@ const en: Dictionary = {
     missingPunch: "Missing punch",
     didNotFinish: "Did not finish",
     pending: "Pending",
+    selfService: "Own time",
   },
   splits: {
     eyebrow: "Split times",

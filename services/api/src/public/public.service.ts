@@ -392,8 +392,17 @@ export class PublicService {
     });
     if (!event) throw new NotFoundException("Tapahtumaa ei löytynyt.");
 
-    const personIds = new Set<string>();
-    for (const course of event.courses) for (const performance of course.performances) personIds.add(performance.attendance.personId);
+    // A registration counts as taking part "omatoimi" (on one's own time, as
+    // in OLFresults): it is listed on its course until the person has a real
+    // result in the event, which then replaces it.
+    const registrations = await this.prisma.registration.findMany({
+      where: { eventId, status: "ACTIVE", courseId: { not: null } },
+      orderBy: { registeredAt: "asc" },
+      include: { person: { include: { club: true } } },
+    });
+    const performers = new Set<string>();
+    for (const course of event.courses) for (const performance of course.performances) performers.add(performance.attendance.personId);
+    const personIds = new Set<string>([...performers, ...registrations.map((registration) => registration.personId)]);
     const seasonEvents = await this.prisma.event.findMany({ where: { seasonId: event.seasonId }, select: { id: true } });
     const seasonEventIds = seasonEvents.map((seasonEvent) => seasonEvent.id);
     // Counts both attended (has a result) and registered (may have taken
@@ -427,35 +436,55 @@ export class PublicService {
             latestByParticipant.set(performance.attendance.personId, performance);
           }
         }
-        const performances = [...latestByParticipant.values()].sort((left, right) => {
-          const statusOrder = { ACCEPTED: 0, NO_TIME: 1, DISQUALIFIED: 2, DID_NOT_FINISH: 3, PENDING: 4 };
-          const statusDifference = statusOrder[left.status] - statusOrder[right.status];
-          if (statusDifference !== 0) return statusDifference;
-          return Number(left.durationMs ?? 0n) - Number(right.durationMs ?? 0n);
-        });
+        const fromPerformances = [...latestByParticipant.values()].map((performance) => ({
+          id: performance.id,
+          person: performance.attendance.person,
+          source: performance.source,
+          status: performance.status,
+          durationMs: performance.durationMs == null ? null : Number(performance.durationMs),
+          readAt: performance.readAt,
+          punches: performance.punches.map((punch) => ({
+            sequenceNumber: punch.sequenceNumber,
+            controlCode: punch.controlCode,
+            elapsedMs: punch.elapsedMs == null ? null : Number(punch.elapsedMs),
+            status: punch.status,
+          })),
+        }));
+        const fromRegistrations = registrations
+          .filter((registration) => registration.courseId === course.id && !performers.has(registration.personId))
+          .map((registration) => ({
+            id: `registration-${registration.id}`,
+            person: registration.person,
+            source: "SELF_SERVICE" as const,
+            status: "NO_TIME" as const,
+            durationMs: null,
+            readAt: registration.registeredAt,
+            punches: [],
+          }));
+        // Timed results first, then no time, "omatoimi" (self-service, no
+        // time) and the rest, as in OLFresults.
+        const group = (result: { status: string; source: string }) =>
+          result.status === "ACCEPTED" ? 0
+          : result.status === "NO_TIME" ? (result.source === "SELF_SERVICE" ? 2 : 1)
+          : ({ DISQUALIFIED: 3, DID_NOT_FINISH: 4 } as Record<string, number>)[result.status] ?? 5;
+        const results = [...fromPerformances, ...fromRegistrations].sort((left, right) =>
+          group(left) - group(right)
+          || (left.durationMs ?? 0) - (right.durationMs ?? 0)
+          || left.person.lastName.localeCompare(right.person.lastName, "fi"));
         let acceptedRank = 0;
         return {
           id: course.id,
           name: course.name,
           lengthMeters: course.lengthMeters,
-          results: performances.map((performance) => {
-            if (performance.status === "ACCEPTED") acceptedRank += 1;
+          results: results.map(({ person, ...result }) => {
+            if (result.status === "ACCEPTED") acceptedRank += 1;
             return {
-              id: performance.id,
-              rank: performance.status === "ACCEPTED" ? acceptedRank : null,
-              firstName: performance.attendance.person.firstName,
-              lastName: performance.attendance.person.lastName,
-              clubName: performance.attendance.person.club?.name ?? null,
-              attendanceCount: attendanceCounts.get(performance.attendance.personId) ?? 0,
-              status: performance.status,
-              durationMs: performance.durationMs == null ? null : Number(performance.durationMs),
-              readAt: performance.readAt,
-              punches: performance.punches.map((punch) => ({
-                sequenceNumber: punch.sequenceNumber,
-                controlCode: punch.controlCode,
-                elapsedMs: punch.elapsedMs == null ? null : Number(punch.elapsedMs),
-                status: punch.status,
-              })),
+              ...result,
+              rank: result.status === "ACCEPTED" ? acceptedRank : null,
+              firstName: person.firstName,
+              lastName: person.lastName,
+              clubName: person.club?.name ?? null,
+              attendanceCount: attendanceCounts.get(person.id) ?? 0,
             };
           }),
         };

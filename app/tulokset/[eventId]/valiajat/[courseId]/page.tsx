@@ -21,7 +21,7 @@ import { useT } from "@/lib/i18n";
 const apiBase = API_BASE;
 type ResultStatus = "PENDING" | "ACCEPTED" | "DISQUALIFIED" | "NO_TIME" | "DID_NOT_FINISH";
 type ResultPunch = { sequenceNumber: number; controlCode: number; elapsedMs: number | null; status: "VALID" | "EXTRA" | "MISSING" };
-type EventResult = { id: string; rank: number | null; firstName: string; lastName: string; clubName: string | null; status: ResultStatus; durationMs: number | null; punches: ResultPunch[] };
+type EventResult = { id: string; rank: number | null; firstName: string; lastName: string; clubName: string | null; source?: string; status: ResultStatus; durationMs: number | null; punches: ResultPunch[] };
 type ResultCourse = { id: string; name: string; lengthMeters: number; results: EventResult[] };
 type ResultEvent = { id: string; name: string; startsAt: string; endsAt: string; status?: string; courses: ResultCourse[] };
 
@@ -88,7 +88,8 @@ function SplitTable({ course }: { course: ResultCourse }) {
   const [sort, setSort] = useState<SplitSort>(null);
   const accepted = course.results.filter((result) => result.status === "ACCEPTED" && result.punches.length > 0);
   const analysis = analyseSplits(accepted);
-  const excluded = [...course.results.filter((result) => !accepted.includes(result)), ...analysis.excluded];
+  // "Omatoimi" (no timing at all) isn't a result left out of the comparison.
+  const excluded = [...course.results.filter((result) => !accepted.includes(result) && result.source !== "SELF_SERVICE"), ...analysis.excluded];
   if (analysis.rows.length === 0) {
     return <Empty className="mx-auto min-h-72 max-w-6xl rounded-3xl border bg-card"><EmptyHeader><EmptyMedia variant="icon"><Timer /></EmptyMedia><EmptyTitle>{t.splits.noneTitle}</EmptyTitle><EmptyDescription>{t.splits.noneText}</EmptyDescription></EmptyHeader></Empty>;
   }
