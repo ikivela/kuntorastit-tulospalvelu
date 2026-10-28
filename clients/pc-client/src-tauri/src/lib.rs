@@ -590,6 +590,42 @@ fn confirm_latest_emit250_read(
 }
 
 #[tauri::command]
+fn register_for_event(
+    database: State<'_, Database>,
+    event_id: String,
+    card_number: Option<u32>,
+    first_name: String,
+    last_name: String,
+    club: Option<String>,
+    course_id: String,
+    payment_method: String,
+) -> Result<database::EventRegistration, String> {
+    database.register_for_event(&event_id, card_number, &first_name, &last_name, club.as_deref(), &course_id, &payment_method)
+}
+
+#[tauri::command]
+fn event_registrations(database: State<'_, Database>, event_id: String, limit: Option<usize>) -> Result<Vec<database::EventRegistration>, String> {
+    database.event_registrations(&event_id, limit.unwrap_or(300))
+}
+
+#[tauri::command]
+fn pending_registrations(database: State<'_, Database>, limit: Option<usize>) -> Result<Vec<database::EventRegistration>, String> {
+    database.pending_registrations(limit.unwrap_or(200))
+}
+
+#[tauri::command]
+fn mark_registration_sync(
+    database: State<'_, Database>,
+    event_id: String,
+    participant_id: i64,
+    revision: i64,
+    synced: bool,
+    error: Option<String>,
+) -> Result<bool, String> {
+    database.mark_registration_sync(&event_id, participant_id, revision, synced, error.as_deref())
+}
+
+#[tauri::command]
 fn mark_card_read_sync(
     database: State<'_, Database>,
     read_id: i64,
@@ -681,6 +717,10 @@ pub fn run() {
             add_manual_result,
             confirm_latest_emit250_read,
             mark_card_read_sync,
+            register_for_event,
+            event_registrations,
+            pending_registrations,
+            mark_registration_sync,
             update_card_read_status,
             update_participant_details,
             update_participant,

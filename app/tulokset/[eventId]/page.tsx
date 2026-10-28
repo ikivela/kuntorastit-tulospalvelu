@@ -19,7 +19,7 @@ import { formatDistance, useT } from "@/lib/i18n";
 const apiBase = API_BASE;
 type ResultStatus = "PENDING" | "ACCEPTED" | "DISQUALIFIED" | "NO_TIME" | "DID_NOT_FINISH";
 type ResultPunch = { sequenceNumber: number; controlCode: number; elapsedMs: number | null; status: "VALID" | "EXTRA" | "MISSING" };
-type EventResult = { id: string; rank: number | null; firstName: string; lastName: string; clubName: string | null; attendanceCount: number; acceptedCount?: number; startedAt?: string | null; source?: string; status: ResultStatus; durationMs: number | null; punches: ResultPunch[] };
+type EventResult = { id: string; rank: number | null; firstName: string; lastName: string; clubName: string | null; attendanceCount: number; acceptedCount?: number; startedAt?: string | null; source?: string; onCourse?: boolean; status: ResultStatus; durationMs: number | null; punches: ResultPunch[] };
 type ResultCourse = { id: string; name: string; lengthMeters: number; legs?: { code: string | null; lengthMeters: number | null }[]; results: EventResult[] };
 type ResultEvent = { id: string; name: string; locationName: string | null; startsAt: string; endsAt: string; status?: string; updatedAt: string; courses: ResultCourse[] };
 
@@ -78,7 +78,7 @@ function CourseResults({ eventId, course }: { eventId: string; course: ResultCou
         <TableCell className="text-right align-top font-bold tabular-nums sm:align-middle">{result.rank ?? "–"}</TableCell>
         <TableCell className="max-w-0 whitespace-normal sm:max-w-none sm:whitespace-nowrap"><button type="button" onClick={() => setSelected(result)} aria-label={t.runner.open(`${result.firstName} ${result.lastName}`)} className="text-left font-bold underline decoration-border underline-offset-4 hover:text-primary hover:decoration-primary">{result.firstName} {result.lastName}</button><div className="truncate text-xs text-muted-foreground sm:hidden">{[result.clubName, result.status === "ACCEPTED" ? formatPace(result.durationMs, course.lengthMeters) : null, t.results.timesShort(result.attendanceCount)].filter(Boolean).join(" · ")}</div></TableCell>
         <TableCell className="hidden text-muted-foreground sm:table-cell">{result.clubName || "–"}</TableCell>
-        <TableCell className="pr-4 text-right align-top sm:pr-2 sm:align-middle"><ResultOutcome status={result.status} source={result.source} durationMs={result.durationMs} /><div className="text-xs tabular-nums text-muted-foreground sm:hidden">{formatGap(result.durationMs, winnerDurationMs) === "–" ? "" : formatGap(result.durationMs, winnerDurationMs)}</div></TableCell>
+        <TableCell className="pr-4 text-right align-top sm:pr-2 sm:align-middle"><ResultOutcome status={result.status} source={result.source} onCourse={result.onCourse} durationMs={result.durationMs} /><div className="text-xs tabular-nums text-muted-foreground sm:hidden">{formatGap(result.durationMs, winnerDurationMs) === "–" ? "" : formatGap(result.durationMs, winnerDurationMs)}</div></TableCell>
         <TableCell className="hidden text-right tabular-nums text-muted-foreground sm:table-cell">{formatGap(result.durationMs, winnerDurationMs)}</TableCell>
         <TableCell className="hidden text-right tabular-nums text-muted-foreground sm:table-cell">{formatPace(result.durationMs, course.lengthMeters)}</TableCell>
         <TableCell className="hidden text-right tabular-nums text-muted-foreground sm:table-cell">{result.attendanceCount}</TableCell>
@@ -87,9 +87,11 @@ function CourseResults({ eventId, course }: { eventId: string; course: ResultCou
   </Card>;
 }
 
-function ResultOutcome({ status, source, durationMs }: { status: ResultStatus; source?: string; durationMs: number | null }) {
+function ResultOutcome({ status, source, onCourse, durationMs }: { status: ResultStatus; source?: string; onCourse?: boolean; durationMs: number | null }) {
   const { t } = useT();
   if (status === "ACCEPTED") return <span className="font-black tabular-nums">{formatDuration(durationMs)}</span>;
+  // Registered at the event and not finished yet: still out on the course.
+  if (onCourse) return <span className="font-semibold text-emerald-700">{t.results.onCourse}</span>;
   // Registered or recorded "omatoimi": took part on their own time, no timing.
   if (status === "NO_TIME" && source === "SELF_SERVICE") return <span className="font-semibold text-muted-foreground">{t.results.selfService}</span>;
   if (status === "NO_TIME") return <span className="font-semibold text-muted-foreground">{t.results.noTime}</span>;

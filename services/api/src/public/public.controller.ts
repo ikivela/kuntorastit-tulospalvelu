@@ -52,6 +52,17 @@ export class PublicController {
     return this.publicService.saveReaderResult(eventId, input);
   }
 
+  /** Registration mode of the pc-client (paperless registration at the event). */
+  @Post("events/:eventId/reader-registrations")
+  @UseGuards(ReaderDeviceAuthGuard)
+  @ApiSecurity("bearer")
+  registerFromReader(
+    @Param("eventId", new ParseUUIDPipe()) eventId: string,
+    @Body() input: CreateRegistrationDto,
+  ) {
+    return this.publicService.registerFromReader(eventId, input);
+  }
+
   @Get("persons/search")
   @UseGuards(ReaderDeviceAuthGuard)
   @ApiSecurity("bearer")

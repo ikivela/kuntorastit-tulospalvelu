@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { save } from "@tauri-apps/plugin-dialog";
 import "./style.css";
+import { BigScreen, RegistrationForm, RegistrationList, type PersonSuggestion, type Registration, type RegistrationDraft } from "./registration";
 
 declare const __BUILD_DATE__: string;
 // API address baked into the build (VITE_API_BASE_URL); the user can override
@@ -96,7 +97,11 @@ type StoredCardRead = {
 type Participant = { id: number; cardNumber: number; firstName: string; lastName: string; club?: string; apiPersonId?: string };
 type CourseControl = { sequenceNumber: number; type: string; controlCodes: string[]; control: { code: string } };
 type Course = { id: string; name: string; lengthMeters: number; climbMeters?: number; controls?: CourseControl[] };
-type CalendarEvent = { id: string; name: string; locationName?: string; startsAt: string; endsAt: string; status: string; courses: Course[] };
+type CalendarEvent = { id: string; name: string; locationName?: string; startsAt: string; endsAt: string; status: string; paymentMethods?: string[]; courses: Course[] };
+// Lukijamoodi reads results; ilmoittautumismoodi registers people for the
+// event (paperless registration), by card or by hand.
+type ClientMode = "reader" | "registration";
+type BigScreenState = { tone: "ok" | "info"; eyebrow: string; title: string; value: string; detail: string };
 type CalendarSeason = { id: string; name: string; events: CalendarEvent[] };
 type ResultStatus = "OK" | "NO_TIME" | "DISQUALIFIED" | "MISSING_CONTROL" | "DID_NOT_FINISH";
 type CachedCalendar = { json: string; fetchedAtMs: number };
@@ -124,6 +129,14 @@ function App() {
   const [calendarError, setCalendarError] = useState("");
   const [calendarCachedAt, setCalendarCachedAt] = useState<number | null>(null);
   const [syncState, setSyncState] = useState<SyncState | null>(null);
+  const [mode, setModeState] = useState<ClientMode>("reader");
+  const modeRef = useRef<ClientMode>("reader");
+  const [registrations, setRegistrations] = useState<Registration[]>([]);
+  const [registrationDraft, setRegistrationDraft] = useState<RegistrationDraft | null>(null);
+  const [bigScreen, setBigScreen] = useState<BigScreenState | null>(null);
+  // A card read is being handled (lookup, auto-save); the 250 ms poll must
+  // not start on the same read again meanwhile.
+  const processingCardRef = useRef(false);
   const [finishState, setFinishState] = useState<FinishState | null>(null);
   const resumeAfterFinishRef = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -267,9 +280,9 @@ function App() {
     setHistorySearch("");
     setActiveEvent(event);
     activeEventIdRef.current = event.id;
-    log("INFO", "event", `Tapahtuma käynnistetty: ${event.name} (${event.id}), ${event.courses.length} rataa, portti ${selected}`);
+    log("INFO", "event", `Tapahtuma käynnistetty (${modeRef.current === "registration" ? "ilmoittautumismoodi" : "lukijamoodi"}): ${event.name} (${event.id}), ${event.courses.length} rataa, portti ${selected}`);
     if (await startListening()) {
-      await refreshHistory(event.id);
+      await Promise.all([refreshHistory(event.id), refreshRegistrations(event.id)]);
     } else {
       setActiveEvent(null);
       activeEventIdRef.current = null;
@@ -288,6 +301,13 @@ function App() {
       if (response.status === 404) { setDeviceStatus("unregistered"); return; }
       if (!response.ok) return;
       const data = await response.json() as { status: "PENDING" | "APPROVED" | "REVOKED"; token?: string };
+      if (data.status === "APPROVED" && !data.token && !deviceTokenRef.current) {
+        // Approved on the server, but its one-time token went to an earlier
+        // install of this client: a new request gets it approved again.
+        setDeviceStatus("unregistered");
+        setDeviceError("Laite on hyväksytty palvelimella, mutta sen tunnus puuttuu tältä koneelta. Lähetä hyväksyntäpyyntö uudelleen.");
+        return;
+      }
       if (data.status === "APPROVED") {
         if (data.token) await invoke("set_setting_value", { key: "reader.device_token", value: data.token });
         setDeviceToken((current) => data.token || current);
@@ -403,6 +423,86 @@ function App() {
     await stopEvent();
   }
 
+  function setMode(next: ClientMode) {
+    modeRef.current = next;
+    setModeState(next);
+    void invoke("set_setting_value", { key: "client.mode", value: next }).catch(() => undefined);
+    log("INFO", "event", `Tila: ${next === "registration" ? "ilmoittautumismoodi" : "lukijamoodi"}`);
+  }
+
+  async function refreshRegistrations(eventId = activeEventIdRef.current) {
+    if (!eventId) { setRegistrations([]); return; }
+    setRegistrations(await invoke<Registration[]>("event_registrations", { eventId, limit: 500 }).catch(() => []));
+  }
+
+  /// A card unknown on this machine may have been registered on another
+  /// (e.g. the registration desk): ask the API and keep it locally.
+  async function lookupCardFromApi(cardNumber: number): Promise<Participant | null> {
+    if (!deviceTokenRef.current) return null;
+    try {
+      const response = await fetchWithTimeout(`${API_BASE}/public/persons/by-card/${cardNumber}`, { headers: authHeaders() }, 3000);
+      if (!response.ok) return null;
+      const person = await response.json().catch(() => null) as { firstName: string; lastName: string; clubName: string | null } | null;
+      if (!person) return null;
+      log("INFO", "reader", `Kortti ${cardNumber} tunnistettiin palvelimelta: ${person.firstName} ${person.lastName}`);
+      return await invoke<Participant>("register_participant", { cardNumber, firstName: person.firstName, lastName: person.lastName, club: person.clubName, eventId: null, courseId: null });
+    } catch {
+      return null;
+    }
+  }
+
+  async function searchPeople(query: string): Promise<PersonSuggestion[]> {
+    const local = await invoke<Participant[]>("search_participants", { query, limit: 10 }).catch(() => []);
+    const found: PersonSuggestion[] = local.map((person) => ({ key: `local-${person.id}`, firstName: person.firstName, lastName: person.lastName, club: person.club }));
+    if (deviceTokenRef.current) {
+      try {
+        const response = await fetchWithTimeout(`${API_BASE}/public/persons/search?query=${encodeURIComponent(query)}`, { headers: authHeaders() }, 3000);
+        if (response.ok) {
+          const remote = await response.json() as { id: string; firstName: string; lastName: string; clubName: string | null }[];
+          const seen = new Set(found.map((person) => `${person.firstName} ${person.lastName}`.toLocaleLowerCase("fi-FI")));
+          for (const person of remote) {
+            if (seen.has(`${person.firstName} ${person.lastName}`.toLocaleLowerCase("fi-FI"))) continue;
+            found.push({ key: `api-${person.id}`, firstName: person.firstName, lastName: person.lastName, club: person.clubName });
+          }
+        }
+      } catch { /* offline: local matches only */ }
+    }
+    return found.slice(0, 12);
+  }
+
+  async function openManualRegistration() {
+    if (!activeEvent) return;
+    if (reading) await stopListening();
+    setRegistrationDraft({ cardNumber: null, firstName: "", lastName: "", club: "", courseId: "", paymentMethod: "" });
+  }
+
+  async function saveRegistration(draft: RegistrationDraft) {
+    if (!activeEvent) return;
+    const registration = await invoke<Registration>("register_for_event", {
+      eventId: activeEvent.id,
+      cardNumber: draft.cardNumber,
+      firstName: draft.firstName,
+      lastName: draft.lastName,
+      club: draft.club.trim() || null,
+      courseId: draft.courseId,
+      paymentMethod: draft.paymentMethod,
+    });
+    const courseName = activeEvent.courses.find((course) => course.id === draft.courseId)?.name ?? "";
+    log("INFO", "registration", `Ilmoittautunut: ${registration.firstName} ${registration.lastName}, ${courseName}, ${draft.paymentMethod}, kortti ${draft.cardNumber ?? "–"}`);
+    setRegistrationDraft(null);
+    setBigScreen({ tone: "info", eyebrow: "Ilmoittautuminen vastaanotettu", title: `${registration.firstName} ${registration.lastName}`, value: courseName, detail: [draft.paymentMethod, draft.cardNumber ? `kortti ${draft.cardNumber}` : null].filter(Boolean).join(" · ") });
+    setStatus(`${registration.firstName} ${registration.lastName} ilmoittautunut.`);
+    await refreshRegistrations(activeEvent.id);
+    void syncPending();
+    await startListening();
+  }
+
+  async function cancelRegistration() {
+    setRegistrationDraft(null);
+    setStatus("Ilmoittautuminen peruttu.");
+    if (activeEvent) await startListening();
+  }
+
   async function stopEvent() {
     log("INFO", "event", `Tapahtuma lopetettu: ${activeEvent?.name ?? "–"}`);
     await stopListening();
@@ -465,7 +565,57 @@ function App() {
     }
   }
 
+  /// Sends registrations made in registration mode, oldest first. Returns
+  /// how many are still unsent and the first error.
+  async function syncRegistrations(): Promise<{ remaining: number; error: string }> {
+    const pending = await invoke<Registration[]>("pending_registrations", { limit: 200 }).catch(() => null);
+    if (!pending?.length) return { remaining: 0, error: "" };
+    let remaining = pending.length;
+    let error = "";
+    for (const registration of pending) {
+      const mark = (synced: boolean, message: string | null) => invoke<boolean>("mark_registration_sync", { eventId: registration.eventId, participantId: registration.participantId, revision: registration.syncRevision, synced, error: message }).catch(() => false);
+      let response: Response;
+      try {
+        response = await fetchWithTimeout(`${API_BASE}/public/events/${registration.eventId}/reader-registrations`, {
+          method: "POST",
+          headers: authHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify({
+            firstName: registration.firstName,
+            lastName: registration.lastName,
+            clubName: registration.club || undefined,
+            courseId: registration.courseId,
+            paymentMethod: registration.paymentMethod,
+            ...(registration.cardNumber ? { punchingSystem: "EMIT", cardNumber: String(registration.cardNumber) } : {}),
+          }),
+        });
+      } catch {
+        error = "Ei yhteyttä palvelimeen.";
+        await mark(false, error);
+        break;
+      }
+      if (response.status === 401) {
+        error = "Lukijaa ei ole hyväksytty tai pääsy on peruutettu. Tarkista Asetukset-paneelista.";
+        await mark(false, error);
+        break;
+      }
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { message?: string | string[] } | null;
+        const message = (Array.isArray(body?.message) ? body.message.join(" ") : body?.message) || `${response.status}`;
+        error ||= message;
+        log("ERROR", "sync", `Ilmoittautuminen ${registration.firstName} ${registration.lastName} hylättiin: ${message}`);
+        await mark(false, message);
+        continue;
+      }
+      log("INFO", "sync", `Ilmoittautuminen lähetetty: ${registration.firstName} ${registration.lastName}`);
+      if (await mark(true, null)) remaining -= 1;
+      else syncRequested = true;
+    }
+    return { remaining, error };
+  }
+
   async function syncRound() {
+    const registrationSync = await syncRegistrations();
+    if (modeRef.current === "registration") void refreshRegistrations();
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
     const pending = await invoke<StoredCardRead[]>("pending_card_reads", { sinceMs: startOfToday.getTime(), eventId: activeEventIdRef.current, limit: 500 }).catch(() => null);
@@ -537,6 +687,8 @@ function App() {
       if (await markSync(read, true, null)) remaining -= 1;
       else syncRequested = true;
     }
+    roundError ||= registrationSync.error;
+    remaining += registrationSync.remaining;
     setSyncState({ pending: remaining, error: remaining ? roundError : "" });
     if (!roundError && lastLoggedSyncError) log("INFO", "sync", "Yhteys palvelimeen palasi");
     lastLoggedSyncError = roundError;
@@ -714,6 +866,8 @@ function App() {
     void (async () => {
       const savedApiBase = await invoke<string | null>("setting_value", { key: "reader.api_base_url" }).catch(() => null);
       if (savedApiBase) { API_BASE = savedApiBase; setApiBase(savedApiBase); setApiBaseInput(savedApiBase); }
+      const savedMode = await invoke<string | null>("setting_value", { key: "client.mode" }).catch(() => null);
+      if (savedMode === "registration" || savedMode === "reader") { modeRef.current = savedMode; setModeState(savedMode); }
       void loadCalendar();
       const [token, name] = await Promise.all([
         invoke<string | null>("setting_value", { key: "reader.device_token" }).catch(() => null),
@@ -883,30 +1037,56 @@ function App() {
   useEffect(() => {
     if (!reading || !activeEvent) return;
     let disposed = false;
+    const event = activeEvent;
+    // Registration mode: the card opens the registration form, the name
+    // filled in when the card is known here or on the server.
+    // Reader mode: a known card with an accepted result is saved straight
+    // away and shown big on the screen (no operator needed); anything else
+    // (unknown card, missing control) goes to the confirm dialog as before.
+    const handleCard = async (latest: ProbeResult, cardNumber: number) => {
+      const participant = await invoke<Participant | null>("participant_by_card", { cardNumber }) ?? await lookupCardFromApi(cardNumber);
+      if (disposed) return;
+      const name = participant ? `${participant.firstName} ${participant.lastName}` : "";
+      if (modeRef.current === "registration") {
+        await invoke("stop_emit250");
+        setReading(false);
+        const current = await invoke<Registration[]>("event_registrations", { eventId: event.id, limit: 500 }).catch(() => []);
+        const existing = participant ? current.find((item) => item.participantId === participant.id) : undefined;
+        setBigScreen(null);
+        setRegistrationDraft({ cardNumber, firstName: participant?.firstName ?? "", lastName: participant?.lastName ?? "", club: participant?.club ?? "", courseId: existing?.courseId ?? "", paymentMethod: existing?.paymentMethod ?? "" });
+        setStatus(participant ? `Kortti ${cardNumber} · ${name}. Valitse rata ja maksutapa.` : `Kortti ${cardNumber}: uusi kortti, täytä tiedot.`);
+        log("INFO", "registration", `Kortti ${cardNumber} luettu ilmoittautumiseen (${participant ? "tunnettu" : "uusi"} kortti)`);
+        return;
+      }
+      const validation = validateCourse(latest.punches, event.courses);
+      if (participant && validation.status === "ACCEPTED" && validation.courseId) {
+        await invoke("confirm_latest_emit250_read", { participantId: participant.id, eventId: event.id, courseId: validation.courseId, resultStatus: "OK" });
+        log("INFO", "result", `Hyväksytty automaattisesti: kortti ${cardNumber}, ${name}, rata ${validation.courseName}, ${formatDuration(validation.resultSeconds ?? undefined)}`);
+        setBigScreen({ tone: "ok", eyebrow: "Tulos hyväksytty", title: name, value: formatDuration(validation.resultSeconds ?? undefined), detail: [validation.courseName, participant.club].filter(Boolean).join(" · ") });
+        setStatus(`${name}: tulos hyväksytty (${validation.courseName}).`);
+        await refreshHistory(event.id);
+        void syncPending();
+        return;
+      }
+      log("INFO", "reader", `Kortti ${cardNumber} noudettu kuitattavaksi (${participant ? `tunnettu kortti, ${validation.status}` : "tuntematon kortti"})`);
+      setBigScreen(null);
+      setPendingCard(latest);
+      setSelectedCourseId(null);
+      setPendingEventId(event.id);
+      setPendingParticipant(participant);
+      await invoke("stop_emit250");
+      setReading(false);
+      setStatus(participant ? `Kortti ${cardNumber} · ${name}. Kuittaa lukutulos.` : `Korttia ${cardNumber} ei tunneta. Täytä osallistujan tiedot.`);
+    };
     const poll = async () => {
       try {
         const latest = await invoke<ProbeResult | null>("latest_emit250_read");
-        if (!disposed && latest) {
+        if (!disposed && latest && !processingCardRef.current) {
           if (result?.bytesReceived === latest.bytesReceived) return;
           setResult(latest);
           if (latest.cardNumber) {
-            // Global lookup, not participant_by_card_for_event: registrations no
-            // longer sync from the API (events can be attended "omatoimi" without
-            // one), so most known people have no local event_registrations row —
-            // an event-scoped lookup would call everyone "unknown".
-            const participant = await invoke<Participant | null>("participant_by_card", { cardNumber: latest.cardNumber });
-            log("INFO", "reader", `Kortti ${latest.cardNumber} noudettu kuitattavaksi (${participant ? "tunnettu" : "tuntematon"} kortti)`);
-            setPendingCard(latest);
-            setSelectedCourseId(null);
-            setPendingEventId(activeEvent.id);
-            setPendingParticipant(participant);
-            await invoke("stop_emit250");
-            setReading(false);
-            if (participant) {
-              setStatus(`Kortti ${latest.cardNumber} · ${participant.firstName} ${participant.lastName}. Kuittaa lukutulos.`);
-            } else {
-              setStatus(`Korttia ${latest.cardNumber} ei tunneta. Täytä osallistujan tiedot.`);
-            }
+            processingCardRef.current = true;
+            try { await handleCard(latest, latest.cardNumber); } finally { processingCardRef.current = false; }
           }
         }
       } catch (error) {
@@ -964,12 +1144,13 @@ function App() {
         <section className="event-card running">
           <div className="event-card-head">
             <div className="event-card-main">
-              <span className="live-label"><span className="live-dot" />Tapahtuma käynnissä</span>
+              <span className="live-label"><span className="live-dot" />{mode === "registration" ? "Ilmoittautuminen käynnissä" : "Tulospalvelu käynnissä"}</span>
               <h1>{activeEvent.name}</h1>
               <p className="event-meta">{formatEventDates(activeEvent)} · {activeEvent.locationName || "Paikka ei tiedossa"}</p>
             </div>
             <div className="event-card-side">
-              <div className={`reader-badge ${pendingCard ? "waiting" : reading ? "ok" : "error"}`}><span />{pendingCard ? "Kuittaus odottaa" : reading ? "Lukija OK" : "Lukija ei yhteydessä"}</div>
+              <ModeToggle mode={mode} onChange={setMode} disabled={Boolean(pendingCard || registrationDraft)} />
+              <div className={`reader-badge ${pendingCard || registrationDraft ? "waiting" : reading ? "ok" : "error"}`}><span />{pendingCard ? "Kuittaus odottaa" : registrationDraft ? "Ilmoittautuminen auki" : reading ? (mode === "registration" ? "Lue kortti" : "Lukija OK") : "Lukija ei yhteydessä"}</div>
               <button type="button" className="danger-outline" onClick={() => setFinishState({ phase: "confirm" })}><StopIcon />Lopeta tapahtuma</button>
             </div>
           </div>
@@ -978,8 +1159,9 @@ function App() {
         </section>
       ) : (
         <section className="event-card start">
-          <span className="eyebrow">Käynnistä tulospalvelu</span>
+          <span className="eyebrow">Käynnistä</span>
           <h1>Valitse tapahtuma</h1>
+          <ModeToggle mode={mode} onChange={setMode} large />
           {calendarLoading ? <p className="muted">Haetaan tapahtumia…</p> : calendarError ? (
             <div className="callout danger"><p className="error">{calendarError}</p><p className="hint">API-osoite: {apiBase}</p><button type="button" onClick={() => void loadCalendar()}>Yritä uudelleen</button></div>
           ) : <>
@@ -1025,7 +1207,8 @@ function App() {
         </div>
       )}
 
-      {result && (
+      {/* Technical read details, for troubleshooting the reader; not in registration mode. */}
+      {result && mode !== "registration" && (
         <section>
           <h2>Lukutulos</h2>
           <dl>
@@ -1041,8 +1224,13 @@ function App() {
       )}
 
       <section>
+        {mode === "registration" && activeEvent ? <>
+          <div className="log-heading"><div><h2>Ilmoittautuneet</h2>{registrations.length > 0 && <p>{registrations.length} ilmoittautunutta tällä koneella</p>}{syncState && syncState.pending > 0 && <p className="sync-summary pending">{syncState.pending} odottaa lähetystä{syncState.error ? ` · ${syncState.error}` : ""} <button type="button" className="link-button" onClick={() => void syncPending()}>Lähetä nyt</button></p>}</div><div className="log-heading-actions"><label className="log-search"><span className="sr-only">Hae ilmoittautuneista</span><input type="search" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Hae nimellä, seuralla tai kortilla…" /></label><button className="primary" onClick={() => void openManualRegistration()}>+ Ilmoittaudu ilman korttia</button></div></div>
+          <RegistrationList registrations={registrations} courses={activeEvent.courses} query={historySearch} />
+        </> : <>
         <div className="log-heading"><div><h2>Tulokset</h2>{history.length > 0 && <p>{history.length} viimeisintä tulosta</p>}{syncState && (syncState.pending > 0 ? <p className="sync-summary pending">{syncState.pending} {syncState.pending === 1 ? "tulos odottaa" : "tulosta odottaa"} lähetystä{syncState.error ? ` · ${syncState.error}` : ""} <button type="button" className="link-button" onClick={() => void syncPending()}>Lähetä nyt</button></p> : history.length > 0 && <p className="sync-summary ok">✓ Kaikki tulokset lähetetty</p>)}</div><div className="log-heading-actions"><label className="log-search"><span className="sr-only">Hae tuloksista</span><input type="search" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Hae nimellä, seuralla tai kortilla…" /></label><button onClick={openManualEntry} disabled={!activeEvent}>+ Syötä osanottoja</button></div></div>
         {history.length === 0 ? <div className="log-empty"><b>Ei vielä tuloksia</b><span>{activeEvent ? "Lue ensimmäinen kortti lukijalla tai syötä osanotto käsin." : "Tulokset näkyvät täällä, kun tulospalvelu on käynnissä."}</span></div> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Seura</th><th>Rata</th><th>Aika</th><th><span className="sr-only">Lähetys</span></th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td className="log-read-at"><time>{new Date(item.readAtMs).toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="log-club">{item.club || "–"}</td><td className="log-course">{activeEvent?.courses.find((course) => course.id === item.courseId)?.name ?? "–"}</td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : item.resultStatus === "DID_NOT_FINISH" ? "Keskeytti" : formatDuration(item.source === "MANUAL" ? item.manualDurationSeconds : cardResultSeconds(item.punches, activeEvent?.courses.find((course) => course.id === item.courseId)))}</td><td className={`log-sync ${item.syncStatus.toLowerCase()}`} title={syncStatusLabel(item)}>{item.syncStatus === "SYNCED" ? "✓" : item.syncStatus === "ERROR" ? "!" : "…"}<span className="sr-only">{syncStatusLabel(item)}</span></td></tr>)}</tbody></table></div></>}
+        </>}
       </section>
 
       {pendingCard && (
@@ -1067,7 +1255,18 @@ function App() {
         <div className="modal-backdrop" role="presentation">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="finish-title">
             <h2 id="finish-title">Lopeta tapahtuma</h2>
-            {finishState.phase === "confirm" ? <>
+            {finishState.phase === "confirm" && !deviceToken ? <>
+              {/* Without an approved device the server can't be told; say so
+                  up front instead of failing after "Kyllä, lopeta". */}
+              <p>Tätä laitetta ei ole hyväksytty palvelimella, joten <b>{activeEvent.name}</b> ei voi merkitä valmiiksi eikä tuloksia lähettää Liveloxiin tältä koneelta.</p>
+              <p className="hint">Lopetus sulkee tapahtuman vain tällä koneella. Koneelle tallennetut tulokset ja ilmoittautumiset lähtevät palvelimelle, kun laite on hyväksytty (Asetukset → Lähetä hyväksyntäpyyntö, hyväksyntä ylläpidon Lukijalaitteet-sivulla).</p>
+              {pendingCard && <p className="error">Kuittaa tai ohita odottava kortti ennen lopettamista.</p>}
+              <div className="confirm-actions">
+                <button className="primary" type="button" disabled={Boolean(pendingCard)} onClick={() => void closeFinishedEvent()}>Lopeta tällä koneella</button>
+                <button type="button" onClick={() => { setFinishState(null); setSettingsOpen(true); }}>Avaa asetukset</button>
+                <button type="button" onClick={() => setFinishState(null)}>Peruuta</button>
+              </div>
+            </> : finishState.phase === "confirm" ? <>
               <p>Lopetetaanko <b>{activeEvent.name}</b>? Tapahtuma merkitään valmiiksi ja tulokset lähetetään Liveloxiin, jos se on otettu käyttöön tapahtumalle.</p>
               <p className="hint">Valmiin tapahtuman ratoja ei voi enää muokata. Tuloksia voi edelleen korjata ylläpidossa.</p>
               {pendingCard && <p className="error">Kuittaa tai ohita odottava kortti ennen lopettamista.</p>}
@@ -1095,6 +1294,21 @@ function App() {
           </section>
         </div>
       )}
+
+      {registrationDraft && activeEvent && (
+        <RegistrationForm
+          key={`${registrationDraft.cardNumber ?? "manual"}-${registrationDraft.firstName}`}
+          draft={registrationDraft}
+          courses={activeEvent.courses}
+          paymentMethods={activeEvent.paymentMethods?.length ? activeEvent.paymentMethods : ["Käteinen"]}
+          alreadyRegistered={registrations.find((item) => registrationDraft.cardNumber != null && item.cardNumber === registrationDraft.cardNumber) ?? null}
+          search={searchPeople}
+          onSave={saveRegistration}
+          onCancel={() => void cancelRegistration()}
+        />
+      )}
+
+      {bigScreen && <BigScreen {...bigScreen} onClose={() => setBigScreen(null)} />}
 
       {manualEntryOpen && activeEvent && (
         <div className="modal-backdrop" role="presentation">
@@ -1375,4 +1589,14 @@ function StopIcon() { return <Icon><rect x="5" y="5" width="14" height="14" rx="
 // The orienteering control flag: a square split diagonally white / orange.
 function FlagIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" fill="#fff" /><path d="M21 3v16a2 2 0 0 1-2 2H3z" fill="#f26b1d" /></svg>;
+}
+
+function ModeToggle({ mode, onChange, disabled = false, large = false }: { mode: ClientMode; onChange: (mode: ClientMode) => void; disabled?: boolean; large?: boolean }) {
+  const options: [ClientMode, string, string][] = [
+    ["reader", "Lukijamoodi", "Maalissa: kortinluku ja tulokset, hyväksytty tulos isolla"],
+    ["registration", "Ilmoittautumismoodi", "Lähdössä: ilmoittautuminen kortilla tai käsin"],
+  ];
+  return <div className={`mode-toggle ${large ? "large" : ""}`} role="radiogroup" aria-label="Tila">
+    {options.map(([value, label, hint]) => <button key={value} type="button" role="radio" aria-checked={mode === value} disabled={disabled} title={hint} className={mode === value ? "selected" : ""} onClick={() => onChange(value)}><b>{label}</b>{large && <span>{hint}</span>}</button>)}
+  </div>;
 }

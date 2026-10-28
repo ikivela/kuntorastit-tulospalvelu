@@ -75,7 +75,21 @@ export class PublicService {
     }));
   }
 
-  async register(eventId: string, input: CreateRegistrationDto) {
+  /** Registration from the public web form: only while registration is
+   * open, and a second registration for the same person is refused. */
+  register(eventId: string, input: CreateRegistrationDto) {
+    return this.createRegistration(eventId, input, { fromReader: false });
+  }
+
+  /** Registration at the event from the client's registration mode (an
+   * approved reader device or admin): allowed whether or not the web
+   * registration is open, and an existing registration is updated, so a
+   * queued registration sent again or a changed course is fine. */
+  registerFromReader(eventId: string, input: CreateRegistrationDto) {
+    return this.createRegistration(eventId, input, { fromReader: true });
+  }
+
+  private async createRegistration(eventId: string, input: CreateRegistrationDto, { fromReader }: { fromReader: boolean }) {
     const firstName = input.firstName.trim();
     const lastName = input.lastName.trim();
     const clubName = input.clubName?.trim() || undefined;
@@ -90,7 +104,7 @@ export class PublicService {
       include: { courses: { select: { id: true } } },
     });
     if (!event || event.status === "DRAFT") throw new NotFoundException("Tapahtumaa ei löytynyt.");
-    if (!event.registrationOpen) throw new BadRequestException("Ilmoittautuminen ei ole avoinna.");
+    if (!event.registrationOpen && !fromReader) throw new BadRequestException("Ilmoittautuminen ei ole avoinna.");
     if (!event.courses.some((course) => course.id === input.courseId)) {
       throw new BadRequestException("Valittu rata ei kuulu tapahtumaan.");
     }
@@ -110,7 +124,7 @@ export class PublicService {
       else if (club && person.clubId !== club.id) person = await tx.person.update({ where: { id: person.id }, data: { clubId: club.id } });
 
       const existing = await tx.registration.findUnique({ where: { eventId_personId: { eventId, personId: person.id } } });
-      if (existing?.status === "ACTIVE") throw new ConflictException("Olet jo ilmoittautunut tähän tapahtumaan.");
+      if (existing?.status === "ACTIVE" && !fromReader) throw new ConflictException("Olet jo ilmoittautunut tähän tapahtumaan.");
 
       const card = cardNumber && input.punchingSystem
         ? await tx.punchCard.upsert({
@@ -126,8 +140,8 @@ export class PublicService {
 
       const notes = input.notes?.trim() || null;
       const registration = existing
-        ? await tx.registration.update({ where: { id: existing.id }, data: { status: "ACTIVE", courseId: input.courseId, punchCardId: card?.id ?? null, paymentMethod: input.paymentMethod, notes, registeredAt: new Date() } })
-        : await tx.registration.create({ data: { eventId, personId: person.id, courseId: input.courseId, punchCardId: card?.id, paymentMethod: input.paymentMethod, notes } });
+        ? await tx.registration.update({ where: { id: existing.id }, data: { status: "ACTIVE", courseId: input.courseId, punchCardId: card?.id ?? null, paymentMethod: input.paymentMethod, notes, registeredAt: new Date(), ...(fromReader ? { source: "EVENT" as const } : {}) } })
+        : await tx.registration.create({ data: { eventId, personId: person.id, courseId: input.courseId, punchCardId: card?.id, paymentMethod: input.paymentMethod, notes, source: fromReader ? "EVENT" : "WEB" } });
       return { id: registration.id, registeredAt: registration.registeredAt, participant: `${person.firstName} ${person.lastName}` };
     });
   }
@@ -395,7 +409,11 @@ export class PublicService {
 
     // A registration counts as taking part "omatoimi" (on one's own time, as
     // in OLFresults): it is listed on its course until the person has a real
-    // result in the event, which then replaces it.
+    // result in the event, which then replaces it. One made at the event (the
+    // client's registration mode) means the runner is still out: "Avoinna"
+    // while the event is on (the results pages' live rule: not finished, at
+    // most six hours after the end), "Omatoimi" after that.
+    const eventOn = event.status !== "FINISHED" && Date.now() <= event.endsAt.getTime() + 6 * 60 * 60 * 1000;
     const registrations = await this.prisma.registration.findMany({
       where: { eventId, status: "ACTIVE", courseId: { not: null } },
       orderBy: { registeredAt: "asc" },
@@ -463,17 +481,19 @@ export class PublicService {
             person: registration.person,
             source: "SELF_SERVICE" as const,
             status: "NO_TIME" as const,
+            onCourse: registration.source === "EVENT" && eventOn,
             durationMs: null,
             readAt: registration.registeredAt,
             startedAt: null,
             punches: [],
           }));
-        // Timed results first, then no time, "omatoimi" (self-service, no
-        // time) and the rest, as in OLFresults.
-        const group = (result: { status: string; source: string }) =>
+        // Timed results first, then those still out on the course, no time,
+        // "omatoimi" (self-service, no time) and the rest, as in OLFresults.
+        const group = (result: { status: string; source: string; onCourse?: boolean }) =>
           result.status === "ACCEPTED" ? 0
-          : result.status === "NO_TIME" ? (result.source === "SELF_SERVICE" ? 2 : 1)
-          : ({ DISQUALIFIED: 3, DID_NOT_FINISH: 4 } as Record<string, number>)[result.status] ?? 5;
+          : result.onCourse ? 1
+          : result.status === "NO_TIME" ? (result.source === "SELF_SERVICE" ? 3 : 2)
+          : ({ DISQUALIFIED: 4, DID_NOT_FINISH: 5 } as Record<string, number>)[result.status] ?? 6;
         const results = [...fromPerformances, ...fromRegistrations].sort((left, right) =>
           group(left) - group(right)
           || (left.durationMs ?? 0) - (right.durationMs ?? 0)

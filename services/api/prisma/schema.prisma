@@ -24,6 +24,14 @@ enum RegistrationStatus {
   CANCELLED
 }
 
+/// Where a registration was made: the public web form (WEB, can be done on
+/// one's own time, "omatoimi") or at the event in the client's registration
+/// mode (EVENT, the runner is out on the course until they finish).
+enum RegistrationSource {
+  WEB
+  EVENT
+}
+
 enum PerformanceSource {
   ONSITE
   SELF_SERVICE
@@ -305,6 +313,7 @@ model Registration {
   punchCard   PunchCard?         @relation(fields: [punchCardId], references: [id], onDelete: SetNull)
   status      RegistrationStatus @default(ACTIVE)
   paymentMethod String?          @map("payment_method")
+  source      RegistrationSource @default(WEB)
   notes       String?
   registeredAt DateTime          @default(now()) @map("registered_at")
   @@unique([eventId, personId])

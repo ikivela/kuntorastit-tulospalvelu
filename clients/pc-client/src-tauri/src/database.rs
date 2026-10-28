@@ -56,6 +56,43 @@ mod tests {
     }
 
     #[test]
+    fn registers_for_event_by_card_and_without_one_and_queues_for_sync() {
+        let path = std::env::temp_dir().join(format!(
+            "kuntorastit-reader-registration-{}-{}.sqlite3",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let database = Database::open(path.clone()).unwrap();
+        // An older reader link (no payment) is not a registration to send.
+        let linked = database.create_participant(111111, "Vanha", "Linkki", None).unwrap();
+        database.link_participant_to_event("event-1", linked.id, Some("course-a")).unwrap();
+        assert!(database.pending_registrations(10).unwrap().is_empty());
+
+        let by_card = database.register_for_event("event-1", Some(222222), "Maija", "Meikäläinen", Some("MR"), "course-a", "Käteinen").unwrap();
+        assert_eq!(by_card.card_number, Some(222222));
+        assert_eq!(by_card.sync_status, "PENDING");
+        assert_eq!(database.participant_by_card(222222).unwrap().unwrap().first_name, "Maija");
+
+        let manual = database.register_for_event("event-1", None, "Pekka", "Peloton", None, "course-b", "MobilePay").unwrap();
+        assert_eq!(manual.card_number, None);
+        // Registering again (another course) updates the same row and queues it again.
+        let again = database.register_for_event("event-1", None, "pekka", "PELOTON", Some("Seura"), "course-a", "MobilePay").unwrap();
+        assert_eq!(again.participant_id, manual.participant_id);
+        assert_eq!(again.sync_revision, manual.sync_revision + 1);
+        assert_eq!(again.course_id.as_deref(), Some("course-a"));
+
+        let pending = database.pending_registrations(10).unwrap();
+        assert_eq!(pending.len(), 2);
+        assert!(!database.mark_registration_sync("event-1", manual.participant_id, manual.sync_revision, true, None).unwrap());
+        assert!(database.mark_registration_sync("event-1", again.participant_id, again.sync_revision, true, None).unwrap());
+        assert_eq!(database.pending_registrations(10).unwrap().len(), 1);
+        assert_eq!(database.event_registrations("event-1", 10).unwrap().len(), 2);
+        assert!(database.register_for_event("event-1", None, "", "Nimi", None, "course-a", "Käteinen").is_err());
+        drop(database);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn searches_participants_locally_case_and_word_order_insensitively() {
         let path = std::env::temp_dir().join(format!(
             "kuntorastit-reader-search-{}-{}.sqlite3",
@@ -279,6 +316,26 @@ pub struct Participant {
     pub api_person_id: Option<String>,
 }
 
+/// A registration made in the client's registration mode (or the local link
+/// of a participant to an event), with its sync state towards the API.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventRegistration {
+    pub event_id: String,
+    pub participant_id: i64,
+    /// None for a registration without a card (local placeholder number).
+    pub card_number: Option<u32>,
+    pub first_name: String,
+    pub last_name: String,
+    pub club: Option<String>,
+    pub course_id: Option<String>,
+    pub payment_method: Option<String>,
+    pub registered_at_ms: i64,
+    pub sync_status: String,
+    pub sync_error: Option<String>,
+    pub sync_revision: i64,
+}
+
 /// One row of a "HenkilöDB" CSV import, already parsed and column-mapped by
 /// the frontend (which reads the file's own header row so it accepts either
 /// column order).
@@ -438,6 +495,29 @@ impl Database {
             connection
                 .execute("ALTER TABLE participants ADD COLUMN api_person_id TEXT", [])
                 .map_err(|error| error.to_string())?;
+        }
+        // Registration mode: payment, time and sync state of a registration.
+        // Existing rows (links made by the reader) were never meant for the
+        // API, so they default to SYNCED.
+        for (column, definition) in [
+            ("payment_method", "TEXT"),
+            ("registered_at_ms", "INTEGER"),
+            ("sync_status", "TEXT NOT NULL DEFAULT 'SYNCED'"),
+            ("sync_error", "TEXT"),
+            ("sync_revision", "INTEGER NOT NULL DEFAULT 0"),
+        ] {
+            let exists = connection
+                .prepare("PRAGMA table_info(event_registrations)")
+                .and_then(|mut statement| {
+                    let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+                    Ok(columns.filter_map(Result::ok).any(|name| name == column))
+                })
+                .map_err(|error| error.to_string())?;
+            if !exists {
+                connection
+                    .execute(&format!("ALTER TABLE event_registrations ADD COLUMN {column} {definition}"), [])
+                    .map_err(|error| error.to_string())?;
+            }
         }
         connection
             .execute("CREATE INDEX IF NOT EXISTS idx_card_reads_event_time ON card_reads(event_id, read_at_ms DESC)", [])
@@ -745,6 +825,143 @@ impl Database {
         let read_id = transaction.last_insert_rowid();
         transaction.commit().map_err(|error| error.to_string())?;
         Ok(read_id)
+    }
+
+    /// Registration mode: registers a participant for the event, by EMIT
+    /// card (the card's participant is created or updated) or without one (a
+    /// participant of the same name registered without a card is reused,
+    /// otherwise one gets a local placeholder number). The registration is
+    /// queued for the API; registering again updates it and queues it again.
+    pub fn register_for_event(
+        &self,
+        event_id: &str,
+        card_number: Option<u32>,
+        first_name: &str,
+        last_name: &str,
+        club: Option<&str>,
+        course_id: &str,
+        payment_method: &str,
+    ) -> Result<EventRegistration, String> {
+        let (first_name, last_name) = (first_name.trim(), last_name.trim());
+        if first_name.is_empty() || last_name.is_empty() {
+            return Err("Etunimi ja sukunimi ovat pakollisia.".into());
+        }
+        if course_id.trim().is_empty() || payment_method.trim().is_empty() {
+            return Err("Valitse rata ja maksutapa.".into());
+        }
+        if card_number.is_some_and(|card| card == 0 || card >= MANUAL_CARD_NUMBER_BASE) {
+            return Err("Virheellinen kortin numero.".into());
+        }
+        let club = club.map(str::trim).filter(|value| !value.is_empty());
+        let mut connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
+        let transaction = connection.transaction().map_err(|error| error.to_string())?;
+        let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_millis() as i64;
+        let participant_id: i64 = match card_number {
+            Some(card) => {
+                transaction.execute(
+                    "INSERT INTO participants (card_number, first_name, last_name, club, created_at_ms) VALUES (?1, ?2, ?3, ?4, ?5)
+                     ON CONFLICT(card_number) DO UPDATE SET first_name = excluded.first_name, last_name = excluded.last_name, club = excluded.club",
+                    params![card, first_name, last_name, club, now_ms],
+                ).map_err(|error| error.to_string())?;
+                transaction.query_row("SELECT id FROM participants WHERE card_number = ?1", [card], |row| row.get(0)).map_err(|error| error.to_string())?
+            }
+            None => {
+                let existing: Option<i64> = transaction.query_row(
+                    "SELECT id FROM participants WHERE card_number >= ?1 AND lower(first_name) = lower(?2) AND lower(last_name) = lower(?3) ORDER BY id LIMIT 1",
+                    params![MANUAL_CARD_NUMBER_BASE, first_name, last_name],
+                    |row| row.get(0),
+                ).optional().map_err(|error| error.to_string())?;
+                match existing {
+                    Some(id) => {
+                        transaction.execute("UPDATE participants SET club = ?1 WHERE id = ?2", params![club, id]).map_err(|error| error.to_string())?;
+                        id
+                    }
+                    None => {
+                        let placeholder: u32 = transaction.query_row(
+                            "SELECT COALESCE(MAX(card_number), ?1) + 1 FROM participants WHERE card_number >= ?1",
+                            [MANUAL_CARD_NUMBER_BASE],
+                            |row| row.get(0),
+                        ).map_err(|error| error.to_string())?;
+                        transaction.execute(
+                            "INSERT INTO participants (card_number, first_name, last_name, club, created_at_ms) VALUES (?1, ?2, ?3, ?4, ?5)",
+                            params![placeholder, first_name, last_name, club, now_ms],
+                        ).map_err(|error| error.to_string())?;
+                        transaction.last_insert_rowid()
+                    }
+                }
+            }
+        };
+        transaction.execute(
+            "INSERT INTO event_registrations (event_id, participant_id, course_id, payment_method, registered_at_ms, synced_at_ms, sync_status, sync_error, sync_revision)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5, 'PENDING', NULL, 1)
+             ON CONFLICT(event_id, participant_id) DO UPDATE SET course_id = excluded.course_id, payment_method = excluded.payment_method,
+               registered_at_ms = excluded.registered_at_ms, synced_at_ms = excluded.synced_at_ms,
+               sync_status = 'PENDING', sync_error = NULL, sync_revision = event_registrations.sync_revision + 1",
+            params![event_id, participant_id, course_id.trim(), payment_method.trim(), now_ms],
+        ).map_err(|error| error.to_string())?;
+        let registration = Self::registration_row(&transaction, event_id, participant_id)?;
+        transaction.commit().map_err(|error| error.to_string())?;
+        Ok(registration)
+    }
+
+    const REGISTRATION_SELECT: &'static str =
+        "SELECT er.event_id, er.participant_id, p.card_number, p.first_name, p.last_name, p.club, er.course_id, er.payment_method,
+                COALESCE(er.registered_at_ms, er.synced_at_ms), er.sync_status, er.sync_error, er.sync_revision
+         FROM event_registrations er JOIN participants p ON p.id = er.participant_id";
+
+    fn map_registration(row: &rusqlite::Row) -> rusqlite::Result<EventRegistration> {
+        let card_number: u32 = row.get(2)?;
+        Ok(EventRegistration {
+            event_id: row.get(0)?,
+            participant_id: row.get(1)?,
+            card_number: (card_number < MANUAL_CARD_NUMBER_BASE).then_some(card_number),
+            first_name: row.get(3)?,
+            last_name: row.get(4)?,
+            club: row.get(5)?,
+            course_id: row.get(6)?,
+            payment_method: row.get(7)?,
+            registered_at_ms: row.get(8)?,
+            sync_status: row.get(9)?,
+            sync_error: row.get(10)?,
+            sync_revision: row.get(11)?,
+        })
+    }
+
+    fn registration_row(connection: &Connection, event_id: &str, participant_id: i64) -> Result<EventRegistration, String> {
+        connection
+            .query_row(&format!("{} WHERE er.event_id = ?1 AND er.participant_id = ?2", Self::REGISTRATION_SELECT), params![event_id, participant_id], Self::map_registration)
+            .map_err(|error| error.to_string())
+    }
+
+    /// The event's registrations made in registration mode, newest first.
+    pub fn event_registrations(&self, event_id: &str, limit: usize) -> Result<Vec<EventRegistration>, String> {
+        let connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
+        let mut statement = connection
+            .prepare(&format!("{} WHERE er.event_id = ?1 AND er.payment_method IS NOT NULL ORDER BY er.registered_at_ms DESC LIMIT ?2", Self::REGISTRATION_SELECT))
+            .map_err(|error| error.to_string())?;
+        let rows = statement.query_map(params![event_id, limit as i64], Self::map_registration).map_err(|error| error.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
+    }
+
+    /// Registrations still to be sent to the API, oldest first.
+    pub fn pending_registrations(&self, limit: usize) -> Result<Vec<EventRegistration>, String> {
+        let connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
+        let mut statement = connection
+            .prepare(&format!("{} WHERE er.sync_status != 'SYNCED' AND er.payment_method IS NOT NULL ORDER BY er.registered_at_ms ASC LIMIT ?1", Self::REGISTRATION_SELECT))
+            .map_err(|error| error.to_string())?;
+        let rows = statement.query_map(params![limit as i64], Self::map_registration).map_err(|error| error.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
+    }
+
+    /// Records the outcome of sending `revision` of a registration; false if
+    /// it was changed meanwhile (it stays pending and goes again).
+    pub fn mark_registration_sync(&self, event_id: &str, participant_id: i64, revision: i64, synced: bool, error: Option<&str>) -> Result<bool, String> {
+        let connection = self.connection.lock().map_err(|_| "Tietokanta on lukittu")?;
+        let changed = connection.execute(
+            "UPDATE event_registrations SET sync_status = ?1, sync_error = ?2 WHERE event_id = ?3 AND participant_id = ?4 AND sync_revision = ?5",
+            params![if synced { "SYNCED" } else { "ERROR" }, error, event_id, participant_id, revision],
+        ).map_err(|error| error.to_string())?;
+        Ok(changed > 0)
     }
 
     pub fn save_read(&self, read: &Emit250Read, participant_id: i64, event_id: &str, course_id: Option<&str>, result_status: &str) -> Result<i64, String> {

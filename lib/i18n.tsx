@@ -83,6 +83,7 @@ const fi = {
     didNotFinish: "Keskeyttänyt",
     pending: "Odottaa",
     selfService: "Omatoimi",
+    onCourse: "Avoinna",
   },
   splits: {
     eyebrow: "Rastiväliajat",
@@ -237,6 +238,7 @@ const sv: Dictionary = {
     didNotFinish: "Utgått",
     pending: "Väntar",
     selfService: "På egen hand",
+    onCourse: "Ute på banan",
   },
   splits: {
     eyebrow: "Sträcktider",
@@ -389,6 +391,7 @@ const en: Dictionary = {
     didNotFinish: "Did not finish",
     pending: "Pending",
     selfService: "Own time",
+    onCourse: "On course",
   },
   splits: {
     eyebrow: "Split times",
