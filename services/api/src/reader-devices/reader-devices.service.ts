@@ -11,9 +11,14 @@ export class ReaderDevicesService {
 
   async register(input: RegisterReaderDeviceDto) {
     const name = input.name.trim();
+    // A known installation asking again has forgotten its token ("Unohda
+    // laite", another API address): its old token is revoked and it waits
+    // for approval like a new device. Keeping it APPROVED would leave it
+    // looking approved with no token to use (the token is handed out once),
+    // and a revoked device could never ask again.
     const device = await this.prisma.readerDevice.upsert({
       where: { installationId: input.installationId },
-      update: { name },
+      update: { name, status: "PENDING", tokenHash: null, pendingToken: null, requestedAt: new Date(), approvedAt: null, revokedAt: null },
       create: { installationId: input.installationId, name },
     });
     return { status: device.status };
