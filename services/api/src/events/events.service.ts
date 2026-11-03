@@ -412,11 +412,12 @@ export class EventsService {
           const item = rawCourseControl as Record<string, unknown>;
           const type = controlType(item["@_type"]);
           let codes = asArray(item.Control).map(textValue).filter(Boolean);
-          // IOF CourseData exports commonly omit a Control id for the finish
-          // (course-planning tools don't treat it as a numbered EMIT unit).
-          // Default it to our club's standard finish punch code instead of
-          // rejecting the whole import; other control types still require Id.
-          if (codes.length === 0 && type === "FINISH") codes = [DEFAULT_FINISH_CONTROL_CODE];
+          // IOF CourseData exports commonly omit a Control id for the finish,
+          // or give it a symbolic one ("F1", "M"): course-planning tools don't
+          // treat it as a numbered EMIT unit. The finish is punched with our
+          // club's standard finish unit, so it defaults to that code; other
+          // control types still require Id.
+          if (type === "FINISH" && !codes.some((code) => /^\d+$/.test(code))) codes = [DEFAULT_FINISH_CONTROL_CODE];
           if (codes.length === 0) throw new BadRequestException(`Radan “${name}” ratapisteeltä ${index + 1} puuttuu Control.`);
           const mapTextPosition = objectValue(item.MapTextPosition);
           for (const code of codes) {
