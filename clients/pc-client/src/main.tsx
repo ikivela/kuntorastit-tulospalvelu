@@ -16,6 +16,13 @@ let installationIdPromise: Promise<string> | undefined;
 // Unsynced reads are retried on this interval and whenever the OS reports the
 // connection back, so results taken offline go out without user action.
 const SYNC_INTERVAL_MS = 30_000;
+// How long an accepted result (or a registration) is shown big on the screen.
+const DEFAULT_BIG_SCREEN_SECONDS = 8;
+const MIN_BIG_SCREEN_SECONDS = 3;
+const MAX_BIG_SCREEN_SECONDS = 30;
+function clampBigScreenSeconds(value: number) {
+  return Math.min(MAX_BIG_SCREEN_SECONDS, Math.max(MIN_BIG_SCREEN_SECONDS, Math.round(value)));
+}
 // Without a timeout a fetch over a flaky field connection can hang for minutes.
 const FETCH_TIMEOUT_MS = 10_000;
 let syncRunning = false;
@@ -145,6 +152,7 @@ function App() {
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [registrationDraft, setRegistrationDraft] = useState<RegistrationDraft | null>(null);
   const [bigScreen, setBigScreen] = useState<BigScreenState | null>(null);
+  const [bigScreenSeconds, setBigScreenSeconds] = useState(DEFAULT_BIG_SCREEN_SECONDS);
   // A card read is being handled (lookup, auto-save); the 250 ms poll must
   // not start on the same read again meanwhile.
   const processingCardRef = useRef(false);
@@ -474,6 +482,12 @@ function App() {
     const skip = !skippedCodes.includes(code);
     updateSkippedCodes(eventId, skip ? [...skippedCodes, code].sort((a, b) => a - b) : skippedCodes.filter((item) => item !== code));
     log("INFO", "event", `Rasti ${code} ${skip ? "ohitetaan tarkastuksessa" : "palautettu tarkastukseen"}`);
+  }
+
+  function saveBigScreenSeconds(value: number) {
+    const seconds = clampBigScreenSeconds(value);
+    setBigScreenSeconds(seconds);
+    void invoke("set_setting_value", { key: "client.big_screen_seconds", value: String(seconds) }).catch(() => undefined);
   }
 
   function setMode(next: ClientMode) {
@@ -920,6 +934,8 @@ function App() {
     void (async () => {
       const savedApiBase = await invoke<string | null>("setting_value", { key: "reader.api_base_url" }).catch(() => null);
       if (savedApiBase) { API_BASE = savedApiBase; setApiBase(savedApiBase); setApiBaseInput(savedApiBase); }
+      const savedBigScreenSeconds = Number(await invoke<string | null>("setting_value", { key: "client.big_screen_seconds" }).catch(() => null));
+      if (savedBigScreenSeconds) setBigScreenSeconds(clampBigScreenSeconds(savedBigScreenSeconds));
       const savedMode = await invoke<string | null>("setting_value", { key: "client.mode" }).catch(() => null);
       if (savedMode === "registration" || savedMode === "reader") { modeRef.current = savedMode; setModeState(savedMode); }
       void loadCalendar();
@@ -1271,7 +1287,7 @@ function App() {
         <div className="modal-backdrop" role="presentation">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
             <h2 id="settings-title">Asetukset</h2>
-            <div className="reader-settings"><span className="settings-label">Lukijan sarjaportti</span><select value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading}><option value="">Valitse sarjaportti</option>{devices.map((device) => <option key={device.portName} value={device.portName}>{device.portName} – {device.product || device.manufacturer || device.portType}</option>)}</select><input className="port-input" value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading} placeholder="Sarjaportin polku" aria-label="Sarjaportin polku" /><button type="button" onClick={() => void refresh()} disabled={reading}>Päivitä portit</button><div className="device-row"><span className="settings-label">Lukijalaite</span>{deviceStatus === "unregistered" || deviceStatus === "revoked" ? <>{deviceStatus === "revoked" && <p className="error">Ylläpitäjä on peruuttanut tämän laitteen pääsyn. Rekisteröidy uudelleen.</p>}<input className="device-name-input" value={deviceNameInput} onChange={(e) => setDeviceNameInput(e.target.value)} placeholder="Laitteen nimi, esim. Maalin lukija #1" aria-label="Laitteen nimi" /><button type="button" onClick={() => void registerDevice()} disabled={!deviceNameInput.trim()}>Lähetä hyväksyntäpyyntö</button></> : deviceStatus === "pending" ? <><span>Odotetaan ylläpitäjän hyväksyntää (nimellä &quot;{deviceName}&quot;)…</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button></> : <><span className="device-approved">✓ Hyväksytty (nimellä &quot;{deviceName}&quot;)</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button><button type="button" onClick={() => void forgetDevice()}>Unohda laite</button></>}{deviceError && <p className="error">{deviceError}</p>}</div><form className="api-row" onSubmit={(event) => { event.preventDefault(); void saveApiBase(apiBaseInput); }}><label htmlFor="api-base-input">API-osoite</label><input id="api-base-input" className="api-base-input" value={apiBaseInput} onChange={(e) => setApiBaseInput(e.target.value)} disabled={!!activeEvent} placeholder={DEFAULT_API_BASE} spellCheck={false} /><button type="submit" disabled={!!activeEvent || normalizeApiBase(apiBaseInput) === apiBase}>Tallenna</button>{apiBase !== DEFAULT_API_BASE && <button type="button" disabled={!!activeEvent} onClick={() => void saveApiBase(DEFAULT_API_BASE)}>Palauta oletus</button>}<p className="hint">{activeEvent ? "Osoitetta voi vaihtaa vain, kun tapahtuma ei ole käynnissä." : "Osoitteen vaihto unohtaa laitteen hyväksynnän: lähetä hyväksyntäpyyntö uudelle palvelimelle."}</p>{apiBaseError && <p className="error">{apiBaseError}</p>}</form><div className="log-row"><span className="log-row-label">Debug-loki</span><button type="button" onClick={() => void openLog(false)}>Avaa loki</button><button type="button" onClick={() => void openLog(true)}>Avaa kansio</button>{logPath && <p className="hint">{logPath}</p>}{logError && <p className="error">{logError}</p>}</div></div>
+            <div className="reader-settings"><span className="settings-label">Lukijan sarjaportti</span><select value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading}><option value="">Valitse sarjaportti</option>{devices.map((device) => <option key={device.portName} value={device.portName}>{device.portName} – {device.product || device.manufacturer || device.portType}</option>)}</select><input className="port-input" value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading} placeholder="Sarjaportin polku" aria-label="Sarjaportin polku" /><button type="button" onClick={() => void refresh()} disabled={reading}>Päivitä portit</button><div className="device-row"><span className="settings-label">Lukijalaite</span>{deviceStatus === "unregistered" || deviceStatus === "revoked" ? <>{deviceStatus === "revoked" && <p className="error">Ylläpitäjä on peruuttanut tämän laitteen pääsyn. Rekisteröidy uudelleen.</p>}<input className="device-name-input" value={deviceNameInput} onChange={(e) => setDeviceNameInput(e.target.value)} placeholder="Laitteen nimi, esim. Maalin lukija #1" aria-label="Laitteen nimi" /><button type="button" onClick={() => void registerDevice()} disabled={!deviceNameInput.trim()}>Lähetä hyväksyntäpyyntö</button></> : deviceStatus === "pending" ? <><span>Odotetaan ylläpitäjän hyväksyntää (nimellä &quot;{deviceName}&quot;)…</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button></> : <><span className="device-approved">✓ Hyväksytty (nimellä &quot;{deviceName}&quot;)</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button><button type="button" onClick={() => void forgetDevice()}>Unohda laite</button></>}{deviceError && <p className="error">{deviceError}</p>}</div><form className="api-row" onSubmit={(event) => { event.preventDefault(); void saveApiBase(apiBaseInput); }}><label htmlFor="api-base-input">API-osoite</label><input id="api-base-input" className="api-base-input" value={apiBaseInput} onChange={(e) => setApiBaseInput(e.target.value)} disabled={!!activeEvent} placeholder={DEFAULT_API_BASE} spellCheck={false} /><button type="submit" disabled={!!activeEvent || normalizeApiBase(apiBaseInput) === apiBase}>Tallenna</button>{apiBase !== DEFAULT_API_BASE && <button type="button" disabled={!!activeEvent} onClick={() => void saveApiBase(DEFAULT_API_BASE)}>Palauta oletus</button>}<p className="hint">{activeEvent ? "Osoitetta voi vaihtaa vain, kun tapahtuma ei ole käynnissä." : "Osoitteen vaihto unohtaa laitteen hyväksynnän: lähetä hyväksyntäpyyntö uudelle palvelimelle."}</p>{apiBaseError && <p className="error">{apiBaseError}</p>}</form><div className="log-row"><label className="log-row-label" htmlFor="big-screen-seconds">Hyväksytyn tuloksen näyttöaika</label><input id="big-screen-seconds" className="seconds-input" type="number" min={MIN_BIG_SCREEN_SECONDS} max={MAX_BIG_SCREEN_SECONDS} key={bigScreenSeconds} defaultValue={bigScreenSeconds} onBlur={(e) => { const value = Number(e.target.value); const seconds = value ? clampBigScreenSeconds(value) : bigScreenSeconds; e.target.value = String(seconds); saveBigScreenSeconds(seconds); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} /> s<p className="hint">Nimi, aika ja rata näytetään isolla {MIN_BIG_SCREEN_SECONDS}–{MAX_BIG_SCREEN_SECONDS} sekuntia (oletus {DEFAULT_BIG_SCREEN_SECONDS}). Klikkaus sulkee näkymän heti.</p></div><div className="log-row"><span className="log-row-label">Debug-loki</span><button type="button" onClick={() => void openLog(false)}>Avaa loki</button><button type="button" onClick={() => void openLog(true)}>Avaa kansio</button>{logPath && <p className="hint">{logPath}</p>}{logError && <p className="error">{logError}</p>}</div></div>
             <div className="confirm-actions"><button type="button" className="primary" onClick={() => setSettingsOpen(false)}>Sulje</button></div>
           </section>
         </div>
@@ -1399,7 +1415,7 @@ function App() {
         />
       )}
 
-      {bigScreen && <BigScreen {...bigScreen} onClose={() => setBigScreen(null)} />}
+      {bigScreen && <BigScreen {...bigScreen} seconds={bigScreenSeconds} onClose={() => setBigScreen(null)} />}
 
       {manualEntryOpen && activeEvent && (
         <div className="modal-backdrop" role="presentation">

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 // Registration mode (paperless registration at the event) and the reader
 // mode's big result screen. The App in main.tsx owns the card reader, the
@@ -114,10 +114,14 @@ export function RegistrationList({ registrations, courses, query }: { registrati
  * reader mode's accepted result, or a completed registration. Closes on a
  * click, after `seconds`, or when the next card comes. */
 export function BigScreen({ tone, eyebrow, title, value, detail, seconds = 8, onClose }: { tone: "ok" | "info"; eyebrow: string; title: string; value: string; detail: string; seconds?: number; onClose: () => void }) {
+  // The timer runs from when this content is shown: the App re-renders
+  // often (sync, status), and a new onClose each time must not restart it.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
-    const timeout = window.setTimeout(onClose, seconds * 1000);
+    const timeout = window.setTimeout(() => onCloseRef.current(), seconds * 1000);
     return () => window.clearTimeout(timeout);
-  }, [onClose, seconds]);
+  }, [seconds, tone, eyebrow, title, value, detail]);
   return <div className={`big-screen ${tone}`} role="status" aria-live="polite" onClick={onClose}>
     <div className="big-screen-content">
       <span className="big-screen-eyebrow">{eyebrow}</span>
