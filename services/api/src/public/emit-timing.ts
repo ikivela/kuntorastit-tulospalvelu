@@ -16,31 +16,35 @@ export function withoutReadoutPunch<T extends TimedPunch>(punches: T[]): T[] {
 export type CardTiming = {
   matchedIndices: number[]; // punch index of each course control found, in course order
   resultSeconds: number | null; // finish punch time, or the last punch without one
+  missingCodes: number[]; // required course controls not found on the card
 };
 
 /** Every course control must be found in order; extra punches (a finish or
  * readout unit, a control visited by mistake) are allowed. The finish punch
  * is the course's numbered FINISH (e.g. "100"), or else the first punch after
- * the last control; a symbolic finish ("M") has no punch of its own. */
-export function cardTiming(punches: TimedPunch[], controls: CourseControlForTiming[]): CardTiming {
+ * the last control; a symbolic finish ("M") has no punch of its own. The
+ * event's skipped controls (a punch unit that died) are not required: a
+ * punch on one is an extra punch. */
+export function cardTiming(punches: TimedPunch[], controls: CourseControlForTiming[], skippedCodes: string[] = []): CardTiming {
   const numbered = controls
     .filter((item) => item.type !== "START")
     .map((item) => ({ type: item.type, code: Number(item.controlCodes[0] || item.control.code) }))
     .filter((item) => Number.isFinite(item.code));
   const finishPunched = numbered.at(-1)?.type === "FINISH";
+  const required = numbered.filter((item) => item.type === "FINISH" || !skippedCodes.includes(String(item.code)));
   const matchedIndices: number[] = [];
-  let missing = 0;
+  const missingCodes: number[] = [];
   let from = 0;
-  for (const { code } of numbered) {
+  for (const { code } of required) {
     const index = punches.findIndex((punch, punchIndex) => punchIndex >= from && punch.controlCode === code);
-    if (index === -1) { missing += 1; continue; }
+    if (index === -1) { missingCodes.push(code); continue; }
     matchedIndices.push(index);
     from = index + 1;
   }
   const lastMatched = matchedIndices.at(-1);
-  const finishIndex = missing > 0 || lastMatched == null ? null
+  const finishIndex = missingCodes.length > 0 || lastMatched == null ? null
     : finishPunched ? lastMatched
     : lastMatched + 1 < punches.length ? lastMatched + 1 : null;
   const resultPunch = finishIndex != null ? punches[finishIndex] : punches.at(-1);
-  return { matchedIndices, resultSeconds: resultPunch?.timeSeconds ?? null };
+  return { matchedIndices, resultSeconds: resultPunch?.timeSeconds ?? null, missingCodes };
 }

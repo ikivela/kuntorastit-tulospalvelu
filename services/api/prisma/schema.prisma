@@ -147,6 +147,8 @@ model Event {
   status           EventStatus    @default(DRAFT)
   registrationOpen Boolean        @default(false) @map("registration_open")
   paymentMethods   String[]       @default([]) @map("payment_methods")
+  /// Control codes left out of the card check (a punch unit that died).
+  skippedControlCodes String[]    @default([]) @map("skipped_control_codes")
   version          Int            @default(1)
   courses          Course[]
   controls         Control[]

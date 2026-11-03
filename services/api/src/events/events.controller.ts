@@ -8,6 +8,7 @@ import { CreateCourseDto, UpdateCourseDto } from "./course.dto.js";
 import { ImportCoursesDto } from "./import-courses.dto.js";
 import { ImportEventsDto } from "./import-events.dto.js";
 import { UpdateLiveloxDto } from "./livelox.dto.js";
+import { UpdateSkippedControlsDto } from "./skipped-controls.dto.js";
 
 @ApiTags("events")
 @ApiBearerAuth()
@@ -25,6 +26,7 @@ export class EventsController {
   @Put(":id/livelox") updateLivelox(@Param("id") id: string, @Body() input: UpdateLiveloxDto) { return this.events.updateLivelox(id, input); }
   @Post(":id/livelox/upload") uploadLivelox(@Param("id") id: string) { return this.events.uploadLivelox(id); }
   @Delete(":id/livelox") removeLivelox(@Param("id") id: string) { return this.events.removeLivelox(id); }
+  @Put(":id/skipped-controls") updateSkippedControls(@Param("id") id: string, @Body() input: UpdateSkippedControlsDto) { return this.events.updateSkippedControls(id, input.controlCodes); }
   @Post("import") importEvents(@Body() input: ImportEventsDto) { return this.events.importEvents(input.rows, input.dryRun ?? false); }
   @Post() create(@Body() input: CreateEventDto) { return this.events.create(input); }
   @Patch(":id") update(@Param("id") id: string, @Body() input: UpdateEventDto) { return this.events.update(id, input); }

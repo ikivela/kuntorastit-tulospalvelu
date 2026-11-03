@@ -37,3 +37,17 @@ test("a missing control or no finish punch falls back to the last punch", () => 
   assert.equal(cardTiming(punches([[32, 100], [165, 300]]), course(["32", "165"])).resultSeconds, 300);
   assert.equal(cardTiming([], course(["32"])).resultSeconds, null);
 });
+
+test("a skipped control is not required and a punch on it is extra", () => {
+  const controls = course(["32", "165", "41"], "100");
+  const without = punches([[32, 100], [41, 400], [100, 460]]);
+  assert.deepEqual(cardTiming(without, controls).missingCodes, [165]);
+  const timing = cardTiming(without, controls, ["165"]);
+  assert.deepEqual(timing.missingCodes, []);
+  assert.deepEqual(timing.matchedIndices, [0, 1, 2]);
+  assert.equal(timing.resultSeconds, 460);
+  // Punched before the unit died: still only the other controls count.
+  assert.deepEqual(cardTiming(punches([[32, 100], [165, 300], [41, 400], [100, 460]]), controls, ["165"]).matchedIndices, [0, 2, 3]);
+  // The finish is never skipped.
+  assert.deepEqual(cardTiming(punches([[32, 100], [165, 300], [41, 400]]), controls, ["100"]).missingCodes, [100]);
+});

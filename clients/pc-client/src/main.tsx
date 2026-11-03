@@ -97,7 +97,7 @@ type StoredCardRead = {
 type Participant = { id: number; cardNumber: number; firstName: string; lastName: string; club?: string; apiPersonId?: string };
 type CourseControl = { sequenceNumber: number; type: string; controlCodes: string[]; control: { code: string } };
 type Course = { id: string; name: string; lengthMeters: number; climbMeters?: number; controls?: CourseControl[] };
-type CalendarEvent = { id: string; name: string; locationName?: string; startsAt: string; endsAt: string; status: string; paymentMethods?: string[]; courses: Course[] };
+type CalendarEvent = { id: string; name: string; locationName?: string; startsAt: string; endsAt: string; status: string; paymentMethods?: string[]; skippedControlCodes?: string[]; courses: Course[] };
 // Lukijamoodi reads results; ilmoittautumismoodi registers people for the
 // event (paperless registration), by card or by hand.
 type ClientMode = "reader" | "registration";
@@ -130,6 +130,17 @@ function App() {
   const [calendarCachedAt, setCalendarCachedAt] = useState<number | null>(null);
   const [syncState, setSyncState] = useState<SyncState | null>(null);
   const [mode, setModeState] = useState<ClientMode>("reader");
+  // Controls left out of the card check for the running event (a punch unit
+  // that died). Shared through the server with the other readers; a change
+  // made here is kept in the local settings until the server has it, so it
+  // also works offline.
+  const [skippedCodes, setSkippedCodes] = useState<number[]>([]);
+  const skippedCodesRef = useRef<number[]>([]);
+  const skippedCodesPendingRef = useRef(false);
+  // The running event, or before starting the one chosen to start.
+  const skippedEventIdRef = useRef<string | null>(null);
+  const [skippedCodesPending, setSkippedCodesPendingState] = useState(false);
+  const setSkippedCodesPending = (pending: boolean) => { skippedCodesPendingRef.current = pending; setSkippedCodesPendingState(pending); };
   const modeRef = useRef<ClientMode>("reader");
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [registrationDraft, setRegistrationDraft] = useState<RegistrationDraft | null>(null);
@@ -423,6 +434,48 @@ function App() {
     await stopEvent();
   }
 
+  function updateSkippedCodes(eventId: string, next: number[]) {
+    skippedCodesRef.current = next;
+    setSkippedCodesPending(true);
+    setSkippedCodes(next);
+    void (async () => {
+      await invoke("set_setting_value", { key: `event.${eventId}.skipped_controls`, value: JSON.stringify({ codes: next, pending: true }) }).catch(() => undefined);
+      await syncPending();
+    })();
+  }
+
+  /// Sends the running event's skipped controls when changed here. The
+  /// server re-checks the results already sent.
+  async function syncSkippedControls() {
+    const eventId = skippedEventIdRef.current;
+    if (!eventId || !skippedCodesPendingRef.current) return;
+    const codes = skippedCodesRef.current;
+    try {
+      const response = await fetchWithTimeout(`${API_BASE}/public/events/${eventId}/skipped-controls`, {
+        method: "PUT",
+        headers: authHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({ controlCodes: codes.map(String) }),
+      });
+      if (!response.ok) throw new Error(response.status === 401 ? "Lukijaa ei ole hyväksytty." : `HTTP ${response.status}`);
+      const body = await response.json() as { changedResults: number };
+      // Toggled again while sending: the newer list goes in the next round.
+      if (skippedCodesRef.current !== codes || skippedEventIdRef.current !== eventId) return;
+      setSkippedCodesPending(false);
+      await invoke("set_setting_value", { key: `event.${eventId}.skipped_controls`, value: JSON.stringify({ codes, pending: false }) }).catch(() => undefined);
+      log("INFO", "sync", `Ohitettavat rastit lähetetty: ${codes.join(", ") || "ei ohitettuja"}${body.changedResults ? `, ${body.changedResults} tulosta tarkastettu uudelleen` : ""}`);
+    } catch (error) {
+      log("WARN", "sync", `Ohitettavien rastien lähetys epäonnistui: ${String(error)}`);
+    }
+  }
+
+  function toggleSkippedCode(code: number) {
+    const eventId = skippedEventIdRef.current;
+    if (!eventId) return;
+    const skip = !skippedCodes.includes(code);
+    updateSkippedCodes(eventId, skip ? [...skippedCodes, code].sort((a, b) => a - b) : skippedCodes.filter((item) => item !== code));
+    log("INFO", "event", `Rasti ${code} ${skip ? "ohitetaan tarkastuksessa" : "palautettu tarkastukseen"}`);
+  }
+
   function setMode(next: ClientMode) {
     modeRef.current = next;
     setModeState(next);
@@ -614,6 +667,7 @@ function App() {
   }
 
   async function syncRound() {
+    await syncSkippedControls();
     const registrationSync = await syncRegistrations();
     if (modeRef.current === "registration") void refreshRegistrations();
     const startOfToday = new Date();
@@ -1058,7 +1112,7 @@ function App() {
         log("INFO", "registration", `Kortti ${cardNumber} luettu ilmoittautumiseen (${participant ? "tunnettu" : "uusi"} kortti)`);
         return;
       }
-      const validation = validateCourse(latest.punches, event.courses);
+      const validation = validateCourse(latest.punches, event.courses, skippedCodesRef.current);
       if (participant && validation.status === "ACCEPTED" && validation.courseId) {
         await invoke("confirm_latest_emit250_read", { participantId: participant.id, eventId: event.id, courseId: validation.courseId, resultStatus: "OK" });
         log("INFO", "result", `Hyväksytty automaattisesti: kortti ${cardNumber}, ${name}, rata ${validation.courseName}, ${formatDuration(validation.resultSeconds ?? undefined)}`);
@@ -1106,6 +1160,37 @@ function App() {
     void refreshHistory(activeEvent.id);
   }, [result?.bytesReceived, activeEvent?.id]);
 
+  // The server's list (from the calendar, refreshed with it) unless a change
+  // made here hasn't reached the server yet.
+  // Set already before starting (the event chosen in the start card), so a
+  // dead punch unit can be marked before the reader listens.
+  const skippedEvent = activeEvent ?? events.find((event) => event.id === selectedEventId) ?? null;
+  const serverSkippedCodes = skippedEvent?.skippedControlCodes?.join(",");
+  useEffect(() => {
+    skippedEventIdRef.current = skippedEvent?.id ?? null;
+    if (!skippedEvent) {
+      skippedCodesRef.current = [];
+      setSkippedCodesPending(false);
+      setSkippedCodes([]);
+      return;
+    }
+    let disposed = false;
+    const eventId = skippedEvent.id;
+    const fromServer = skippedEvent.skippedControlCodes?.map(Number).filter((code) => Number.isFinite(code));
+    void invoke<string | null>("setting_value", { key: `event.${eventId}.skipped_controls` }).catch(() => null).then((value) => {
+      if (disposed) return;
+      const stored = value ? JSON.parse(value) as { codes?: unknown; pending?: unknown } : null;
+      const local = Array.isArray(stored?.codes) ? stored.codes.filter((code): code is number => typeof code === "number") : null;
+      const pending = stored?.pending === true && local != null;
+      const codes = pending ? local : fromServer ?? local ?? [];
+      skippedCodesRef.current = codes;
+      setSkippedCodesPending(pending);
+      setSkippedCodes(codes);
+      if (pending) void syncPending();
+    }).catch(() => undefined);
+    return () => { disposed = true; };
+  }, [skippedEvent?.id, serverSkippedCodes]);
+
   // Manual entries have no EMIT punches to validate against a course, so
   // skip course validation for them — otherwise the empty punch list reads
   // as "missing control" against an arbitrary course and shows the wrong
@@ -1114,7 +1199,7 @@ function App() {
   // and the confirm button show how the card compares with that course.
   const chosenCourse = selectedCourseId ? activeEvent?.courses.find((course) => course.id === selectedCourseId) : undefined;
   const cardValidation = pendingCard && activeEvent && editingSource !== "MANUAL"
-    ? validateCourse(pendingCard.punches, chosenCourse ? [chosenCourse] : activeEvent.courses)
+    ? validateCourse(pendingCard.punches, chosenCourse ? [chosenCourse] : activeEvent.courses, skippedCodes)
     : null;
   const resultCourseId = chosenCourse?.id ?? cardValidation?.courseId;
   const filteredHistory = useMemo(() => {
@@ -1154,7 +1239,8 @@ function App() {
               <button type="button" className="danger-outline" onClick={() => setFinishState({ phase: "confirm" })}><StopIcon />Lopeta tapahtuma</button>
             </div>
           </div>
-          <CourseChips courses={activeEvent.courses} />
+          <CourseChips courses={activeEvent.courses} skippedCodes={skippedCodes} />
+          <SkippedControls codes={eventControlCodes(activeEvent.courses)} skipped={skippedCodes} pending={skippedCodesPending} onToggle={toggleSkippedCode} />
           {status && <p className="status">{status}</p>}
         </section>
       ) : (
@@ -1170,7 +1256,7 @@ function App() {
               <select className="event-select" aria-label="Tapahtuma" value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)}><option value="">Valitse tapahtuma…</option>{events.map((event) => { const past = isPastEvent(event); return <option key={event.id} value={event.id} disabled={past}>{new Date(event.startsAt).toLocaleDateString("fi-FI")} · {event.name}{past ? " · mennyt" : ""}</option>; })}</select>
               <button type="button" className="primary" onClick={() => void startEvent()} disabled={!selectedEvent || isPastEvent(selectedEvent)}><PlayIcon />Käynnistä</button>
             </div>
-            {selectedEvent && <div className="event-preview"><p className="event-meta">{formatEventDates(selectedEvent)} · {selectedEvent.locationName || "Paikka ei tiedossa"}</p><CourseChips courses={selectedEvent.courses} /></div>}
+            {selectedEvent && <div className="event-preview"><p className="event-meta">{formatEventDates(selectedEvent)} · {selectedEvent.locationName || "Paikka ei tiedossa"}</p><CourseChips courses={selectedEvent.courses} skippedCodes={skippedCodes} /><SkippedControls codes={eventControlCodes(selectedEvent.courses)} skipped={skippedCodes} pending={skippedCodesPending} onToggle={toggleSkippedCode} /></div>}
           </>}
           {status && <p className="status muted">{status}</p>}
         </section>
@@ -1229,7 +1315,7 @@ function App() {
           <RegistrationList registrations={registrations} courses={activeEvent.courses} query={historySearch} />
         </> : <>
         <div className="log-heading"><div><h2>Tulokset</h2>{history.length > 0 && <p>{history.length} viimeisintä tulosta</p>}{syncState && (syncState.pending > 0 ? <p className="sync-summary pending">{syncState.pending} {syncState.pending === 1 ? "tulos odottaa" : "tulosta odottaa"} lähetystä{syncState.error ? ` · ${syncState.error}` : ""} <button type="button" className="link-button" onClick={() => void syncPending()}>Lähetä nyt</button></p> : history.length > 0 && <p className="sync-summary ok">✓ Kaikki tulokset lähetetty</p>)}</div><div className="log-heading-actions"><label className="log-search"><span className="sr-only">Hae tuloksista</span><input type="search" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Hae nimellä, seuralla tai kortilla…" /></label><button onClick={openManualEntry} disabled={!activeEvent}>+ Syötä osanottoja</button></div></div>
-        {history.length === 0 ? <div className="log-empty"><b>Ei vielä tuloksia</b><span>{activeEvent ? "Lue ensimmäinen kortti lukijalla tai syötä osanotto käsin." : "Tulokset näkyvät täällä, kun tulospalvelu on käynnissä."}</span></div> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Seura</th><th>Rata</th><th>Aika</th><th><span className="sr-only">Lähetys</span></th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td className="log-read-at"><time>{new Date(item.readAtMs).toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="log-club">{item.club || "–"}</td><td className="log-course">{activeEvent?.courses.find((course) => course.id === item.courseId)?.name ?? "–"}</td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : item.resultStatus === "DID_NOT_FINISH" ? "Keskeytti" : formatDuration(item.source === "MANUAL" ? item.manualDurationSeconds : cardResultSeconds(item.punches, activeEvent?.courses.find((course) => course.id === item.courseId)))}</td><td className={`log-sync ${item.syncStatus.toLowerCase()}`} title={syncStatusLabel(item)}>{item.syncStatus === "SYNCED" ? "✓" : item.syncStatus === "ERROR" ? "!" : "…"}<span className="sr-only">{syncStatusLabel(item)}</span></td></tr>)}</tbody></table></div></>}
+        {history.length === 0 ? <div className="log-empty"><b>Ei vielä tuloksia</b><span>{activeEvent ? "Lue ensimmäinen kortti lukijalla tai syötä osanotto käsin." : "Tulokset näkyvät täällä, kun tulospalvelu on käynnissä."}</span></div> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Seura</th><th>Rata</th><th>Aika</th><th><span className="sr-only">Lähetys</span></th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td className="log-read-at"><time>{new Date(item.readAtMs).toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="log-club">{item.club || "–"}</td><td className="log-course">{activeEvent?.courses.find((course) => course.id === item.courseId)?.name ?? "–"}</td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : item.resultStatus === "DID_NOT_FINISH" ? "Keskeytti" : formatDuration(item.source === "MANUAL" ? item.manualDurationSeconds : cardResultSeconds(item.punches, activeEvent?.courses.find((course) => course.id === item.courseId), skippedCodes))}</td><td className={`log-sync ${item.syncStatus.toLowerCase()}`} title={syncStatusLabel(item)}>{item.syncStatus === "SYNCED" ? "✓" : item.syncStatus === "ERROR" ? "!" : "…"}<span className="sr-only">{syncStatusLabel(item)}</span></td></tr>)}</tbody></table></div></>}
         </>}
       </section>
 
@@ -1237,7 +1323,7 @@ function App() {
         <div className="modal-backdrop" role="presentation">
           <section className={`modal ${pendingParticipant ? "result-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="participant-title">
             <div className="modal-header"><h2 id="participant-title">{editingReadId != null ? "Muokkaa lukutulosta" : pendingParticipant ? "Kuittaa lukutulos" : "Uusi osallistuja"}</h2><button type="button" className="modal-close" onClick={() => void skipPendingCard()} aria-label={editingReadId != null ? "Peru muokkaus" : "Ohita kortti"} title={editingReadId != null ? "Peru muokkaus (Esc)" : "Ohita kortti (Esc)"}>×</button></div>
-            {pendingParticipant ? <div className="result-confirm"><aside className={`result-person ${cardValidation?.status === "DISQUALIFIED" || cardValidation?.status === "MISSING_CONTROL" ? "disqualified" : ""}`}><span className="eyebrow">Osallistuja</span><div className="result-person-edit"><label>Etunimi<input value={pendingParticipant.firstName} onChange={(event) => { const value = event.target.value; setPendingParticipant((prev) => prev ? { ...prev, firstName: value } : prev); }} /></label><label>Sukunimi<input value={pendingParticipant.lastName} onChange={(event) => { const value = event.target.value; setPendingParticipant((prev) => prev ? { ...prev, lastName: value } : prev); }} /></label><label>Seura<input value={pendingParticipant.club ?? ""} onChange={(event) => { const value = event.target.value; setPendingParticipant((prev) => prev ? { ...prev, club: value } : prev); }} placeholder="Ei seuraa" /></label><label>Rata<select value={resultCourseId ?? ""} onChange={(event) => setSelectedCourseId(event.target.value || null)}>{!resultCourseId && <option value="">Valitse rata</option>}{activeEvent?.courses.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select></label></div>{cardValidation &&<div className={`validation-badge ${cardValidation.status.toLowerCase()}`}>{cardValidation.status === "ACCEPTED" ? `Hyväksytty · ${cardValidation.courseName}` : cardValidation.status === "MISSING_CONTROL" ? `Rasti puuttuu (${cardValidation.missingCodes.join(", ")}) · rata ${cardValidation.courseName}` : cardValidation.status === "DISQUALIFIED" ? `Hylätty · ei vastaa rataa ${cardValidation.courseName} (puuttuu ${cardValidation.missingCodes.join(", ")})` : "Ratadata puuttuu · käynnistä tapahtuma uudelleen"}</div>}<dl>{editingSource === "MANUAL" ? <><dt>Tulos</dt><dd className="result-time">{formatDuration(editingManualDurationSeconds)}</dd></> : <><dt>EMIT-kortti</dt><dd>{pendingCard.cardNumber}</dd><dt>Rasteja</dt><dd>{pendingCard.punches.length}</dd><dt>Tulos</dt><dd className="result-time">{cardValidation?.status === "DISQUALIFIED" ? "Hylätty" : cardValidation?.status === "MISSING_CONTROL" ? "Rasti puuttuu" : formatDuration(cardValidation ? cardValidation.resultSeconds ?? undefined : pendingCard.punches.at(-1)?.timeSeconds)}</dd></>}</dl></aside>{editingSource !== "MANUAL" && <div className="punch-panel"><table className="punch-table"><thead><tr><th>Rasti</th><th>Koodi</th><th>Väliaika</th><th>Lähdöstä</th><th>Huomio</th></tr></thead><tbody>{pendingCard.punches.map((punch, index) => { const controlNumber = cardValidation ? cardValidation.matchedIndices.indexOf(index) : -1; const isFinish = cardValidation?.finishIndex === index; const extra = cardValidation != null && cardValidation.status !== "UNAVAILABLE" && controlNumber === -1 && !isFinish; return <tr className={extra ? "extra-punch" : ""} key={`${index}-${punch.controlCode}`}><td>{index + 1}</td><td>{punch.controlCode}</td><td>{formatDuration(splitSeconds(pendingCard.punches, index))}</td><td>{formatDuration(punch.timeSeconds)}</td><td>{isFinish ? "Maali" : controlNumber >= 0 ? `Rasti ${controlNumber + 1}` : extra ? "Ylimääräinen" : ""}</td></tr>; })}</tbody></table></div>}{formError && <p className="error result-error">{formError}</p>}<div className="confirm-actions">{cardValidation?.status === "DISQUALIFIED" ? <button className="danger" onClick={() => void confirmResult("DISQUALIFIED")}>Kuittaa hylätty</button> : cardValidation?.status === "MISSING_CONTROL" ? <button className="danger" onClick={() => void confirmResult("MISSING_CONTROL")}>Kuittaa: rasti puuttuu</button> : <button className="primary" onClick={() => void confirmResult("OK")}>Tulos OK</button>}{editingSource !== "MANUAL" && <button onClick={() => void confirmResult("DID_NOT_FINISH")}>Keskeytti</button>}<button onClick={() => void confirmResult("NO_TIME")}>Ilman aikaa</button></div></div> : <><p>EMIT-korttia <strong>{pendingCard.cardNumber}</strong> ei löydy tietokannasta.</p><form onSubmit={(event) => void saveParticipant(event)}>
+            {pendingParticipant ? <div className="result-confirm"><aside className={`result-person ${cardValidation?.status === "DISQUALIFIED" || cardValidation?.status === "MISSING_CONTROL" ? "disqualified" : ""}`}><span className="eyebrow">Osallistuja</span><div className="result-person-edit"><label>Etunimi<input value={pendingParticipant.firstName} onChange={(event) => { const value = event.target.value; setPendingParticipant((prev) => prev ? { ...prev, firstName: value } : prev); }} /></label><label>Sukunimi<input value={pendingParticipant.lastName} onChange={(event) => { const value = event.target.value; setPendingParticipant((prev) => prev ? { ...prev, lastName: value } : prev); }} /></label><label>Seura<input value={pendingParticipant.club ?? ""} onChange={(event) => { const value = event.target.value; setPendingParticipant((prev) => prev ? { ...prev, club: value } : prev); }} placeholder="Ei seuraa" /></label><label>Rata<select value={resultCourseId ?? ""} onChange={(event) => setSelectedCourseId(event.target.value || null)}>{!resultCourseId && <option value="">Valitse rata</option>}{activeEvent?.courses.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select></label></div>{cardValidation &&<div className={`validation-badge ${cardValidation.status.toLowerCase()}`}>{cardValidation.status === "ACCEPTED" ? `Hyväksytty · ${cardValidation.courseName}${skippedCodes.length ? ` · ohitettu ${skippedCodes.join(", ")}` : ""}` : cardValidation.status === "MISSING_CONTROL" ? `Rasti puuttuu (${cardValidation.missingCodes.join(", ")}) · rata ${cardValidation.courseName}` : cardValidation.status === "DISQUALIFIED" ? `Hylätty · ei vastaa rataa ${cardValidation.courseName} (puuttuu ${cardValidation.missingCodes.join(", ")})` : "Ratadata puuttuu · käynnistä tapahtuma uudelleen"}</div>}<dl>{editingSource === "MANUAL" ? <><dt>Tulos</dt><dd className="result-time">{formatDuration(editingManualDurationSeconds)}</dd></> : <><dt>EMIT-kortti</dt><dd>{pendingCard.cardNumber}</dd><dt>Rasteja</dt><dd>{pendingCard.punches.length}</dd><dt>Tulos</dt><dd className="result-time">{cardValidation?.status === "DISQUALIFIED" ? "Hylätty" : cardValidation?.status === "MISSING_CONTROL" ? "Rasti puuttuu" : formatDuration(cardValidation ? cardValidation.resultSeconds ?? undefined : pendingCard.punches.at(-1)?.timeSeconds)}</dd></>}</dl></aside>{editingSource !== "MANUAL" && <div className="punch-panel"><table className="punch-table"><thead><tr><th>Rasti</th><th>Koodi</th><th>Väliaika</th><th>Lähdöstä</th><th>Huomio</th></tr></thead><tbody>{pendingCard.punches.map((punch, index) => { const controlNumber = cardValidation ? cardValidation.matchedIndices.indexOf(index) : -1; const isFinish = cardValidation?.finishIndex === index; const extra = cardValidation != null && cardValidation.status !== "UNAVAILABLE" && controlNumber === -1 && !isFinish; return <tr className={extra ? "extra-punch" : ""} key={`${index}-${punch.controlCode}`}><td>{index + 1}</td><td>{punch.controlCode}</td><td>{formatDuration(splitSeconds(pendingCard.punches, index))}</td><td>{formatDuration(punch.timeSeconds)}</td><td>{isFinish ? "Maali" : controlNumber >= 0 ? `Rasti ${controlNumber + 1}` : extra ? "Ylimääräinen" : ""}</td></tr>; })}</tbody></table></div>}{formError && <p className="error result-error">{formError}</p>}<div className="confirm-actions">{cardValidation?.status === "DISQUALIFIED" ? <button className="danger" onClick={() => void confirmResult("DISQUALIFIED")}>Kuittaa hylätty</button> : cardValidation?.status === "MISSING_CONTROL" ? <button className="danger" onClick={() => void confirmResult("MISSING_CONTROL")}>Kuittaa: rasti puuttuu</button> : <button className="primary" onClick={() => void confirmResult("OK")}>Tulos OK</button>}{editingSource !== "MANUAL" && <button onClick={() => void confirmResult("DID_NOT_FINISH")}>Keskeytti</button>}<button onClick={() => void confirmResult("NO_TIME")}>Ilman aikaa</button></div></div> : <><p>EMIT-korttia <strong>{pendingCard.cardNumber}</strong> ei löydy tietokannasta.</p><form onSubmit={(event) => void saveParticipant(event)}>
               <label>Etunimi<input autoFocus required value={firstName} onChange={(event) => setFirstName(event.target.value)} /></label>
               <label>Sukunimi<input required value={lastName} onChange={(event) => setLastName(event.target.value)} /></label>
               <label>Seura<input value={club} onChange={(event) => setClub(event.target.value)} /></label>
@@ -1506,13 +1592,26 @@ type CardCheck = {
 
 /// Codes a card must contain in order: the course's controls, plus its
 /// FINISH when that is a numbered punch unit (e.g. "100"). START is never
-/// punched, and a symbolic finish ("M") has no punch of its own.
-function courseCodes(course: Course) {
+/// punched, and a symbolic finish ("M") has no punch of its own. Skipped
+/// controls (a punch unit that died during the event) are left out, so a
+/// card without them is still accepted.
+function courseCodes(course: Course, skippedCodes: number[] = []) {
   const controls = (course.controls ?? []).filter((item) => item.type !== "START");
   const numbered = controls
     .map((item) => ({ type: item.type, code: Number(item.controlCodes[0] || item.control.code) }))
     .filter((item) => Number.isFinite(item.code));
-  return { codes: numbered.map((item) => item.code), finishPunched: numbered.at(-1)?.type === "FINISH" };
+  const required = numbered.filter((item) => item.type === "FINISH" || !skippedCodes.includes(item.code));
+  return { codes: required.map((item) => item.code), finishPunched: numbered.at(-1)?.type === "FINISH" };
+}
+
+/// Control codes of an event's courses (no start or finish), for choosing
+/// the ones to skip.
+function eventControlCodes(courses: Course[]) {
+  const codes = courses.flatMap((course) => (course.controls ?? [])
+    .filter((item) => item.type !== "START" && item.type !== "FINISH")
+    .map((item) => Number(item.controlCodes[0] || item.control.code))
+    .filter((code) => Number.isFinite(code)));
+  return [...new Set(codes)].sort((a, b) => a - b);
 }
 
 /// Checks a card against one course the way orienteering rules do: every
@@ -1542,9 +1641,9 @@ function checkCard(punches: ProbeResult["punches"], codes: number[], finishPunch
 /// Picks the course the card fits best: an accepted course with the most
 /// controls (a card that completes C also contains the shorter D), else the
 /// one with the largest share of its controls found.
-function validateCourse(punches: ProbeResult["punches"], courses: Course[]) {
+function validateCourse(punches: ProbeResult["punches"], courses: Course[], skippedCodes: number[] = []) {
   const candidates = courses
-    .map((course) => ({ course, ...courseCodes(course) }))
+    .map((course) => ({ course, ...courseCodes(course, skippedCodes) }))
     .filter((candidate) => candidate.codes.length > 0)
     .map((candidate) => ({ ...candidate, check: checkCard(punches, candidate.codes, candidate.finishPunched) }));
   if (candidates.length === 0) {
@@ -1558,9 +1657,9 @@ function validateCourse(punches: ProbeResult["punches"], courses: Course[]) {
 }
 
 /// Result time of a stored read on its course (seconds from the start).
-function cardResultSeconds(punches: ProbeResult["punches"], course: Course | undefined) {
+function cardResultSeconds(punches: ProbeResult["punches"], course: Course | undefined, skippedCodes: number[] = []) {
   if (!course) return punches.at(-1)?.timeSeconds;
-  const { codes, finishPunched } = courseCodes(course);
+  const { codes, finishPunched } = courseCodes(course, skippedCodes);
   return (codes.length ? checkCard(punches, codes, finishPunched).resultSeconds : punches.at(-1)?.timeSeconds) ?? undefined;
 }
 
@@ -1574,8 +1673,37 @@ function formatEventDates(event: { startsAt: string; endsAt: string }) {
     : `${day(starts)}–${ends.toLocaleDateString("fi-FI")} · alkaa klo ${time}`;
 }
 
-function CourseChips({ courses }: { courses: Course[] }) {
-  return <div className="course-list">{courses.length ? courses.map((course) => <span key={course.id}><b>{course.name}</b>{(course.lengthMeters / 1000).toLocaleString("fi-FI", { maximumFractionDigits: 1 })} km</span>) : <span className="empty">Ei julkaistuja ratoja</span>}</div>;
+/// Marks controls whose punch unit has died: the card check leaves them out
+/// on every course of the event, here and on the server.
+function SkippedControls({ codes, skipped, pending, onToggle }: { codes: number[]; skipped: number[]; pending: boolean; onToggle: (code: number) => void }) {
+  if (codes.length === 0) return null;
+  return <details className="skipped-controls" open={skipped.length > 0 || undefined}>
+    <summary>Ohitettavat rastit{skipped.length > 0 ? `: ${skipped.join(", ")}` : ""}</summary>
+    <p className="hint">Valitse rasti, jonka leimasin ei toimi. Sitä ei vaadita kortilta millään radalla, ja palvelin tarkastaa jo lähetetyt tulokset uudelleen.{pending ? " Muutos odottaa lähetystä palvelimelle." : ""}</p>
+    <div className="skipped-control-list">{codes.map((code) => <button key={code} type="button" aria-pressed={skipped.includes(code)} className={skipped.includes(code) ? "skipped" : ""} onClick={() => onToggle(code)}>{code}</button>)}</div>
+  </details>;
+}
+
+/// The event's courses; clicking one shows its control codes in order.
+function CourseChips({ courses, skippedCodes = [] }: { courses: Course[]; skippedCodes?: number[] }) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const open = courses.find((course) => course.id === openId);
+  if (!courses.length) return <div className="course-list"><span className="empty">Ei julkaistuja ratoja</span></div>;
+  return <>
+    <div className="course-list">{courses.map((course) => <button key={course.id} type="button" className={course.id === openId ? "open" : ""} aria-expanded={course.id === openId} title="Näytä radan rastikoodit" onClick={() => setOpenId((current) => current === course.id ? null : course.id)}><b>{course.name}</b>{(course.lengthMeters / 1000).toLocaleString("fi-FI", { maximumFractionDigits: 1 })} km</button>)}</div>
+    {open && <CourseCodes course={open} skippedCodes={skippedCodes} />}
+  </>;
+}
+
+function CourseCodes({ course, skippedCodes }: { course: Course; skippedCodes: number[] }) {
+  const controls = (course.controls ?? []).filter((item) => item.type !== "START");
+  if (!controls.length) return <p className="course-codes empty">Radalle {course.name} ei ole tuotu rasteja.</p>;
+  return <ol className="course-codes" aria-label={`Radan ${course.name} rastikoodit`}>{controls.map((item, index) => {
+    const code = item.controlCodes[0] || item.control.code;
+    const finish = item.type === "FINISH";
+    const skipped = !finish && skippedCodes.includes(Number(code));
+    return <li key={`${item.sequenceNumber}-${code}`} className={`${finish ? "finish" : ""} ${skipped ? "skipped" : ""}`} title={skipped ? "Ohitettu tarkastuksessa" : undefined}><span>{finish ? "M" : index + 1}</span>{code}</li>;
+  })}</ol>;
 }
 
 // Small line icons (lucide-style, 24px grid, currentColor).

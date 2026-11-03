@@ -7,6 +7,7 @@ import { CreateCourseDto, UpdateCourseDto } from "./course.dto.js";
 import { NO_COURSES_MESSAGE, planEventImport } from "./events-import.js";
 import { UpdateLiveloxDto } from "./livelox.dto.js";
 import { buildResultListXml } from "./livelox-result-list.js";
+import { setSkippedControls } from "./skipped-controls.js";
 
 // The club's finish punch unit is always coded 100; IOF CourseData exports
 // usually don't assign the finish control an Id at all, since course-planning
@@ -180,6 +181,9 @@ export class EventsService {
         version: { increment: 1 },
       },
     });
+  }
+  updateSkippedControls(id: string, controlCodes: string[]) {
+    return setSkippedControls(this.prisma, id, controlCodes);
   }
   // The API key is write-only: responses only say whether one is stored.
   async livelox(id: string) {

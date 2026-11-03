@@ -48,10 +48,11 @@ const validationOutcome = { ACCEPTED: "ACCEPTED", MISSING_CONTROL: "MISSING_CONT
 /** Admin correction of one result: course, outcome and time. A card read's
  * punches are shown against the chosen course; changing the course checks
  * them again and pre-fills the outcome and time. */
-export function ResultEditDialog({ eventId, result, courses, authHeaders, onSessionExpired, onSaved, onClose }: {
+export function ResultEditDialog({ eventId, result, courses, skippedCodes = [], authHeaders, onSessionExpired, onSaved, onClose }: {
   eventId: string;
   result: AdminResult;
   courses: (CourseForValidation & { name: string })[];
+  skippedCodes?: string[];
   authHeaders: () => Record<string, string>;
   onSessionExpired: () => void;
   onSaved: () => void;
@@ -64,13 +65,13 @@ export function ResultEditDialog({ eventId, result, courses, authHeaders, onSess
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const course = courses.find((item) => item.id === courseId);
-  const validation = punches.length > 0 ? validateAgainstCourse(punches, course) : null;
+  const validation = punches.length > 0 ? validateAgainstCourse(punches, course, skippedCodes) : null;
   const timed = outcome !== "NO_TIME" && outcome !== "DID_NOT_FINISH";
 
   function chooseCourse(id: string) {
     setCourseId(id);
     if (punches.length === 0) return;
-    const check = validateAgainstCourse(punches, courses.find((item) => item.id === id));
+    const check = validateAgainstCourse(punches, courses.find((item) => item.id === id), skippedCodes);
     if (check.status === "UNAVAILABLE") return;
     setOutcome(validationOutcome[check.status]);
     if (check.resultSeconds != null) setDuration(formatSeconds(check.resultSeconds));

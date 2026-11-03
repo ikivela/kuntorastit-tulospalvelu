@@ -31,6 +31,21 @@ async function removeOtherResults(tx: Prisma.TransactionClient, key: ResultKey, 
   await tx.performance.deleteMany({ where: { ...key, id: { not: keepId } } });
 }
 
+/** A skipped control (dead punch unit) is no split: its leg runs on to the
+ * next control, so the lengths add up. */
+function courseLegs(controls: { type: string; controlCodes: string[]; legLengthMeters: number | null; control: { code: string } }[], skippedCodes: string[]) {
+  const legs: { code: string | null; lengthMeters: number | null }[] = [];
+  let carried: number | null = 0;
+  for (const item of controls.filter((control) => control.type !== "START")) {
+    const code = item.type === "FINISH" ? null : item.controlCodes[0] ?? item.control.code;
+    const lengthMeters: number | null = carried == null || item.legLengthMeters == null ? null : carried + item.legLengthMeters;
+    if (code != null && skippedCodes.includes(code)) { carried = lengthMeters; continue; }
+    legs.push({ code, lengthMeters });
+    carried = 0;
+  }
+  return legs;
+}
+
 @Injectable()
 export class PublicService {
   constructor(private readonly prisma: PrismaService) {}
@@ -156,12 +171,12 @@ export class PublicService {
       include: { controls: { orderBy: { sequenceNumber: "asc" }, include: { control: true } } },
     });
     if (!course) throw new BadRequestException("Valittu rata ei kuulu tapahtumaan.");
-    const event = await this.prisma.event.findUnique({ where: { id: eventId }, select: { id: true, status: true } });
+    const event = await this.prisma.event.findUnique({ where: { id: eventId }, select: { id: true, status: true, skippedControlCodes: true } });
     if (!event || event.status === "DRAFT") throw new NotFoundException("Tapahtumaa ei löytynyt.");
     const readAt = new Date(input.readAt);
     // EMIT punch times are seconds from the start; the result is the finish punch.
     const cardPunches = withoutReadoutPunch(input.punches);
-    const timing = cardTiming(cardPunches, course.controls);
+    const timing = cardTiming(cardPunches, course.controls, event.skippedControlCodes);
     const durationMs = (timing.resultSeconds ?? 0) * 1000;
     // The card is read right after its last punch, so the start is that long before the read.
     const startedAt = new Date(readAt.getTime() - (cardPunches.at(-1)?.timeSeconds ?? 0) * 1000);
@@ -505,10 +520,7 @@ export class PublicService {
           lengthMeters: course.lengthMeters,
           // Controls in course order (no start) with the length of the leg
           // to each, for the runner card's leg distances and paces.
-          legs: course.controls.filter((item) => item.type !== "START").map((item) => ({
-            code: item.type === "FINISH" ? null : item.controlCodes[0] ?? item.control.code,
-            lengthMeters: item.legLengthMeters,
-          })),
+          legs: courseLegs(course.controls, event.skippedControlCodes),
           results: results.map(({ person, ...result }) => {
             if (result.status === "ACCEPTED") acceptedRank += 1;
             return {

@@ -61,13 +61,15 @@ export function splitSeconds(punches: EmitPunch[], index: number) {
 
 /** Codes a card must contain in order: the course's controls, plus its
  * FINISH when that is a numbered punch unit (e.g. "100"). START is never
- * punched, and a symbolic finish ("M") has no punch of its own. */
-function courseCodes(course: CourseForValidation) {
+ * punched, and a symbolic finish ("M") has no punch of its own. The event's
+ * skipped controls (a punch unit that died) are left out. */
+function courseCodes(course: CourseForValidation, skippedCodes: string[]) {
   const numbered = (course.controls ?? [])
     .filter((item) => item.type !== "START")
     .map((item) => ({ type: item.type, code: Number(item.controlCodes[0] || item.control.code) }))
     .filter((item) => Number.isFinite(item.code));
-  return { codes: numbered.map((item) => item.code), finishPunched: numbered.at(-1)?.type === "FINISH" };
+  const required = numbered.filter((item) => item.type === "FINISH" || !skippedCodes.includes(String(item.code)));
+  return { codes: required.map((item) => item.code), finishPunched: numbered.at(-1)?.type === "FINISH" };
 }
 
 /** Checks a card against one course the way orienteering rules do: every
@@ -101,9 +103,9 @@ function unavailable(punches: EmitPunch[]): CourseValidation {
 /** Picks the course the card fits best: an accepted course with the most
  * controls (a card that completes C also contains the shorter D), else the
  * one with the largest share of its controls found. */
-export function validateCourse(punches: EmitPunch[], courses: CourseForValidation[]): CourseValidation {
+export function validateCourse(punches: EmitPunch[], courses: CourseForValidation[], skippedCodes: string[] = []): CourseValidation {
   const candidates = courses
-    .map((course) => ({ course, ...courseCodes(course) }))
+    .map((course) => ({ course, ...courseCodes(course, skippedCodes) }))
     .filter((candidate) => candidate.codes.length > 0)
     .map((candidate) => ({ ...candidate, check: checkCard(punches, candidate.codes, candidate.finishPunched) }));
   if (candidates.length === 0) return unavailable(punches);
@@ -116,8 +118,8 @@ export function validateCourse(punches: EmitPunch[], courses: CourseForValidatio
 
 /** Re-checks the punches against one specific course (when the admin picks
  * the course by hand). */
-export function validateAgainstCourse(punches: EmitPunch[], course: CourseForValidation | undefined): CourseValidation {
-  return course ? { ...validateCourse(punches, [course]), courseId: course.id } : unavailable(punches);
+export function validateAgainstCourse(punches: EmitPunch[], course: CourseForValidation | undefined, skippedCodes: string[] = []): CourseValidation {
+  return course ? { ...validateCourse(punches, [course], skippedCodes), courseId: course.id } : unavailable(punches);
 }
 
 // --- Web Serial (Chrome/Edge, secure context only) ---

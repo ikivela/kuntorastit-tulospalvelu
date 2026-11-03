@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, ParseUUIDPipe, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, ParseIntPipe, ParseUUIDPipe, Post, Put, Query, UseGuards } from "@nestjs/common";
 import { ApiQuery, ApiSecurity, ApiTags } from "@nestjs/swagger";
 import { ReaderDeviceAuthGuard } from "../reader-devices/reader-device-auth.guard.js";
 import { ReaderDevicesService } from "../reader-devices/reader-devices.service.js";
@@ -8,6 +8,7 @@ import { CreateReaderResultDto } from "./create-reader-result.dto.js";
 import { CreateManualResultDto } from "./create-manual-result.dto.js";
 import { PublicService } from "./public.service.js";
 import { EventsService } from "../events/events.service.js";
+import { UpdateSkippedControlsDto } from "../events/skipped-controls.dto.js";
 
 @ApiTags("public")
 @Controller("public")
@@ -86,6 +87,17 @@ export class PublicController {
     @Body() input: CreateManualResultDto,
   ) {
     return this.publicService.addManualResult(eventId, input);
+  }
+
+  /** "Ohitettavat rastit" in the pc-client: a punch unit that died. */
+  @Put("events/:eventId/skipped-controls")
+  @UseGuards(ReaderDeviceAuthGuard)
+  @ApiSecurity("bearer")
+  updateSkippedControls(
+    @Param("eventId", new ParseUUIDPipe()) eventId: string,
+    @Body() input: UpdateSkippedControlsDto,
+  ) {
+    return this.events.updateSkippedControls(eventId, input.controlCodes);
   }
 
   /** "Lopeta tapahtuma" in the pc-client and the web result service. */

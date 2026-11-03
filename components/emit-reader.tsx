@@ -29,6 +29,7 @@ const validationToStatus = { ACCEPTED: "OK", MISSING_CONTROL: "MISSING_CONTROL",
 export function EmitReader({ event, token, onSessionExpired, onStateChange }: { event: { id: string; name: string; status: string }; token: string; onSessionExpired: () => void; onStateChange?: (state: { connected: boolean; pendingCards: number }) => void }) {
   const support = webSerialSupport();
   const [courses, setCourses] = useState<Course[]>([]);
+  const [skippedCodes, setSkippedCodes] = useState<string[]>([]);
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [queue, setQueue] = useState<PendingCard[]>([]);
@@ -43,7 +44,9 @@ export function EmitReader({ event, token, onSessionExpired, onStateChange }: { 
       .then(async (response) => {
         if (response.status === 401) { onSessionExpired(); return; }
         if (!response.ok) throw new Error();
-        setCourses(((await response.json()) as { courses: Course[] }).courses);
+        const data = await response.json() as { courses: Course[]; skippedControlCodes?: string[] };
+        setCourses(data.courses);
+        setSkippedCodes(data.skippedControlCodes ?? []);
       })
       .catch(() => setError("Tapahtuman ratojen lataaminen epäonnistui."));
   }, [event.id, authHeaders, onSessionExpired]);
@@ -97,16 +100,16 @@ export function EmitReader({ event, token, onSessionExpired, onStateChange }: { 
       onSaved={(participant) => { setAddOpen(false); setSaved((items) => [{ key: `manual-${Date.now()}`, cardNumber: null, name: participant.name, status: participant.durationSeconds != null ? "OK" : "NO_TIME", seconds: participant.durationSeconds ?? 0, courseName: participant.courseName }, ...items]); }} />}</DialogContent></Dialog>
     {event.status === "DRAFT" && <p className="flex items-center gap-2 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm"><AlertCircle className="size-4 text-amber-600" />Tapahtuma on luonnos: tuloksia ei voi tallentaa ennen kuin tapahtuma julkaistaan.</p>}
     {error && <p role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">{error}</p>}
-    {current && <CardConfirm key={`${current.signature}-${current.readAt}`} card={current} courses={courses} eventId={event.id} authHeaders={authHeaders} onSessionExpired={onSessionExpired}
+    {current && <CardConfirm key={`${current.signature}-${current.readAt}`} card={current} courses={courses} skippedCodes={skippedCodes} eventId={event.id} authHeaders={authHeaders} onSessionExpired={onSessionExpired}
       onDone={(result) => { setQueue((items) => items.slice(1)); if (result) setSaved((items) => [result, ...items]); }} />}
     {saved.length > 0 && <div><p className="mb-2 text-sm font-bold">Tallennetut tällä kertaa ({saved.length})</p><Table><TableHeader><TableRow><TableHead>Nimi</TableHead><TableHead>Kortti</TableHead><TableHead>Rata</TableHead><TableHead>Aika</TableHead><TableHead>Tila</TableHead></TableRow></TableHeader><TableBody>{saved.map((item) => <TableRow key={item.key}><TableCell className="font-medium">{item.name}</TableCell><TableCell>{item.cardNumber ?? "–"}</TableCell><TableCell>{item.courseName}</TableCell><TableCell>{item.status === "NO_TIME" || item.status === "DID_NOT_FINISH" ? "–" : formatSeconds(item.seconds)}</TableCell><TableCell>{statusLabels[item.status]}</TableCell></TableRow>)}</TableBody></Table></div>}
   </div>;
 }
 
-function CardConfirm({ card, courses, eventId, authHeaders, onSessionExpired, onDone }: { card: PendingCard; courses: Course[]; eventId: string; authHeaders: () => Record<string, string>; onSessionExpired: () => void; onDone: (result: SavedRead | null) => void }) {
-  const auto = validateCourse(card.punches, courses);
+function CardConfirm({ card, courses, skippedCodes, eventId, authHeaders, onSessionExpired, onDone }: { card: PendingCard; courses: Course[]; skippedCodes: string[]; eventId: string; authHeaders: () => Record<string, string>; onSessionExpired: () => void; onDone: (result: SavedRead | null) => void }) {
+  const auto = validateCourse(card.punches, courses, skippedCodes);
   const [courseId, setCourseId] = useState(auto.courseId ?? courses[0]?.id ?? "");
-  const validation = courseId === auto.courseId ? auto : validateAgainstCourse(card.punches, courses.find((course) => course.id === courseId));
+  const validation = courseId === auto.courseId ? auto : validateAgainstCourse(card.punches, courses.find((course) => course.id === courseId), skippedCodes);
   const [status, setStatus] = useState<ResultStatus>(validationToStatus[auto.status]);
   const [firstName, setFirstName] = useState(card.person?.firstName ?? "");
   const [lastName, setLastName] = useState(card.person?.lastName ?? "");
@@ -118,7 +121,7 @@ function CardConfirm({ card, courses, eventId, authHeaders, onSessionExpired, on
 
   function chooseCourse(id: string) {
     setCourseId(id);
-    setStatus(validationToStatus[validateAgainstCourse(card.punches, courses.find((course) => course.id === id)).status]);
+    setStatus(validationToStatus[validateAgainstCourse(card.punches, courses.find((course) => course.id === id), skippedCodes).status]);
   }
 
   async function save() {

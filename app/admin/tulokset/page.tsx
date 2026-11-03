@@ -28,6 +28,7 @@ export default function ResultsAdminPage() {
   const [events, setEvents] = useState<EventOption[] | null>(null);
   const [eventId, setEventId] = useState("");
   const [courses, setCourses] = useState<Course[]>([]);
+  const [skippedCodes, setSkippedCodes] = useState<string[]>([]);
   const [results, setResults] = useState<AdminResult[] | null>(null);
   const [editing, setEditing] = useState<AdminResult | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -70,10 +71,11 @@ export default function ResultsAdminPage() {
       .then(async ([eventResponse, resultsResponse]) => {
         if (eventResponse.status === 401 || resultsResponse.status === 401) { onSessionExpired(); return; }
         if (!eventResponse.ok || !resultsResponse.ok) throw new Error();
-        const eventData = await eventResponse.json() as { courses: Course[] };
+        const eventData = await eventResponse.json() as { courses: Course[]; skippedControlCodes?: string[] };
         const resultData = await resultsResponse.json() as AdminResult[];
         if (disposed) return;
         setCourses(eventData.courses);
+        setSkippedCodes(eventData.skippedControlCodes ?? []);
         setResults(resultData);
         setError("");
       })
@@ -118,7 +120,7 @@ export default function ResultsAdminPage() {
             </TableRow>)}</TableBody></Table>}</CardContent></Card>)}</div>}
         </>}
     </div>
-    <Dialog open={editing != null} onOpenChange={(open) => { if (!open) setEditing(null); }}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-2xl">{editing && <ResultEditDialog eventId={eventId} result={editing} courses={courses} authHeaders={authHeaders} onSessionExpired={onSessionExpired} onClose={() => setEditing(null)}
+    <Dialog open={editing != null} onOpenChange={(open) => { if (!open) setEditing(null); }}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-2xl">{editing && <ResultEditDialog eventId={eventId} result={editing} courses={courses} skippedCodes={skippedCodes} authHeaders={authHeaders} onSessionExpired={onSessionExpired} onClose={() => setEditing(null)}
       onSaved={() => { setNotice(`${editing.firstName} ${editing.lastName}: tulos korjattu.`); setEditing(null); load(); }} />}</DialogContent></Dialog>
     <Dialog open={addOpen} onOpenChange={setAddOpen}><DialogContent className="rounded-3xl sm:max-w-lg">{addOpen && <AddParticipantDialog eventId={eventId} courses={courses} authHeaders={authHeaders} onSessionExpired={onSessionExpired} onClose={() => setAddOpen(false)}
       onSaved={(participant) => { setAddOpen(false); setNotice(`${participant.name} lisätty radalle ${participant.courseName}.`); load(); }} />}</DialogContent></Dialog>

@@ -48,7 +48,7 @@ export class ResultsService {
     const courseId = input.courseId ?? performance.courseId;
     const course = await this.prisma.course.findFirst({
       where: { id: courseId, eventId },
-      include: { controls: { orderBy: { sequenceNumber: "asc" }, include: { control: true } } },
+      include: { controls: { orderBy: { sequenceNumber: "asc" }, include: { control: true } }, event: { select: { skippedControlCodes: true } } },
     });
     if (!course) throw new BadRequestException("Valittu rata ei kuulu tapahtumaan.");
     if (courseId !== performance.courseId) {
@@ -62,7 +62,7 @@ export class ResultsService {
     const plan = planResultUpdate(performance, input);
     // A card read's punches are re-marked against the (new) course.
     const timing = courseId !== performance.courseId && performance.punches.length > 0
-      ? cardTiming(performance.punches.map((punch) => ({ controlCode: Number(punch.controlCode), timeSeconds: Number(punch.elapsedMs ?? 0n) / 1000 })), course.controls)
+      ? cardTiming(performance.punches.map((punch) => ({ controlCode: Number(punch.controlCode), timeSeconds: Number(punch.elapsedMs ?? 0n) / 1000 })), course.controls, course.event.skippedControlCodes)
       : null;
     await this.prisma.$transaction([
       this.prisma.performance.update({ where: { id: performance.id }, data: { courseId, ...plan } }),

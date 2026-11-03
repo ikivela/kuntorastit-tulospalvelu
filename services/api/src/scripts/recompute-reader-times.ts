@@ -39,7 +39,7 @@ async function main() {
     where: { performanceId: { not: null }, ...(eventId ? { eventId } : {}) },
     orderBy: { readAt: "asc" },
     include: {
-      event: { select: { name: true } },
+      event: { select: { name: true, skippedControlCodes: true } },
       performance: {
         include: {
           attendance: { select: { person: { select: { firstName: true, lastName: true } } } },
@@ -55,9 +55,8 @@ async function main() {
     const raw = read.rawData as { punches?: TimedPunch[] } | null;
     if (!Array.isArray(raw?.punches) || raw.punches.length === 0) continue;
     const punches = withoutReadoutPunch(raw.punches);
-    const timing = cardTiming(punches, performance.course.controls);
-    const allFound = timing.matchedIndices.length === performance.course.controls
-      .filter((item) => item.type !== "START" && Number.isFinite(Number(item.controlCodes[0] || item.control.code))).length;
+    const timing = cardTiming(punches, performance.course.controls, read.event.skippedControlCodes);
+    const allFound = timing.missingCodes.length === 0;
     const acceptStatus = fixStatus && allFound && performance.status === "DISQUALIFIED";
     const status = acceptStatus ? "ACCEPTED" as const : performance.status;
     const timed = status !== "NO_TIME" && status !== "DID_NOT_FINISH";
