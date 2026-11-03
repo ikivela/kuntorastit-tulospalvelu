@@ -142,12 +142,7 @@ fn start_emit250(
         .latest_read
         .lock()
         .map_err(|_| "Lukutilan avaaminen epäonnistui.".to_string())? = None;
-    let port = serialport::new(&port_name, EMIT_250_BAUD_RATE)
-        .data_bits(DataBits::Eight)
-        .parity(Parity::None)
-        .stop_bits(StopBits::Two)
-        .timeout(Duration::from_millis(200))
-        .open()
+    let port = open_reader_port(&port_name)
         .map_err(|error| {
             let message = format!("Could not open {port_name}: {error}");
             app.state::<Logger>().error("serial", &message);
@@ -289,13 +284,32 @@ async fn probe_emit250(port_name: String, seconds: Option<u64>) -> Result<Emit25
         .map_err(|error| format!("EMIT reader task failed: {error}"))?
 }
 
-fn read_emit250(port_name: String, seconds: Option<u64>) -> Result<Emit250Read, String> {
-    let mut port = serialport::new(&port_name, EMIT_250_BAUD_RATE)
+/// Opens the reader's serial port (9600 8N2). A virtual port pair for
+/// testing (`socat pty,... pty,...`) is a pseudo terminal, where macOS
+/// can't set the speed (IOSSIOSPEED fails with "Not a typewriter"); the
+/// speed means nothing there, so it is opened without one.
+fn open_reader_port(port_name: &str) -> serialport::Result<Box<dyn serialport::SerialPort>> {
+    let baud_rate = if is_pseudo_terminal(port_name) { 0 } else { EMIT_250_BAUD_RATE };
+    serialport::new(port_name, baud_rate)
         .data_bits(DataBits::Eight)
         .parity(Parity::None)
         .stop_bits(StopBits::Two)
         .timeout(Duration::from_millis(200))
         .open()
+}
+
+/// macOS pseudo terminals are /dev/ttysNNN (socat's `link=` is a symlink
+/// to one); real USB adapters are /dev/cu.* or /dev/tty.*.
+fn is_pseudo_terminal(port_name: &str) -> bool {
+    cfg!(target_os = "macos")
+        && std::fs::canonicalize(port_name)
+            .ok()
+            .and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()))
+            .is_some_and(|name| name.strip_prefix("ttys").is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit())))
+}
+
+fn read_emit250(port_name: String, seconds: Option<u64>) -> Result<Emit250Read, String> {
+    let mut port = open_reader_port(&port_name)
         .map_err(|error| format!("Could not open {port_name}: {error}"))?;
 
     let deadline = Instant::now() + Duration::from_secs(seconds.unwrap_or(15).clamp(1, 60));

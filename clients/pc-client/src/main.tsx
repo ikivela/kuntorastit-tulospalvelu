@@ -1117,6 +1117,11 @@ function App() {
         await invoke("confirm_latest_emit250_read", { participantId: participant.id, eventId: event.id, courseId: validation.courseId, resultStatus: "OK" });
         log("INFO", "result", `Hyväksytty automaattisesti: kortti ${cardNumber}, ${name}, rata ${validation.courseName}, ${formatDuration(validation.resultSeconds ?? undefined)}`);
         setBigScreen({ tone: "ok", eyebrow: "Tulos hyväksytty", title: name, value: formatDuration(validation.resultSeconds ?? undefined), detail: [validation.courseName, participant.club].filter(Boolean).join(" · ") });
+        // The reader stops after each card (until it is confirmed); with no
+        // dialog to confirm, listening goes on for the next card right away.
+        // (Not tied to `disposed`: showing the read re-runs this effect, so
+        // the handler is always disposed by now.)
+        if (activeEventIdRef.current === event.id) await startListening();
         setStatus(`${name}: tulos hyväksytty (${validation.courseName}).`);
         await refreshHistory(event.id);
         void syncPending();

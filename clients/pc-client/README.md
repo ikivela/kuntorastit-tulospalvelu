@@ -244,7 +244,10 @@ socat -d -d pty,raw,echo=0,link=/tmp/emit-a pty,raw,echo=0,link=/tmp/emit-b
 ```
 
 Valitse clientissä portiksi `/tmp/emit-b` ja anna simulaattorille `--port
-/tmp/emit-a`.
+/tmp/emit-a`. Virtuaaliportti ei näy porttilistassa, joten kirjoita polku
+porttikenttään. macOS:llä virtuaaliportille ei voi asettaa nopeutta ("Not a
+typewriter"), joten client avaa sen ilman nopeutta; tämä vaatii clientin
+version, jossa korjaus on mukana.
 
 ## FTDI-kaapeliyhteyden testaus
 
