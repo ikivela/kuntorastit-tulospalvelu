@@ -90,6 +90,8 @@ button:disabled { opacity: .5; cursor: default; }
 .reader-badge.waiting span { background: #e0a100; }
 .reader-badge.error { color: #8b2c22; background: var(--danger-soft); }
 .reader-badge.error span { background: #d84a3b; }
+.reader-badge.reconnect { border: 1px solid transparent; font: inherit; font-weight: 800; }
+.reader-badge.reconnect:hover:not(:disabled) { border-color: var(--danger); }
 .course-list { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
 .course-list span { display: inline-flex; gap: 6px; border-radius: 999px; background: var(--primary-soft); color: #244b30; padding: 5px 11px; font-size: .85rem; }
 .course-list span b { font-weight: 750; }
@@ -114,6 +116,10 @@ button:disabled { opacity: .5; cursor: default; }
 .mode-toggle.large { display: grid; grid-template-columns: 1fr 1fr; width: 100%; margin-top: 12px; }
 .mode-toggle.large button { display: grid; justify-items: start; gap: 2px; padding: .7em .9em; text-align: left; }
 .mode-toggle.large button span { font-size: .78rem; font-weight: 500; opacity: .85; }
+.mode-settings { margin-top: 8px; }
+.mode-settings .mode-toggle.large { margin-top: 6px; }
+.mode-settings .hint { margin: 6px 0 0; color: #5b6578; font-size: .85rem; }
+.mode-note { margin: 4px 0 0; color: var(--muted); font-size: .9rem; }
 
 /* Registration form */
 .modal.registration-modal { width: min(44rem, 100%); }

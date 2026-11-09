@@ -571,7 +571,7 @@ function App() {
   }
 
   async function stopEvent() {
-    log("INFO", "event", `Tapahtuma lopetettu: ${activeEvent?.name ?? "–"}`);
+    log("INFO", "event", `Tapahtuma suljettu tällä koneella: ${activeEvent?.name ?? "–"}`);
     await stopListening();
     setActiveEvent(null);
     activeEventIdRef.current = null;
@@ -1257,9 +1257,12 @@ function App() {
               <p className="event-meta">{formatEventDates(activeEvent)} · {activeEvent.locationName || "Paikka ei tiedossa"}</p>
             </div>
             <div className="event-card-side">
-              <ModeToggle mode={mode} onChange={setMode} disabled={Boolean(pendingCard || registrationDraft)} />
-              <div className={`reader-badge ${pendingCard || registrationDraft ? "waiting" : reading ? "ok" : "error"}`}><span />{pendingCard ? "Kuittaus odottaa" : registrationDraft ? "Ilmoittautuminen auki" : reading ? (mode === "registration" ? "Lue kortti" : "Lukija OK") : "Lukija ei yhteydessä"}</div>
-              <button type="button" className="danger-outline" onClick={() => setFinishState({ phase: "confirm" })}><StopIcon />Lopeta tapahtuma</button>
+              {pendingCard || registrationDraft || reading
+                ? <div className={`reader-badge ${pendingCard || registrationDraft ? "waiting" : "ok"}`}><span />{pendingCard ? "Kuittaus odottaa" : registrationDraft ? "Ilmoittautuminen auki" : mode === "registration" ? "Lue kortti" : "Lukija OK"}</div>
+                // Listening stopped (cable out, read error): reconnect here, no
+                // need to close the event for it.
+                : <button type="button" className="reader-badge error reconnect" title={`Avaa portti ${selected || "–"} uudelleen`} onClick={() => void startListening()}><span />Lukija ei yhteydessä · Yhdistä uudelleen</button>}
+              <button type="button" className="danger-outline" onClick={() => setFinishState({ phase: "confirm" })}><StopIcon />Sulje tapahtuma</button>
             </div>
           </div>
           <CourseChips courses={activeEvent.courses} skippedCodes={skippedCodes} />
@@ -1270,7 +1273,7 @@ function App() {
         <section className="event-card start">
           <span className="eyebrow">Käynnistä</span>
           <h1>Valitse tapahtuma</h1>
-          <ModeToggle mode={mode} onChange={setMode} large />
+          <p className="mode-note">{mode === "registration" ? "Ilmoittautumismoodi" : "Lukijamoodi"} · tilan voi vaihtaa Asetuksista</p>
           {calendarLoading ? <p className="muted">Haetaan tapahtumia…</p> : calendarError ? (
             <div className="callout danger"><p className="error">{calendarError}</p><p className="hint">API-osoite: {apiBase}</p><button type="button" onClick={() => void loadCalendar()}>Yritä uudelleen</button></div>
           ) : <>
@@ -1289,6 +1292,7 @@ function App() {
         <div className="modal-backdrop" role="presentation">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
             <h2 id="settings-title">Asetukset</h2>
+            <div className="mode-settings"><span className="settings-label">Tila</span><ModeToggle mode={mode} onChange={setMode} disabled={Boolean(pendingCard || registrationDraft)} large />{(pendingCard || registrationDraft) && <p className="hint">Kuittaa tai sulje avoin kortti ennen tilan vaihtoa.</p>}</div>
             <div className="reader-settings"><span className="settings-label">Lukijan sarjaportti</span><select value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading}><option value="">Valitse sarjaportti</option>{devices.map((device) => <option key={device.portName} value={device.portName}>{device.portName} – {device.product || device.manufacturer || device.portType}</option>)}</select><input className="port-input" value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading} placeholder="Sarjaportin polku" aria-label="Sarjaportin polku" /><button type="button" onClick={() => void refresh()} disabled={reading}>Päivitä portit</button><div className="device-row"><span className="settings-label">Lukijalaite</span>{deviceStatus === "unregistered" || deviceStatus === "revoked" ? <>{deviceStatus === "revoked" && <p className="error">Ylläpitäjä on peruuttanut tämän laitteen pääsyn. Rekisteröidy uudelleen.</p>}<input className="device-name-input" value={deviceNameInput} onChange={(e) => setDeviceNameInput(e.target.value)} placeholder="Laitteen nimi, esim. Maalin lukija #1" aria-label="Laitteen nimi" /><button type="button" onClick={() => void registerDevice()} disabled={!deviceNameInput.trim()}>Lähetä hyväksyntäpyyntö</button></> : deviceStatus === "pending" ? <><span>Odotetaan ylläpitäjän hyväksyntää (nimellä &quot;{deviceName}&quot;)…</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button></> : <><span className="device-approved">✓ Hyväksytty (nimellä &quot;{deviceName}&quot;)</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button><button type="button" onClick={() => void forgetDevice()}>Unohda laite</button></>}{deviceError && <p className="error">{deviceError}</p>}</div><form className="api-row" onSubmit={(event) => { event.preventDefault(); void saveApiBase(apiBaseInput); }}><label htmlFor="api-base-input">API-osoite</label><input id="api-base-input" className="api-base-input" value={apiBaseInput} onChange={(e) => setApiBaseInput(e.target.value)} disabled={!!activeEvent} placeholder={DEFAULT_API_BASE} spellCheck={false} /><button type="submit" disabled={!!activeEvent || normalizeApiBase(apiBaseInput) === apiBase}>Tallenna</button>{apiBase !== DEFAULT_API_BASE && <button type="button" disabled={!!activeEvent} onClick={() => void saveApiBase(DEFAULT_API_BASE)}>Palauta oletus</button>}<p className="hint">{activeEvent ? "Osoitetta voi vaihtaa vain, kun tapahtuma ei ole käynnissä." : "Osoitteen vaihto unohtaa laitteen hyväksynnän: lähetä hyväksyntäpyyntö uudelle palvelimelle."}</p>{apiBaseError && <p className="error">{apiBaseError}</p>}</form><div className="log-row"><label className="log-row-label" htmlFor="big-screen-seconds">Hyväksytyn tuloksen näyttöaika</label><input id="big-screen-seconds" className="seconds-input" type="number" min={MIN_BIG_SCREEN_SECONDS} max={MAX_BIG_SCREEN_SECONDS} key={bigScreenSeconds} defaultValue={bigScreenSeconds} onBlur={(e) => { const value = Number(e.target.value); const seconds = value ? clampBigScreenSeconds(value) : bigScreenSeconds; e.target.value = String(seconds); saveBigScreenSeconds(seconds); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} /> s<p className="hint">Nimi, aika ja rata näytetään isolla {MIN_BIG_SCREEN_SECONDS}–{MAX_BIG_SCREEN_SECONDS} sekuntia (oletus {DEFAULT_BIG_SCREEN_SECONDS}). Klikkaus sulkee näkymän heti.</p></div><div className="log-row"><span className="log-row-label">Debug-loki</span><button type="button" onClick={() => void openLog(false)}>Avaa loki</button><button type="button" onClick={() => void openLog(true)}>Avaa kansio</button>{logPath && <p className="hint">{logPath}</p>}{logError && <p className="error">{logError}</p>}</div></div>
             <div className="confirm-actions"><button type="button" className="primary" onClick={() => setSettingsOpen(false)}>Sulje</button></div>
           </section>
@@ -1363,24 +1367,28 @@ function App() {
       {finishState && activeEvent && (
         <div className="modal-backdrop" role="presentation">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="finish-title">
-            <h2 id="finish-title">Lopeta tapahtuma</h2>
+            <h2 id="finish-title">{finishState.phase === "confirm" ? "Sulje tapahtuma" : "Lopeta tapahtuma"}</h2>
             {finishState.phase === "confirm" && !deviceToken ? <>
               {/* Without an approved device the server can't be told; say so
                   up front instead of failing after "Kyllä, lopeta". */}
               <p>Tätä laitetta ei ole hyväksytty palvelimella, joten <b>{activeEvent.name}</b> ei voi merkitä valmiiksi eikä tuloksia lähettää Liveloxiin tältä koneelta.</p>
-              <p className="hint">Lopetus sulkee tapahtuman vain tällä koneella. Koneelle tallennetut tulokset ja ilmoittautumiset lähtevät palvelimelle, kun laite on hyväksytty (Asetukset → Lähetä hyväksyntäpyyntö, hyväksyntä ylläpidon Lukijalaitteet-sivulla).</p>
-              {pendingCard && <p className="error">Kuittaa tai ohita odottava kortti ennen lopettamista.</p>}
+              <p className="hint">Tapahtuman voi sulkea vain tällä koneella. Koneelle tallennetut tulokset ja ilmoittautumiset lähtevät palvelimelle, kun laite on hyväksytty (Asetukset → Lähetä hyväksyntäpyyntö, hyväksyntä ylläpidon Lukijalaitteet-sivulla).</p>
+              {pendingCard && <p className="error">Kuittaa tai ohita odottava kortti ennen sulkemista.</p>}
               <div className="confirm-actions">
-                <button className="primary" type="button" disabled={Boolean(pendingCard)} onClick={() => void closeFinishedEvent()}>Lopeta tällä koneella</button>
+                <button className="primary" type="button" disabled={Boolean(pendingCard)} onClick={() => void closeFinishedEvent()}>Sulje tältä koneelta</button>
                 <button type="button" onClick={() => { setFinishState(null); setSettingsOpen(true); }}>Avaa asetukset</button>
                 <button type="button" onClick={() => setFinishState(null)}>Peruuta</button>
               </div>
             </> : finishState.phase === "confirm" ? <>
-              <p>Lopetetaanko <b>{activeEvent.name}</b>? Tapahtuma merkitään valmiiksi ja tulokset lähetetään Liveloxiin, jos se on otettu käyttöön tapahtumalle.</p>
-              <p className="hint">Valmiin tapahtuman ratoja ei voi enää muokata. Tuloksia voi edelleen korjata ylläpidossa.</p>
-              {pendingCard && <p className="error">Kuittaa tai ohita odottava kortti ennen lopettamista.</p>}
+              {/* Closing here is the everyday choice; finishing the event is
+                  final (status, Livelox, courses locked), so it is the
+                  separate red button. */}
+              <p><b>Sulje tältä koneelta:</b> kuuntelu loppuu ja kone palaa tapahtuman valintaan. {activeEvent.name} jää palvelimella auki, joten muut lukijat voivat jatkaa ja tämän koneen voi käynnistää siihen uudelleen. Lähettämättömät tulokset lähtevät taustalla.</p>
+              <p className="hint"><b>Lopeta tapahtuma lopullisesti:</b> tapahtuma merkitään valmiiksi ja tulokset lähetetään Liveloxiin, jos se on otettu käyttöön. Valmiin tapahtuman ratoja ei voi enää muokata; tuloksia voi edelleen korjata ylläpidossa.</p>
+              {pendingCard && <p className="error">Kuittaa tai ohita odottava kortti ennen sulkemista.</p>}
               <div className="confirm-actions">
-                <button className="primary" type="button" disabled={Boolean(pendingCard)} onClick={() => void finishEvent()}>Kyllä, lopeta tapahtuma</button>
+                <button className="primary" type="button" disabled={Boolean(pendingCard)} onClick={() => void closeFinishedEvent()}>Sulje tältä koneelta</button>
+                <button className="danger" type="button" disabled={Boolean(pendingCard)} onClick={() => void finishEvent()}>Lopeta tapahtuma lopullisesti</button>
                 <button type="button" onClick={() => setFinishState(null)}>Peruuta</button>
               </div>
             </> : finishState.phase === "working" ? <p className="status">{finishState.step}</p>
