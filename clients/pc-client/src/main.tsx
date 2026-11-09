@@ -1115,7 +1115,11 @@ function App() {
     // (unknown card, missing control) goes to the confirm dialog as before.
     const handleCard = async (latest: ProbeResult, cardNumber: number) => {
       const participant = await invoke<Participant | null>("participant_by_card", { cardNumber }) ?? await lookupCardFromApi(cardNumber);
-      if (disposed) return;
+      // Not `disposed`: showing the read (setResult) re-runs this effect, so
+      // by the time a card unknown here has been looked up on the server the
+      // handler is always disposed, and the card would be dropped. Only an
+      // event stopped meanwhile drops it.
+      if (activeEventIdRef.current !== event.id) return;
       const name = participant ? `${participant.firstName} ${participant.lastName}` : "";
       if (modeRef.current === "registration") {
         await invoke("stop_emit250");
@@ -1135,8 +1139,6 @@ function App() {
         setBigScreen({ tone: "ok", eyebrow: "Tulos hyväksytty", title: name, value: formatDuration(validation.resultSeconds ?? undefined), detail: [validation.courseName, participant.club].filter(Boolean).join(" · ") });
         // The reader stops after each card (until it is confirmed); with no
         // dialog to confirm, listening goes on for the next card right away.
-        // (Not tied to `disposed`: showing the read re-runs this effect, so
-        // the handler is always disposed by now.)
         if (activeEventIdRef.current === event.id) await startListening();
         setStatus(`${name}: tulos hyväksytty (${validation.courseName}).`);
         await refreshHistory(event.id);
