@@ -16,6 +16,8 @@ let installationIdPromise: Promise<string> | undefined;
 // Unsynced reads are retried on this interval and whenever the OS reports the
 // connection back, so results taken offline go out without user action.
 const SYNC_INTERVAL_MS = 30_000;
+const ON_COURSE_INTERVAL_MS = 30_000;
+const RECONNECT_INTERVAL_MS = 5_000;
 // How long an accepted result (or a registration) is shown big on the screen.
 const DEFAULT_BIG_SCREEN_SECONDS = 8;
 const MIN_BIG_SCREEN_SECONDS = 3;
@@ -78,6 +80,8 @@ type FinishState =
   | { phase: "done"; unsynced: number; livelox: { configured: boolean; uploaded: boolean; error: string | null } }
   | { phase: "failed"; error: string; unsynced: number };
 
+type OnCourseRunner = { id: string; firstName: string; lastName: string; club: string | null; courseName: string; registeredAt: string | null };
+
 type StoredCardRead = {
   id: number;
   eventId: string;
@@ -120,7 +124,11 @@ function App() {
   const [result, setResult] = useState<ProbeResult | null>(null);
   const [status, setStatus] = useState("Haetaan sarjaportteja...");
   const [reading, setReading] = useState(false);
+  // The reader went away while listening (unplugged): reconnect on a timer
+  // until it is back or listening is stopped by hand.
+  const [readerLost, setReaderLost] = useState(false);
   const [history, setHistory] = useState<StoredCardRead[]>([]);
+  const [onCourse, setOnCourse] = useState<OnCourseRunner[]>([]);
   const [historySearch, setHistorySearch] = useState("");
   const [pendingCard, setPendingCard] = useState<ProbeResult | null>(null);
   const [pendingEventId, setPendingEventId] = useState<string | null>(null);
@@ -208,7 +216,7 @@ function App() {
     void (async () => {
       const listeners = await Promise.all([
         listen<ProbeResult>("emit250://read", () => undefined),
-        listen<string>("emit250://error", (event) => { if (!disposed) { setReading(false); setStatus(event.payload); } }),
+        listen<string>("emit250://error", (event) => { if (!disposed) { setReading(false); setReaderLost(true); setStatus(`${event.payload} Yhdistetään uudelleen ${RECONNECT_INTERVAL_MS / 1000} s välein…`); } }),
         listen("emit250://stopped", () => { if (!disposed) { setReading(false); setStatus("Kuuntelu lopetettu."); } }),
       ]);
       [unlistenRead, unlistenError, unlistenStopped] = listeners;
@@ -227,23 +235,33 @@ function App() {
     }
   }
 
-  async function startListening() {
+  async function startListening({ retry = false } = {}) {
     if (!selected) return false;
     setReading(true);
     setResult(null);
-    setStatus("Avataan porttia…");
+    if (!retry) setStatus("Avataan porttia…");
     try {
       await invoke("start_emit250", { portName: selected });
       await invoke("set_reader_port_setting", { portName: selected }).catch(() => undefined);
+      if (retry) log("INFO", "serial", `Lukija yhdistetty uudelleen (${selected})`);
+      setReaderLost(false);
       setStatus("");
       return true;
     } catch (error) {
-      log("ERROR", "serial", `Kuuntelun käynnistys epäonnistui (${selected}): ${String(error)}`);
+      // A reconnect attempt failing every few seconds is expected while the
+      // reader is unplugged: the Rust side logs the open error already.
+      if (!retry) log("ERROR", "serial", `Kuuntelun käynnistys epäonnistui (${selected}): ${String(error)}`);
       setReading(false);
-      setStatus(String(error));
+      setStatus(retry ? `Lukija ei yhteydessä (${String(error)}). Yritetään uudelleen ${RECONNECT_INTERVAL_MS / 1000} s välein…` : String(error));
       return false;
     }
   }
+
+  useEffect(() => {
+    if (!readerLost || reading || !activeEvent || pendingCard || registrationDraft) return;
+    const timer = window.setTimeout(() => void startListening({ retry: true }), RECONNECT_INTERVAL_MS);
+    return () => window.clearTimeout(timer);
+  }, [readerLost, reading, activeEvent?.id, pendingCard, registrationDraft, selected]);
 
   // Every successful fetch is stored locally; without a connection the stored
   // calendar (events, courses and controls) is used, so an event can still be
@@ -590,6 +608,7 @@ function App() {
   }
 
   async function stopListening() {
+    setReaderLost(false);
     await invoke("stop_emit250");
     setReading(false);
     setStatus("Kuuntelu lopetettu.");
@@ -968,6 +987,28 @@ function App() {
     };
   }, [calendarCachedAt]);
 
+  // Reader mode: those registered at the event (on any machine, via the
+  // API) who have no result yet, i.e. still out on the course.
+  useEffect(() => {
+    const eventId = activeEvent?.id;
+    if (!eventId || mode !== "reader") { setOnCourse([]); return; }
+    let disposed = false;
+    const load = async () => {
+      try {
+        const response = await fetchWithTimeout(`${API_BASE}/public/events/${eventId}/results`, { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json() as { courses: { name: string; results: { id: string; onCourse?: boolean; firstName: string; lastName: string; clubName: string | null; readAt: string | null }[] }[] };
+        if (disposed) return;
+        setOnCourse(data.courses.flatMap((course) => course.results.filter((runner) => runner.onCourse).map((runner) => ({
+          id: runner.id, firstName: runner.firstName, lastName: runner.lastName, club: runner.clubName, courseName: course.name, registeredAt: runner.readAt,
+        }))));
+      } catch { /* offline: keep the last list */ }
+    };
+    void load();
+    const interval = window.setInterval(() => void load(), ON_COURSE_INTERVAL_MS);
+    return () => { disposed = true; window.clearInterval(interval); };
+  }, [activeEvent?.id, mode, history.length]);
+
   // Also covers startup: the stored token loads here and the first round runs.
   useEffect(() => {
     deviceTokenRef.current = deviceToken;
@@ -1236,6 +1277,11 @@ function App() {
     ].some((value) => value.toLocaleLowerCase("fi-FI").includes(query)));
   }, [history, historySearch]);
 
+  const stillOnCourse = useMemo(() => {
+    const read = new Set(history.map((item) => `${item.firstName} ${item.lastName}`.toLocaleLowerCase("fi-FI")));
+    return onCourse.filter((runner) => !read.has(`${runner.firstName} ${runner.lastName}`.toLocaleLowerCase("fi-FI")));
+  }, [onCourse, history]);
+
   const selectedEvent = events.find((event) => event.id === selectedEventId) ?? null;
   return (
     <main>
@@ -1261,7 +1307,7 @@ function App() {
                 ? <div className={`reader-badge ${pendingCard || registrationDraft ? "waiting" : "ok"}`}><span />{pendingCard ? "Kuittaus odottaa" : registrationDraft ? "Ilmoittautuminen auki" : mode === "registration" ? "Lue kortti" : "Lukija OK"}</div>
                 // Listening stopped (cable out, read error): reconnect here, no
                 // need to close the event for it.
-                : <button type="button" className="reader-badge error reconnect" title={`Avaa portti ${selected || "–"} uudelleen`} onClick={() => void startListening()}><span />Lukija ei yhteydessä · Yhdistä uudelleen</button>}
+                : <button type="button" className="reader-badge error reconnect" title={`Avaa portti ${selected || "–"} uudelleen`} onClick={() => void startListening()}><span />{readerLost ? "Lukija irti · yhdistetään…" : "Lukija ei yhteydessä · Yhdistä uudelleen"}</button>}
               <button type="button" className="danger-outline" onClick={() => setFinishState({ phase: "confirm" })}><StopIcon />Sulje tapahtuma</button>
             </div>
           </div>
@@ -1341,6 +1387,7 @@ function App() {
           <div className="log-heading"><div><h2>Ilmoittautuneet</h2>{registrations.length > 0 && <p>{registrations.length} ilmoittautunutta tällä koneella</p>}{syncState && syncState.pending > 0 && <p className="sync-summary pending">{syncState.pending} odottaa lähetystä{syncState.error ? ` · ${syncState.error}` : ""} <button type="button" className="link-button" onClick={() => void syncPending()}>Lähetä nyt</button></p>}</div><div className="log-heading-actions"><label className="log-search"><span className="sr-only">Hae ilmoittautuneista</span><input type="search" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Hae nimellä, seuralla tai kortilla…" /></label><button className="primary" onClick={() => void openManualRegistration()}>+ Ilmoittaudu ilman korttia</button></div></div>
           <RegistrationList registrations={registrations} courses={activeEvent.courses} query={historySearch} />
         </> : <>
+        {activeEvent && stillOnCourse.length > 0 && <OnCourseList runners={stillOnCourse} />}
         <div className="log-heading"><div><h2>Tulokset</h2>{history.length > 0 && <p>{history.length} viimeisintä tulosta</p>}{syncState && (syncState.pending > 0 ? <p className="sync-summary pending">{syncState.pending} {syncState.pending === 1 ? "tulos odottaa" : "tulosta odottaa"} lähetystä{syncState.error ? ` · ${syncState.error}` : ""} <button type="button" className="link-button" onClick={() => void syncPending()}>Lähetä nyt</button></p> : history.length > 0 && <p className="sync-summary ok">✓ Kaikki tulokset lähetetty</p>)}</div><div className="log-heading-actions"><label className="log-search"><span className="sr-only">Hae tuloksista</span><input type="search" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Hae nimellä, seuralla tai kortilla…" /></label><button onClick={openManualEntry} disabled={!activeEvent}>+ Syötä osanottoja</button></div></div>
         {history.length === 0 ? <div className="log-empty"><b>Ei vielä tuloksia</b><span>{activeEvent ? "Lue ensimmäinen kortti lukijalla tai syötä osanotto käsin." : "Tulokset näkyvät täällä, kun tulospalvelu on käynnissä."}</span></div> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Seura</th><th>Rata</th><th>Aika</th><th><span className="sr-only">Lähetys</span></th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td className="log-read-at"><time>{new Date(item.readAtMs).toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="log-club">{item.club || "–"}</td><td className="log-course">{activeEvent?.courses.find((course) => course.id === item.courseId)?.name ?? "–"}</td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : item.resultStatus === "DID_NOT_FINISH" ? "Keskeytti" : formatDuration(item.source === "MANUAL" ? item.manualDurationSeconds : cardResultSeconds(item.punches, activeEvent?.courses.find((course) => course.id === item.courseId), skippedCodes))}</td><td className={`log-sync ${item.syncStatus.toLowerCase()}`} title={syncStatusLabel(item)}>{item.syncStatus === "SYNCED" ? "✓" : item.syncStatus === "ERROR" ? "!" : "…"}<span className="sr-only">{syncStatusLabel(item)}</span></td></tr>)}</tbody></table></div></>}
         </>}
@@ -1738,6 +1785,25 @@ function CourseCodes({ course, skippedCodes }: { course: Course; skippedCodes: n
 }
 
 // Small line icons (lucide-style, 24px grid, currentColor).
+/** Registered at the event (any machine) with no result yet. */
+function OnCourseList({ runners }: { runners: OnCourseRunner[] }) {
+  return (
+    <details className="on-course" open>
+      <summary><h2>Maastossa</h2><span className="on-course-count">{runners.length}</span></summary>
+      <ul className="on-course-list">
+        {runners.map((runner) => (
+          <li key={runner.id}>
+            <b>{runner.lastName} {runner.firstName}</b>
+            <span>{runner.club ?? ""}</span>
+            <span className="on-course-course">{runner.courseName}</span>
+            <span className="on-course-time">{runner.registeredAt ? new Date(runner.registeredAt).toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit" }) : ""}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 function Icon({ children }: { children: React.ReactNode }) {
   return <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>;
 }

@@ -212,8 +212,20 @@ fn read_emit250_loop(
     let mut raw = Vec::new();
     let mut bytes_received = 0;
     let mut buffer = [0u8; 256];
+    let mut last_presence_check = Instant::now();
     while listening.load(Ordering::SeqCst) {
-        let available = port.bytes_to_read().unwrap_or(0);
+        // An unplugged USB serial adapter: the port's queue query fails
+        // (Windows, Linux) or its device node disappears (macOS, where the
+        // open descriptor may keep answering "nothing to read").
+        let available = port
+            .bytes_to_read()
+            .map_err(|error| format!("Lukija irrotettu tai portti {port_name} ei vastaa: {error}"))?;
+        if last_presence_check.elapsed() >= Duration::from_secs(1) {
+            last_presence_check = Instant::now();
+            if !port_present(port_name) {
+                return Err(format!("Lukija irrotettu: portti {port_name} katosi."));
+            }
+        }
         if available > 0 {
             match port.read(&mut buffer) {
                 Ok(count) => {
@@ -300,6 +312,12 @@ fn open_reader_port(port_name: &str) -> serialport::Result<Box<dyn serialport::S
 
 /// macOS pseudo terminals are /dev/ttysNNN (socat's `link=` is a symlink
 /// to one); real USB adapters are /dev/cu.* or /dev/tty.*.
+/// Whether the port still exists. On Unix ports are device files; Windows
+/// COM ports are not paths, there a failing read reports the unplug.
+fn port_present(port_name: &str) -> bool {
+    if cfg!(unix) { std::path::Path::new(port_name).exists() } else { true }
+}
+
 fn is_pseudo_terminal(port_name: &str) -> bool {
     cfg!(target_os = "macos")
         && std::fs::canonicalize(port_name)
