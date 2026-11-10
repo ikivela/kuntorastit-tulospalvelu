@@ -497,6 +497,10 @@ export class PublicService {
             source: "SELF_SERVICE" as const,
             status: "NO_TIME" as const,
             onCourse: registration.source === "EVENT" && eventOn,
+            // Made at the event (the client's registration mode): the reader
+            // client lists these as out on the course while it runs the event,
+            // whatever the server-side status or clock says.
+            registeredAtEvent: registration.source === "EVENT",
             durationMs: null,
             readAt: registration.registeredAt,
             startedAt: null,

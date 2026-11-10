@@ -129,6 +129,7 @@ function App() {
   const [readerLost, setReaderLost] = useState(false);
   const [history, setHistory] = useState<StoredCardRead[]>([]);
   const [onCourse, setOnCourse] = useState<OnCourseRunner[]>([]);
+  const [onCourseOpen, setOnCourseOpen] = useState(false);
   const [historySearch, setHistorySearch] = useState("");
   const [pendingCard, setPendingCard] = useState<ProbeResult | null>(null);
   const [pendingEventId, setPendingEventId] = useState<string | null>(null);
@@ -997,9 +998,9 @@ function App() {
       try {
         const response = await fetchWithTimeout(`${API_BASE}/public/events/${eventId}/results`, { cache: "no-store" });
         if (!response.ok) return;
-        const data = await response.json() as { courses: { name: string; results: { id: string; onCourse?: boolean; firstName: string; lastName: string; clubName: string | null; readAt: string | null }[] }[] };
+        const data = await response.json() as { courses: { name: string; results: { id: string; onCourse?: boolean; registeredAtEvent?: boolean; firstName: string; lastName: string; clubName: string | null; readAt: string | null }[] }[] };
         if (disposed) return;
-        setOnCourse(data.courses.flatMap((course) => course.results.filter((runner) => runner.onCourse).map((runner) => ({
+        setOnCourse(data.courses.flatMap((course) => course.results.filter((runner) => runner.registeredAtEvent ?? runner.onCourse).map((runner) => ({
           id: runner.id, firstName: runner.firstName, lastName: runner.lastName, club: runner.clubName, courseName: course.name, registeredAt: runner.readAt,
         }))));
       } catch { /* offline: keep the last list */ }
@@ -1387,11 +1388,21 @@ function App() {
           <div className="log-heading"><div><h2>Ilmoittautuneet</h2>{registrations.length > 0 && <p>{registrations.length} ilmoittautunutta tällä koneella</p>}{syncState && syncState.pending > 0 && <p className="sync-summary pending">{syncState.pending} odottaa lähetystä{syncState.error ? ` · ${syncState.error}` : ""} <button type="button" className="link-button" onClick={() => void syncPending()}>Lähetä nyt</button></p>}</div><div className="log-heading-actions"><label className="log-search"><span className="sr-only">Hae ilmoittautuneista</span><input type="search" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Hae nimellä, seuralla tai kortilla…" /></label><button className="primary" onClick={() => void openManualRegistration()}>+ Ilmoittaudu ilman korttia</button></div></div>
           <RegistrationList registrations={registrations} courses={activeEvent.courses} query={historySearch} />
         </> : <>
-        {activeEvent && stillOnCourse.length > 0 && <OnCourseList runners={stillOnCourse} />}
-        <div className="log-heading"><div><h2>Tulokset</h2>{history.length > 0 && <p>{history.length} viimeisintä tulosta</p>}{syncState && (syncState.pending > 0 ? <p className="sync-summary pending">{syncState.pending} {syncState.pending === 1 ? "tulos odottaa" : "tulosta odottaa"} lähetystä{syncState.error ? ` · ${syncState.error}` : ""} <button type="button" className="link-button" onClick={() => void syncPending()}>Lähetä nyt</button></p> : history.length > 0 && <p className="sync-summary ok">✓ Kaikki tulokset lähetetty</p>)}</div><div className="log-heading-actions"><label className="log-search"><span className="sr-only">Hae tuloksista</span><input type="search" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Hae nimellä, seuralla tai kortilla…" /></label><button onClick={openManualEntry} disabled={!activeEvent}>+ Syötä osanottoja</button></div></div>
+        <div className="log-heading"><div><h2 className="results-title">Tulokset{activeEvent && stillOnCourse.length > 0 && <button type="button" className="on-course-pill" onClick={() => setOnCourseOpen(true)} title="Näytä maastossa olevat"><span className="on-course-count">{stillOnCourse.length}</span> maastossa</button>}</h2>{history.length > 0 && <p>{history.length} viimeisintä tulosta</p>}{syncState && (syncState.pending > 0 ? <p className="sync-summary pending">{syncState.pending} {syncState.pending === 1 ? "tulos odottaa" : "tulosta odottaa"} lähetystä{syncState.error ? ` · ${syncState.error}` : ""} <button type="button" className="link-button" onClick={() => void syncPending()}>Lähetä nyt</button></p> : history.length > 0 && <p className="sync-summary ok">✓ Kaikki tulokset lähetetty</p>)}</div><div className="log-heading-actions"><label className="log-search"><span className="sr-only">Hae tuloksista</span><input type="search" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Hae nimellä, seuralla tai kortilla…" /></label><button onClick={openManualEntry} disabled={!activeEvent}>+ Syötä osanottoja</button></div></div>
         {history.length === 0 ? <div className="log-empty"><b>Ei vielä tuloksia</b><span>{activeEvent ? "Lue ensimmäinen kortti lukijalla tai syötä osanotto käsin." : "Tulokset näkyvät täällä, kun tulospalvelu on käynnissä."}</span></div> : filteredHistory.length === 0 ? <p className="log-empty">Haulla ei löytynyt tuloksia.</p> : <><div className="log-result-count">Näytetään {filteredHistory.length} / {history.length}</div><div className="log-table-wrap"><table className="log-table"><thead><tr><th>Lukuhetki</th><th>Nimi</th><th>Seura</th><th>Rata</th><th>Aika</th><th><span className="sr-only">Lähetys</span></th></tr></thead><tbody>{filteredHistory.map((item) => <tr key={item.id}><td className="log-read-at"><time>{new Date(item.readAtMs).toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></td><td><button className="log-name" onClick={() => void openHistoryRead(item)}>{item.participantName}</button></td><td className="log-club">{item.club || "–"}</td><td className="log-course">{activeEvent?.courses.find((course) => course.id === item.courseId)?.name ?? "–"}</td><td className="log-time">{item.resultStatus === "NO_TIME" ? "–" : item.resultStatus === "DID_NOT_FINISH" ? "Keskeytti" : formatDuration(item.source === "MANUAL" ? item.manualDurationSeconds : cardResultSeconds(item.punches, activeEvent?.courses.find((course) => course.id === item.courseId), skippedCodes))}</td><td className={`log-sync ${item.syncStatus.toLowerCase()}`} title={syncStatusLabel(item)}>{item.syncStatus === "SYNCED" ? "✓" : item.syncStatus === "ERROR" ? "!" : "…"}<span className="sr-only">{syncStatusLabel(item)}</span></td></tr>)}</tbody></table></div></>}
         </>}
       </section>
+
+      {onCourseOpen && activeEvent && stillOnCourse.length > 0 && (
+        <div className="modal-backdrop" role="presentation" onClick={() => setOnCourseOpen(false)}>
+          <section className="modal on-course-modal" role="dialog" aria-modal="true" aria-labelledby="on-course-title" onClick={(event) => event.stopPropagation()}>
+            <h2 id="on-course-title">Maastossa ({stillOnCourse.length})</h2>
+            <p className="hint">Tapahtumapaikalla ilmoittautuneet, joilla ei ole vielä tulosta.</p>
+            <OnCourseList runners={stillOnCourse} />
+            <div className="confirm-actions"><button type="button" className="primary" onClick={() => setOnCourseOpen(false)}>Sulje</button></div>
+          </section>
+        </div>
+      )}
 
       {pendingCard && (
         <div className="modal-backdrop" role="presentation">
@@ -1788,19 +1799,16 @@ function CourseCodes({ course, skippedCodes }: { course: Course; skippedCodes: n
 /** Registered at the event (any machine) with no result yet. */
 function OnCourseList({ runners }: { runners: OnCourseRunner[] }) {
   return (
-    <details className="on-course" open>
-      <summary><h2>Maastossa</h2><span className="on-course-count">{runners.length}</span></summary>
-      <ul className="on-course-list">
-        {runners.map((runner) => (
-          <li key={runner.id}>
-            <b>{runner.lastName} {runner.firstName}</b>
-            <span>{runner.club ?? ""}</span>
-            <span className="on-course-course">{runner.courseName}</span>
-            <span className="on-course-time">{runner.registeredAt ? new Date(runner.registeredAt).toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit" }) : ""}</span>
-          </li>
-        ))}
-      </ul>
-    </details>
+    <ul className="on-course-list">
+      {runners.map((runner) => (
+        <li key={runner.id}>
+          <b>{runner.lastName} {runner.firstName}</b>
+          <span>{runner.club ?? ""}</span>
+          <span className="on-course-course">{runner.courseName}</span>
+          <span className="on-course-time">{runner.registeredAt ? new Date(runner.registeredAt).toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit" }) : ""}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

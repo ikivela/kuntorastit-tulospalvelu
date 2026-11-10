@@ -286,12 +286,13 @@ pre { overflow: auto; white-space: pre-wrap; word-break: break-all; background: 
 .skipped-control-list button.skipped { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); text-decoration: line-through; }
 
 /* Lukijamoodi: registered at the event, no result yet. */
-.on-course { margin-bottom: 18px; border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; background: var(--primary-soft); }
-.on-course summary { display: flex; align-items: center; gap: 10px; cursor: pointer; list-style: none; }
-.on-course summary::-webkit-details-marker { display: none; }
-.on-course summary h2 { margin: 0; font-size: 1rem; }
-.on-course-count { min-width: 24px; padding: 1px 8px; border-radius: 999px; background: var(--primary); color: #fff; font-size: .8rem; font-weight: 700; text-align: center; }
-.on-course-list { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; max-height: 220px; overflow-y: auto; }
-.on-course-list li { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) minmax(0, 1fr) auto; gap: 10px; align-items: baseline; font-size: .9rem; }
+.results-title { display: flex; align-items: center; gap: 12px; }
+.on-course-pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; border: 1px solid var(--primary); border-radius: 999px; background: var(--primary-soft); color: var(--primary); font-size: .8rem; font-weight: 650; cursor: pointer; }
+.on-course-pill:hover { background: var(--primary); color: #fff; }
+.on-course-count { min-width: 22px; padding: 1px 7px; border-radius: 999px; background: var(--primary); color: #fff; font-size: .8rem; font-weight: 700; text-align: center; }
+.on-course-pill:hover .on-course-count { background: #fff; color: var(--primary); }
+.on-course-modal { width: min(640px, calc(100vw - 32px)); }
+.on-course-list { margin: 12px 0; padding: 0; list-style: none; display: grid; gap: 6px; max-height: 60vh; overflow-y: auto; }
+.on-course-list li { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: .9rem; }
 .on-course-list li span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .on-course-time { font-variant-numeric: tabular-nums; }
