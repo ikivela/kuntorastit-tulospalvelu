@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { save } from "@tauri-apps/plugin-dialog";
@@ -50,6 +51,43 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
   } finally {
     window.clearTimeout(timer);
   }
+}
+
+// Update check: the newest published GitHub release (prereleases such as the
+// rolling pc-client-latest build are not "latest") compared to this build.
+const LATEST_RELEASE_API = "https://api.github.com/repos/ikivela/kuntorastit-tulospalvelu/releases/latest";
+const RELEASE_TAG_PREFIX = "pc-client-v";
+
+type UpdateCheck =
+  | { state: "idle" | "checking" | "current" }
+  | { state: "available"; version: string; tag: string }
+  | { state: "error"; error: string };
+
+/// "0.3.14" → [0, 3, 14]; null for anything that is not dotted numbers.
+function parseVersion(version: string): number[] | null {
+  const parts = version.trim().split(".");
+  return parts.every((part) => /^\d+$/.test(part)) ? parts.map(Number) : null;
+}
+
+function isNewerVersion(candidate: string, current: string) {
+  const a = parseVersion(candidate);
+  const b = parseVersion(current);
+  if (!a || !b) return false;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const diff = (a[i] ?? 0) - (b[i] ?? 0);
+    if (diff !== 0) return diff > 0;
+  }
+  return false;
+}
+
+async function fetchUpdateCheck(currentVersion: string): Promise<UpdateCheck> {
+  const response = await fetchWithTimeout(LATEST_RELEASE_API, { headers: { Accept: "application/vnd.github+json" } });
+  if (!response.ok) throw new Error(`GitHub vastasi ${response.status}`);
+  const release = await response.json() as { tag_name?: unknown };
+  const tag = typeof release.tag_name === "string" ? release.tag_name : "";
+  if (!tag.startsWith(RELEASE_TAG_PREFIX)) return { state: "current" };
+  const version = tag.slice(RELEASE_TAG_PREFIX.length);
+  return isNewerVersion(version, currentVersion) ? { state: "available", version, tag } : { state: "current" };
 }
 
 type SerialDevice = {
@@ -208,6 +246,8 @@ function App() {
   const [personDbBusy, setPersonDbBusy] = useState(false);
   const [personDbStatus, setPersonDbStatus] = useState("");
   const personDbFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [appVersion, setAppVersion] = useState("");
+  const [updateCheck, setUpdateCheck] = useState<UpdateCheck>({ state: "idle" });
 
   useEffect(() => {
     let disposed = false;
@@ -598,6 +638,35 @@ function App() {
     setHistory([]);
     setHistorySearch("");
   }
+
+  async function checkForUpdates({ background = false } = {}) {
+    setUpdateCheck({ state: "checking" });
+    try {
+      const version = appVersion || await getVersion();
+      const result = await fetchUpdateCheck(version);
+      setUpdateCheck(result);
+      if (result.state === "available") log("INFO", "update", `Uusi versio ${result.version} saatavilla (nykyinen ${version}).`);
+    } catch (error) {
+      const message = error instanceof DOMException && error.name === "AbortError" ? "Aikakatkaisu" : String(error instanceof Error ? error.message : error);
+      // A background check without a connection is normal at a venue: stay quiet.
+      setUpdateCheck(background ? { state: "idle" } : { state: "error", error: message });
+      log("WARN", "update", `Päivitysten tarkistus epäonnistui: ${message}`);
+    }
+  }
+
+  async function openReleasePage(tag: string) {
+    try {
+      await invoke("open_release_page", { tag });
+    } catch (error) {
+      setUpdateCheck({ state: "error", error: String(error) });
+    }
+  }
+
+  useEffect(() => {
+    void getVersion().then(setAppVersion).catch(() => undefined);
+    void checkForUpdates({ background: true });
+    // Run once at startup; later checks come from Asetukset.
+  }, []);
 
   async function openLog(folder: boolean) {
     setLogError("");
@@ -1287,8 +1356,9 @@ function App() {
   return (
     <main>
       <header className="app-bar">
-        <div className="brand"><span className="brand-mark" aria-hidden="true"><FlagIcon /></span><div><b>Kuntorastit Client</b><span>Build {new Date(__BUILD_DATE__).toLocaleString("fi-FI", { dateStyle: "short", timeStyle: "short" })}</span></div></div>
+        <div className="brand"><span className="brand-mark" aria-hidden="true"><FlagIcon /></span><div><b>Kuntorastit Client</b><span>{appVersion && `v${appVersion} · `}Build {new Date(__BUILD_DATE__).toLocaleString("fi-FI", { dateStyle: "short", timeStyle: "short" })}</span></div></div>
         <div className="app-bar-actions">
+          {updateCheck.state === "available" && <button type="button" className="chip update" onClick={() => void openReleasePage(updateCheck.tag)} title="Avaa lataussivu selaimessa"><span className="chip-dot" />Päivitys {updateCheck.version} saatavilla</button>}
           <span className={`chip ${deviceStatus === "approved" ? "ok" : "warn"}`} title={deviceStatus === "approved" ? "Lukijalaite on hyväksytty, tulokset lähtevät palvelimelle." : "Hyväksytä laite Asetuksista, jotta tulokset lähtevät palvelimelle."}><span className="chip-dot" />{deviceStatus === "approved" ? deviceName || "Laite hyväksytty" : deviceStatus === "pending" ? "Odottaa hyväksyntää" : "Laitetta ei hyväksytty"}</span>
           <button type="button" className="ghost" onClick={() => setPersonDbOpen(true)} aria-haspopup="dialog"><UsersIcon />HenkilöDB</button>
           <button type="button" className="ghost" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog"><GearIcon />Asetukset</button>
@@ -1340,7 +1410,7 @@ function App() {
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
             <h2 id="settings-title">Asetukset</h2>
             <div className="mode-settings"><span className="settings-label">Tila</span><ModeToggle mode={mode} onChange={setMode} disabled={Boolean(pendingCard || registrationDraft)} large />{(pendingCard || registrationDraft) && <p className="hint">Kuittaa tai sulje avoin kortti ennen tilan vaihtoa.</p>}</div>
-            <div className="reader-settings"><span className="settings-label">Lukijan sarjaportti</span><select value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading}><option value="">Valitse sarjaportti</option>{devices.map((device) => <option key={device.portName} value={device.portName}>{device.portName} – {device.product || device.manufacturer || device.portType}</option>)}</select><input className="port-input" value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading} placeholder="Sarjaportin polku" aria-label="Sarjaportin polku" /><button type="button" onClick={() => void refresh()} disabled={reading}>Päivitä portit</button><div className="device-row"><span className="settings-label">Lukijalaite</span>{deviceStatus === "unregistered" || deviceStatus === "revoked" ? <>{deviceStatus === "revoked" && <p className="error">Ylläpitäjä on peruuttanut tämän laitteen pääsyn. Rekisteröidy uudelleen.</p>}<input className="device-name-input" value={deviceNameInput} onChange={(e) => setDeviceNameInput(e.target.value)} placeholder="Laitteen nimi, esim. Maalin lukija #1" aria-label="Laitteen nimi" /><button type="button" onClick={() => void registerDevice()} disabled={!deviceNameInput.trim()}>Lähetä hyväksyntäpyyntö</button></> : deviceStatus === "pending" ? <><span>Odotetaan ylläpitäjän hyväksyntää (nimellä &quot;{deviceName}&quot;)…</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button></> : <><span className="device-approved">✓ Hyväksytty (nimellä &quot;{deviceName}&quot;)</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button><button type="button" onClick={() => void forgetDevice()}>Unohda laite</button></>}{deviceError && <p className="error">{deviceError}</p>}</div><form className="api-row" onSubmit={(event) => { event.preventDefault(); void saveApiBase(apiBaseInput); }}><label htmlFor="api-base-input">API-osoite</label><input id="api-base-input" className="api-base-input" value={apiBaseInput} onChange={(e) => setApiBaseInput(e.target.value)} disabled={!!activeEvent} placeholder={DEFAULT_API_BASE} spellCheck={false} /><button type="submit" disabled={!!activeEvent || normalizeApiBase(apiBaseInput) === apiBase}>Tallenna</button>{apiBase !== DEFAULT_API_BASE && <button type="button" disabled={!!activeEvent} onClick={() => void saveApiBase(DEFAULT_API_BASE)}>Palauta oletus</button>}<p className="hint">{activeEvent ? "Osoitetta voi vaihtaa vain, kun tapahtuma ei ole käynnissä." : "Osoitteen vaihto unohtaa laitteen hyväksynnän: lähetä hyväksyntäpyyntö uudelle palvelimelle."}</p>{apiBaseError && <p className="error">{apiBaseError}</p>}</form><div className="log-row"><label className="log-row-label" htmlFor="big-screen-seconds">Hyväksytyn tuloksen näyttöaika</label><input id="big-screen-seconds" className="seconds-input" type="number" min={MIN_BIG_SCREEN_SECONDS} max={MAX_BIG_SCREEN_SECONDS} key={bigScreenSeconds} defaultValue={bigScreenSeconds} onBlur={(e) => { const value = Number(e.target.value); const seconds = value ? clampBigScreenSeconds(value) : bigScreenSeconds; e.target.value = String(seconds); saveBigScreenSeconds(seconds); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} /> s<p className="hint">Nimi, aika ja rata näytetään isolla {MIN_BIG_SCREEN_SECONDS}–{MAX_BIG_SCREEN_SECONDS} sekuntia (oletus {DEFAULT_BIG_SCREEN_SECONDS}). Klikkaus sulkee näkymän heti.</p></div><div className="log-row"><span className="log-row-label">Debug-loki</span><button type="button" onClick={() => void openLog(false)}>Avaa loki</button><button type="button" onClick={() => void openLog(true)}>Avaa kansio</button>{logPath && <p className="hint">{logPath}</p>}{logError && <p className="error">{logError}</p>}</div></div>
+            <div className="reader-settings"><span className="settings-label">Lukijan sarjaportti</span><select value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading}><option value="">Valitse sarjaportti</option>{devices.map((device) => <option key={device.portName} value={device.portName}>{device.portName} – {device.product || device.manufacturer || device.portType}</option>)}</select><input className="port-input" value={selected} onChange={(e) => setSelected(e.target.value)} disabled={reading} placeholder="Sarjaportin polku" aria-label="Sarjaportin polku" /><button type="button" onClick={() => void refresh()} disabled={reading}>Päivitä portit</button><div className="device-row"><span className="settings-label">Lukijalaite</span>{deviceStatus === "unregistered" || deviceStatus === "revoked" ? <>{deviceStatus === "revoked" && <p className="error">Ylläpitäjä on peruuttanut tämän laitteen pääsyn. Rekisteröidy uudelleen.</p>}<input className="device-name-input" value={deviceNameInput} onChange={(e) => setDeviceNameInput(e.target.value)} placeholder="Laitteen nimi, esim. Maalin lukija #1" aria-label="Laitteen nimi" /><button type="button" onClick={() => void registerDevice()} disabled={!deviceNameInput.trim()}>Lähetä hyväksyntäpyyntö</button></> : deviceStatus === "pending" ? <><span>Odotetaan ylläpitäjän hyväksyntää (nimellä &quot;{deviceName}&quot;)…</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button></> : <><span className="device-approved">✓ Hyväksytty (nimellä &quot;{deviceName}&quot;)</span><button type="button" onClick={() => void checkDeviceStatus()}>Tarkista nyt</button><button type="button" onClick={() => void forgetDevice()}>Unohda laite</button></>}{deviceError && <p className="error">{deviceError}</p>}</div><form className="api-row" onSubmit={(event) => { event.preventDefault(); void saveApiBase(apiBaseInput); }}><label htmlFor="api-base-input">API-osoite</label><input id="api-base-input" className="api-base-input" value={apiBaseInput} onChange={(e) => setApiBaseInput(e.target.value)} disabled={!!activeEvent} placeholder={DEFAULT_API_BASE} spellCheck={false} /><button type="submit" disabled={!!activeEvent || normalizeApiBase(apiBaseInput) === apiBase}>Tallenna</button>{apiBase !== DEFAULT_API_BASE && <button type="button" disabled={!!activeEvent} onClick={() => void saveApiBase(DEFAULT_API_BASE)}>Palauta oletus</button>}<p className="hint">{activeEvent ? "Osoitetta voi vaihtaa vain, kun tapahtuma ei ole käynnissä." : "Osoitteen vaihto unohtaa laitteen hyväksynnän: lähetä hyväksyntäpyyntö uudelle palvelimelle."}</p>{apiBaseError && <p className="error">{apiBaseError}</p>}</form><div className="log-row"><label className="log-row-label" htmlFor="big-screen-seconds">Hyväksytyn tuloksen näyttöaika</label><input id="big-screen-seconds" className="seconds-input" type="number" min={MIN_BIG_SCREEN_SECONDS} max={MAX_BIG_SCREEN_SECONDS} key={bigScreenSeconds} defaultValue={bigScreenSeconds} onBlur={(e) => { const value = Number(e.target.value); const seconds = value ? clampBigScreenSeconds(value) : bigScreenSeconds; e.target.value = String(seconds); saveBigScreenSeconds(seconds); }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} /> s<p className="hint">Nimi, aika ja rata näytetään isolla {MIN_BIG_SCREEN_SECONDS}–{MAX_BIG_SCREEN_SECONDS} sekuntia (oletus {DEFAULT_BIG_SCREEN_SECONDS}). Klikkaus sulkee näkymän heti.</p></div><div className="log-row"><span className="log-row-label">Versio {appVersion || "–"}</span><button type="button" disabled={updateCheck.state === "checking"} onClick={() => void checkForUpdates()}>{updateCheck.state === "checking" ? "Tarkistetaan…" : "Tarkista päivitykset"}</button>{updateCheck.state === "available" && <button type="button" className="primary" onClick={() => void openReleasePage(updateCheck.tag)}>Lataa versio {updateCheck.version}</button>}{updateCheck.state === "current" && <p className="hint">✓ Käytössä on uusin versio.</p>}{updateCheck.state === "available" && <p className="hint">Lataussivu avautuu selaimeen. Sulje tapahtuma ja tämä sovellus ennen uuden version asentamista; koneelle tallennetut tulokset säilyvät.</p>}{updateCheck.state === "error" && <p className="error">Päivitysten tarkistus epäonnistui: {updateCheck.error}</p>}</div><div className="log-row"><span className="log-row-label">Debug-loki</span><button type="button" onClick={() => void openLog(false)}>Avaa loki</button><button type="button" onClick={() => void openLog(true)}>Avaa kansio</button>{logPath && <p className="hint">{logPath}</p>}{logError && <p className="error">{logError}</p>}</div></div>
             <div className="confirm-actions"><button type="button" className="primary" onClick={() => setSettingsOpen(false)}>Sulje</button></div>
           </section>
         </div>

@@ -423,17 +423,40 @@ fn log_path(logger: State<'_, Logger>) -> String {
     logger.path().display().to_string()
 }
 
-/// Opens the log file in the OS default app, or its folder in the file manager.
-#[tauri::command]
-fn open_log(logger: State<'_, Logger>, folder: bool) -> Result<(), String> {
-    let path = if folder { logger.directory().to_path_buf() } else { logger.path() };
+/// Opens a file, folder or URL with the OS default handler.
+fn open_with_os(target: &std::ffi::OsStr) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     let mut command = std::process::Command::new("open");
     #[cfg(target_os = "windows")]
     let mut command = std::process::Command::new("explorer");
     #[cfg(all(unix, not(target_os = "macos")))]
     let mut command = std::process::Command::new("xdg-open");
-    command.arg(path).spawn().map(|_| ()).map_err(|error| format!("Lokin avaaminen epäonnistui: {error}"))
+    command.arg(target).spawn().map(|_| ())
+}
+
+/// Opens the log file in the OS default app, or its folder in the file manager.
+#[tauri::command]
+fn open_log(logger: State<'_, Logger>, folder: bool) -> Result<(), String> {
+    let path = if folder { logger.directory().to_path_buf() } else { logger.path() };
+    open_with_os(path.as_os_str()).map_err(|error| format!("Lokin avaaminen epäonnistui: {error}"))
+}
+
+const RELEASES_URL: &str = "https://github.com/ikivela/kuntorastit-tulospalvelu/releases";
+
+/// Release page for a client release tag, or None for anything that is not
+/// a plain `pc-client-v…` tag, so the frontend can't open arbitrary URLs.
+fn release_page_url(tag: &str) -> Option<String> {
+    let version = tag.strip_prefix("pc-client-v")?;
+    let valid = !version.is_empty()
+        && version.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+    valid.then(|| format!("{RELEASES_URL}/tag/{tag}"))
+}
+
+/// Opens the GitHub release page of a client version in the browser.
+#[tauri::command]
+fn open_release_page(tag: String) -> Result<(), String> {
+    let url = release_page_url(&tag).ok_or_else(|| format!("Virheellinen versiotunniste: {tag}"))?;
+    open_with_os(std::ffi::OsStr::new(&url)).map_err(|error| format!("Selaimen avaaminen epäonnistui: {error}"))
 }
 
 #[tauri::command]
@@ -733,6 +756,7 @@ pub fn run() {
             write_log,
             log_path,
             open_log,
+            open_release_page,
             cached_calendar,
             set_cached_calendar,
             database_path,
@@ -766,6 +790,18 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn release_page_url_accepts_only_client_tags() {
+        assert_eq!(
+            release_page_url("pc-client-v0.3.14").as_deref(),
+            Some("https://github.com/ikivela/kuntorastit-tulospalvelu/releases/tag/pc-client-v0.3.14")
+        );
+        assert_eq!(release_page_url("pc-client-v"), None);
+        assert_eq!(release_page_url("v0.3.14"), None);
+        assert_eq!(release_page_url("pc-client-v1/../../evil"), None);
+        assert_eq!(release_page_url("pc-client-v1 --flag"), None);
+    }
 
     fn encode(decoded: &[u8]) -> Vec<u8> {
         decoded.iter().map(|byte| byte ^ EMIT_OD).collect()
